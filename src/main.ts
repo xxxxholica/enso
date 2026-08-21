@@ -5,9 +5,14 @@ import { ICONS } from "./icons";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
+import { mountAccountWidget } from "./clerkAccount";
+import { schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
+  <header class="app-header">
+    <div id="account-slot"></div>
+  </header>
   <main class="app-main">
     <div id="canvas-panel" class="view-panel"></div>
     <div id="archive-panel" class="view-panel" hidden></div>
@@ -32,7 +37,19 @@ app.innerHTML = `
   </footer>
 `;
 
-const store = new MemoStore();
+// ログイン中は、ローカルの変更（描画・削除・移動など）が起きるたびに
+// クラウド保存を予約する（連続する変更はデバウンスされ、まとめて1回送られる）。
+// 未ログイン時はsetTokenGetter(null)状態なのでschedulePushは何もしない。
+const store = new MemoStore((memos) => schedulePush(memos));
+
+void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!, (session) => {
+  if (session) {
+    setTokenGetter(session.getToken);
+    void syncOnSignIn(store);
+  } else {
+    setTokenGetter(null);
+  }
+});
 
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
 const archivePanel = document.querySelector<HTMLDivElement>("#archive-panel")!;

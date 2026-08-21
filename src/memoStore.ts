@@ -13,13 +13,32 @@ function makeId(): string {
  */
 export class MemoStore {
   private memos: Memo[];
+  private onChange?: (memos: readonly Memo[]) => void;
 
-  constructor() {
+  /**
+   * onChangeは、アカウント同期（cloudSync.ts）がローカルの変更をクラウドに
+   * 反映するためのフック。ログインしていない間は呼ばれても何もしない。
+   */
+  constructor(onChange?: (memos: readonly Memo[]) => void) {
     this.memos = loadMemos();
+    this.onChange = onChange;
   }
 
   private persist(): void {
     saveMemos(this.memos);
+    this.onChange?.(this.memos);
+  }
+
+  /**
+   * クラウドから取得したメモ一覧で丸ごと置き換える（アカウントログイン時の同期用）。
+   * ローカルの変更点だけを賢く合成するような処理はせず、常にクラウド側を正として上書きする
+   * ——複数端末での本格的な競合解決は今回のスコープ外。
+   */
+  replaceAll(memos: Memo[]): void {
+    this.memos = memos;
+    saveMemos(this.memos);
+    // クラウドから取り込んだ直後にそのまま押し戻す(onChange経由の再送信)必要はないため、
+    // ここではpersist()を経由せずonChangeを呼ばない。
   }
 
   getAll(): readonly Memo[] {

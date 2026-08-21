@@ -35,6 +35,35 @@ body {
   gap: 14px;
 }
 
+/* --- ヘッダー：アカウント状態（未ログイン時はログイン/新規登録リンク、
+   ログイン時はClerkのUserButton）だけを右上に置く控えめな帯。 --- */
+.app-header {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.account-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-name {
+  font-size: 12.5px;
+  color: oklch(22% 0.012 55 / 0.7);
+}
+
+.account-badge-warning {
+  font-size: 11px;
+  color: oklch(55% 0.15 30);
+}
+
+.account-user-button {
+  display: flex;
+  align-items: center;
+}
+
 .app-main {
   width: 100%;
   flex: 1;
