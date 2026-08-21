@@ -277,6 +277,14 @@ body {
   cursor: pointer;
 }
 
+/* --- テンプレートボタンを押した直後に出る、どちらを置くか選ぶ小さな一覧 --- */
+.template-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
 /* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
 
 .seekbar {
@@ -427,4 +435,93 @@ body {
   text-align: center;
   font-size: 13px;
   color: oklch(22% 0.012 55 / 0.45);
+}
+
+/* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
+
+.shared-view {
+  width: 100%;
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.shared-signedout {
+  font-size: 13px;
+  color: oklch(22% 0.012 55 / 0.55);
+  text-align: center;
+}
+
+.shared-main {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.shared-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.shared-status {
+  color: oklch(22% 0.012 55 / 0.5);
+}
+
+.shared-invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: oklch(22% 0.012 55 / 0.6);
+}
+
+.shared-invite-input {
+  width: min(320px, 60vw);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid oklch(22% 0.012 55 / 0.2);
+  border-radius: 6px;
+  background: oklch(98% 0.005 75);
+  color: inherit;
+}
+
+.shared-body {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.shared-room-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.shared-room-btn {
+  padding: 4px 6px;
+}
+
+.shared-room-btn[aria-pressed="true"] {
+  color: oklch(22% 0.012 55 / 0.9);
+  font-weight: 500;
+}
+
+.shared-canvas-wrap {
+  flex: 0 1 auto;
 }

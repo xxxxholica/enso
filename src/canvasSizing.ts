@@ -9,8 +9,10 @@ export const MIN_CANVAS_SIZE = 200;
 export const MAX_CANVAS_SIZE = 1100;
 
 export interface CanvasGeometry {
-  size: number;
-  radius: number;
+  width: number;
+  height: number;
+  /** px per 正規化単位（円の半径px）。 */
+  scale: number;
   centerPx: Point;
 }
 
@@ -27,9 +29,10 @@ export function fitCanvasToContainer(
   const rect = container.getBoundingClientRect();
   const available = Math.min(rect.width, rect.height || rect.width);
   const size = Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, available));
+  const scale = size * 0.43;
   canvas.style.width = `${size}px`;
   canvas.style.height = `${size}px`;
   canvas.width = Math.round(size * dpr);
   canvas.height = Math.round(size * dpr);
-  return { size, radius: size * 0.43, centerPx: { x: size / 2, y: size / 2 } };
+  return { width: size, height: size, scale, centerPx: { x: size / 2, y: size / 2 } };
 }
