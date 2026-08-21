@@ -10,8 +10,10 @@ export type LifespanDays = number | null;
 
 export type MemoStatus = "active" | "faded";
 
-/** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。 */
-export type DrawTool = "pencil" | "pen" | "marker";
+/** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。
+ *  以前は鉛筆／ペン／マーカーの3種類だったが、鉛筆とペンはほぼ同じ機能
+ *  だったため1つ（pen）に統合した（ユーザー指示）。 */
+export type DrawTool = "pen" | "marker";
 
 interface MemoBase {
   id: string;
@@ -38,6 +40,12 @@ export interface StrokeMemo extends MemoBase {
   kind: "stroke";
   strokes: Stroke[];
   tool: DrawTool;
+  /** 基準円（半径340px）における線の太さ(px)。ペン（pen）の太さは小・中・大の
+   *  ステッパーでユーザーが選べる（ユーザー指示：鉛筆とペンの統合にあわせて
+   *  サイズ変更を効かせたい）。マーカー（marker）は固定太さなので使わない。
+   *  省略時（この項目が無かった旧バージョンのデータ）はtoolStyle側で
+   *  ペンの「中」相当にフォールバックする。 */
+  lineWidth?: number;
 }
 
 /** テキスト入力のメモ。 */
@@ -69,4 +77,7 @@ export interface MemoStyle {
   tool: DrawTool;
   color: string;
   lifespanDays: LifespanDays;
+  /** 基準円（半径340px）における線の太さ(px)。ペンのときだけ意味を持つ
+   *  （StrokeMemo.lineWidth参照）。 */
+  lineWidth: number;
 }

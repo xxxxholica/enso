@@ -1,31 +1,39 @@
 import { fitCanvasToContainer } from "./canvasSizing";
+import { createFadeVisibility } from "./fadeVisibility";
 import { opacityAtTime } from "./fade";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
+import { DURATION_STEPS } from "./durationSteps";
 
 const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 
-/** シークバーで遡れる期間の上限。検索性を意図的に下げるための制約
- *  ——「消えたものを掘り返せる道具」にしたくない、という設計判断。 */
-const MAX_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+interface SeekStep {
+  label: string;
+  ms: number;
+}
 
 /**
- * シークバーの日時表示。あえて絶対時刻（何月何日の何時何分）は出さず、
- * 「1時間前」のような相対表現だけにしている——特定の瞬間をピンポイントで
- * 検索・照合できてしまうと、このアプリが目指す「なぞらなければ消えていく」
- * 手触りに反するため（ユーザー指示）。
+ * 振り返りシークバーの目盛り。DURATION_STEPSの末尾（7日）を除いた8段階
+ * （15分〜3日）を「何分/時間/日前か」という向き——遠い過去（左）から現在（右）へ
+ * ——に並べ替え、右端に「たった今」（=現在、ms=0）を足した9個の目盛り。
+ * 「消えるまでの期間」側は上限なく7日まで使うが、振り返り側だけこの制約を
+ * かけているのは、検索性を意図的に下げるための設計判断（下のMAX_LOOKBACK_MS参照）
+ * を、目盛りの範囲としてもそのまま反映しているため。
  */
-function formatRelativeTime(t: number, now: number): string {
-  const diffMs = Math.max(0, now - t);
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "たった今";
-  if (diffMin < 60) return `${diffMin}分前`;
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}時間前`;
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}日前`;
-}
+const ARCHIVE_STEPS: SeekStep[] = [
+  ...DURATION_STEPS.slice(0, -1)
+    .slice()
+    .reverse()
+    .map((step) => ({ label: `${step.label}前`, ms: step.ms })),
+  { label: "たった今", ms: 0 },
+];
+
+/** シークバーで遡れる期間の上限（=ARCHIVE_STEPSの最も遠い目盛り、3日）。
+ *  検索性を意図的に下げるための制約——「消えたものを掘り返せる道具」に
+ *  したくない、という設計判断。あえて絶対時刻は出さず、「1時間前」のような
+ *  相対表現（＝目盛りのラベルそのもの）だけにしているのも同じ理由から。 */
+const MAX_LOOKBACK_MS = ARCHIVE_STEPS[0].ms;
 
 /**
  * 振り返りビュー:
@@ -55,9 +63,11 @@ export class ArchiveView {
   private height = 0;
 
   private seekbarEl!: HTMLElement;
+  private seekbarFade!: (show: boolean) => void;
   private timestampEl!: HTMLElement;
   private slider!: HTMLInputElement;
-  private emptyEl!: HTMLElement;
+  /** ARCHIVE_STEPSへのインデックス（大きいほど現在に近い）。9=たった今が既定。 */
+  private currentIndex = ARCHIVE_STEPS.length - 1;
 
   constructor(canvasContainer: HTMLElement, seekbarContainer: HTMLElement, store: MemoStore) {
     this.canvasContainer = canvasContainer;
@@ -85,19 +95,20 @@ export class ArchiveView {
     this.canvasWrap.appendChild(this.previewCanvas);
     view.appendChild(this.canvasWrap);
 
-    this.emptyEl = document.createElement("p");
-    this.emptyEl.className = "archive-empty";
-    this.emptyEl.textContent = "まだ何も書かれていません。";
-    view.appendChild(this.emptyEl);
-
     this.canvasContainer.appendChild(view);
   }
 
   /** 道具バーと同じ場所（フッターの操作パネル上段）に置くシークバー。 */
   private buildSeekbarDom(): void {
     this.seekbarEl = document.createElement("div");
-    this.seekbarEl.className = "seekbar";
+    // control-block: 道具バー側の3ブロック（ツール選択／詳細／時間選択）と同じ
+    // 枠線付きの区画にして、外側の.control-panelがカードとしての見た目を
+    // 持たなくなった後も、単体でひとまとまりの操作ブロックだと分かるようにする。
+    // bottom-bar-fade: 画面切り替え時にふわっとクロスフェードするためのクラス
+    // （toolbar.tsのbottom-bar-fadeと同じ仕組み。ユーザー指示）。
+    this.seekbarEl.className = "seekbar control-block bottom-bar-fade";
     this.seekbarEl.hidden = true;
+    this.seekbarFade = createFadeVisibility(this.seekbarEl);
 
     this.timestampEl = document.createElement("div");
     this.timestampEl.className = "seekbar-timestamp";
@@ -114,9 +125,10 @@ export class ArchiveView {
     this.slider = document.createElement("input");
     this.slider.type = "range";
     this.slider.className = "seekbar-slider";
-    this.slider.step = "any";
+    this.slider.step = "1";
     this.slider.addEventListener("input", () => {
-      this.renderPreviewAt(Number(this.slider.value));
+      this.currentIndex = Number(this.slider.value);
+      this.updatePreviewForCurrentIndex();
     });
     track.appendChild(this.slider);
 
@@ -131,7 +143,7 @@ export class ArchiveView {
 
   /** 表示中かどうかにかかわらず呼んでよい。道具バーとシークバーの表示を切り替える。 */
   setActive(active: boolean): void {
-    this.seekbarEl.hidden = !active;
+    this.seekbarFade(active);
     if (active) this.resize();
   }
 
@@ -140,37 +152,48 @@ export class ArchiveView {
     this.scale = scale;
     this.width = width;
     this.height = height;
-    this.renderPreviewAt(Number(this.slider.value) || Date.now());
+    this.updatePreviewForCurrentIndex();
   }
 
-  /** 表示を開いた（または切り替えた）瞬間に呼ぶ。シークバーの範囲を作り直す。 */
+  /** 表示を開いた（または切り替えた）瞬間に呼ぶ。遡れる範囲（スライダーの下限）を作り直す。 */
   render(): void {
     const now = Date.now();
     const all = this.store.getAll();
 
     if (all.length === 0) {
-      this.emptyEl.hidden = false;
       this.seekbarEl.classList.add("seekbar-disabled");
       this.slider.disabled = true;
     } else {
-      this.emptyEl.hidden = true;
       this.seekbarEl.classList.remove("seekbar-disabled");
       this.slider.disabled = false;
     }
 
-    // 最も古いメモの作成時刻まで遡れるが、MAX_LOOKBACK_MS（3日）より前へは
-    // 遡れないよう下限を切り上げる（検索性を意図的に下げるための制約）。
+    // 最も古いメモの作成時刻まで遡れるが、MAX_LOOKBACK_MS（3日）より前の目盛りは
+    // 選べないよう下限インデックスを切り上げる（検索性を意図的に下げるための制約）。
+    // ARCHIVE_STEPSは遠い過去(ms大)→現在(ms=0)の順なので、遡れる範囲に収まる
+    // 最初の（＝一番遠い）目盛りを探す。末尾は必ずms=0で条件を満たすので必ず見つかる。
     const oldestCreatedAt = all.length > 0 ? Math.min(...all.map((m) => m.createdAt)) : now;
-    const minCreatedAt = Math.max(oldestCreatedAt, now - MAX_LOOKBACK_MS);
-    this.slider.min = String(minCreatedAt);
-    this.slider.max = String(now);
-    this.slider.value = String(now);
-    this.renderPreviewAt(now);
+    // MAX_LOOKBACK_MS（=ARCHIVE_STEPSの最遠点）より前は、そもそも目盛りが
+    // 存在しないので自動的に選べないが、意図を明示するため上限もここで揃えて掛けておく。
+    const lookbackAvailable = Math.min(now - oldestCreatedAt, MAX_LOOKBACK_MS);
+    const minValidIndex = Math.max(
+      0,
+      ARCHIVE_STEPS.findIndex((step) => step.ms <= lookbackAvailable)
+    );
+    this.slider.min = String(minValidIndex);
+    this.slider.max = String(ARCHIVE_STEPS.length - 1);
+    this.currentIndex = ARCHIVE_STEPS.length - 1;
+    this.slider.value = String(this.currentIndex);
+    this.updatePreviewForCurrentIndex();
+  }
+
+  private updatePreviewForCurrentIndex(): void {
+    const step = ARCHIVE_STEPS[this.currentIndex];
+    this.timestampEl.textContent = step.label;
+    this.renderPreviewAt(Date.now() - step.ms);
   }
 
   private renderPreviewAt(t: number): void {
-    this.timestampEl.textContent = formatRelativeTime(t, Date.now());
-
     const ctx = this.previewCtx;
     const scale = this.scale;
     const width = this.width;

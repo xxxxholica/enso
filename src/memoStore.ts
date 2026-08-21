@@ -71,6 +71,7 @@ export class MemoStore {
       status: "active",
       tool: style.tool,
       color: style.color,
+      lineWidth: style.lineWidth,
     };
     this.memos.push(memo);
     this.persist();

@@ -1,10 +1,10 @@
 import "./style.css";
 import { CircularCanvas } from "./canvasView";
 import { ArchiveView } from "./archiveView";
-import { ICONS } from "./icons";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
+import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
@@ -13,6 +13,11 @@ import { SharedCanvasView } from "./sharedCanvasView";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="app-header">
+    <nav class="view-nav">
+      <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
+      <button type="button" class="view-nav-btn" data-view="archive">振り返り</button>
+      <button type="button" class="view-nav-btn" data-view="shared">共有</button>
+    </nav>
     <div id="account-slot"></div>
   </header>
   <main class="app-main">
@@ -22,21 +27,8 @@ app.innerHTML = `
   </main>
   <footer class="app-footer">
     <div class="control-panel">
-      <nav class="view-nav">
-        <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
-        <button type="button" class="view-nav-btn" data-view="archive">振り返り</button>
-        <button type="button" class="view-nav-btn" data-view="shared">共有</button>
-      </nav>
       <div id="primary-slot"></div>
-      <div id="duration-slot"></div>
-      <div class="reset-slot">
-        <button type="button" id="reset-btn" class="icon-btn" aria-label="すべて消す">${ICONS.trash}</button>
-        <span id="reset-confirm" class="reset-confirm" hidden>
-          本当に消しますか？
-          <button type="button" id="reset-yes" class="text-link">はい</button>
-          <button type="button" id="reset-no" class="text-link">いいえ</button>
-        </span>
-      </div>
+      <div id="duration-slot" class="bottom-bar-fade"></div>
     </div>
   </footer>
 `;
@@ -85,53 +77,74 @@ const canvasView = new CircularCanvas(canvasPanel, store, () => ({
   color: toolbar.getColor(),
   lifespanDays: durationSelector.getLifespanDays(),
   fontSize: toolbar.getFontSize(),
+  lineWidth: toolbar.getLineWidth(),
 }));
 const archiveView = new ArchiveView(archivePanel, primarySlot, store);
 const sharedView = new SharedCanvasView(sharedPanel, () => setView("shared"));
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
+// 画面切り替え時、道具バー・時間選択ブロックをふわっとフェードイン／
+// フェードアウトさせる（archiveViewのシークバーも同じ仕組み。ユーザー指示）。
+const setToolbarVisible = createFadeVisibility(toolbarEl);
+const setDurationVisible = createFadeVisibility(durationSlot);
+// 初期表示（キャンバス）ではフェードインさせず、最初から見えている状態にする。
+toolbarEl.classList.add("is-visible");
+durationSlot.classList.add("is-visible");
+
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "archive" | "shared" = "canvas";
 
+/**
+ * 画面（キャンバス／振り返り／共有）を切り替える。下部バーの中身（道具バー・
+ * 時間選択ブロック・振り返りシークバー）は、新旧のブロックを同時にフェード
+ * させて重ねて見せる「クロスフェード」ではなく、今の中身を完全にフェード
+ * アウトさせてから、新しい中身に丸ごと入れ替えてフェードインさせる
+ * （ユーザー指示）。道具バー（3ブロック）と振り返りシークバーは同じ
+ * #primary-slotを共有しているため、同時に表示すると遷移中だけ両方が
+ * 並んで表示されてしまい、レイアウトが一瞬崩れて見えるのを避けるため。
+ */
 function setView(view: "canvas" | "archive" | "shared"): void {
+  if (view === currentView) return;
   currentView = view;
   canvasView.finishTextEditingIfOpen();
   canvasPanel.hidden = view !== "canvas";
   archivePanel.hidden = view !== "archive";
   sharedPanel.hidden = view !== "shared";
-  toolbarEl.hidden = view !== "canvas";
-  durationSlot.hidden = view === "shared";
-  archiveView.setActive(view === "archive");
-  sharedView.setActive(view === "shared");
   document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
     btn.style.opacity = btn.dataset.view === view ? "1" : "0.45";
   });
-  if (view === "archive") archiveView.render();
+
+  // まず今表示している下部バーの中身を丸ごとフェードアウトさせる。
+  setToolbarVisible(false);
+  setDurationVisible(false);
+  archiveView.setActive(false);
+  sharedView.setActive(false);
+
+  window.setTimeout(() => {
+    // フェードアウト待ちの間にさらに別の画面へ切り替えられていた場合は、
+    // 古い方のフェードインは行わない（最後に呼ばれた切り替えだけを反映する）。
+    if (currentView !== view) return;
+    setToolbarVisible(view === "canvas");
+    // 時間選択ブロック（DurationSelector）はキャンバス表示中だけ意味を持つ
+    // （振り返り中はそのシークバーが#primary-slotを占有し、共有中はそもそも
+    // 道具を持たないため）。
+    setDurationVisible(view === "canvas");
+    archiveView.setActive(view === "archive");
+    sharedView.setActive(view === "shared");
+    if (view === "archive") archiveView.render();
+  }, FADE_TRANSITION_MS);
 }
 
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => setView(btn.dataset.view as "canvas" | "archive" | "shared"));
 });
-setView("canvas");
-
-const resetBtn = document.querySelector<HTMLButtonElement>("#reset-btn")!;
-const resetConfirm = document.querySelector<HTMLSpanElement>("#reset-confirm")!;
-const resetYes = document.querySelector<HTMLButtonElement>("#reset-yes")!;
-const resetNo = document.querySelector<HTMLButtonElement>("#reset-no")!;
-
-resetBtn.addEventListener("click", () => {
-  resetBtn.hidden = true;
-  resetConfirm.hidden = false;
-});
-resetNo.addEventListener("click", () => {
-  resetConfirm.hidden = true;
-  resetBtn.hidden = false;
-});
-resetYes.addEventListener("click", () => {
-  store.resetAll();
-  resetConfirm.hidden = true;
-  resetBtn.hidden = false;
-  if (currentView === "archive") archiveView.render();
+// 初期表示（キャンバス）はフェードなしで即座に反映する。道具バー・時間選択
+// ブロックは既にis-visibleを付けてあるので、ここではパネルとナビの見た目だけ揃える。
+canvasPanel.hidden = false;
+archivePanel.hidden = true;
+sharedPanel.hidden = true;
+document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
+  btn.style.opacity = btn.dataset.view === "canvas" ? "1" : "0.45";
 });
 
 function frame(): void {

@@ -15,7 +15,7 @@ export function renderMemoAt(
   opacity: number
 ): void {
   if (memo.kind === "stroke") {
-    const style = toolRenderStyle(memo.tool, radius);
+    const style = toolRenderStyle(memo.tool, radius, memo.lineWidth);
     ctx.globalAlpha = opacity * style.alphaMultiplier;
     ctx.globalCompositeOperation = style.composite;
     ctx.strokeStyle = memo.color;

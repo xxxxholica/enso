@@ -1,5 +1,7 @@
+import { createFadeVisibility } from "./fadeVisibility";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, type FontSizeStep } from "./textLayout";
+import { PEN_WIDTH_STEPS } from "./toolStyle";
 import { TEMPLATES } from "./templates";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
@@ -10,9 +12,9 @@ const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
-const TOOL_ORDER: ToolbarTool[] = ["pencil", "pen", "marker", "text", "move", "eraser"];
+/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。 */
+const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
-  pencil: "鉛筆",
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
@@ -24,10 +26,36 @@ const FONT_SIZE_ORDER: FontSizeStep[] = ["small", "medium", "large"];
 const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "中", large: "大" };
 
 /**
- * Appleメモ風の道具バー: 鉛筆／ペン／マーカー／テキスト／移動／消しゴムの切り替えと、
- * フルカラーのインク色選択（ネイティブのカラーピッカーを使う）。
- * テキストを選んでいる間だけ、文字サイズ（小/中/大）のステッパーを表示する。
- * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸で担当）。
+ * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／消しゴムの切り替え、
+ * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
+ * 機能だったため1つに統合した——ユーザー指示）。
+ * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸・別ブロックで担当）。
+ *
+ * 下部バーは機能ごとに3ブロックへ分けており、このToolbarクラスはそのうち
+ * 左と中央の2つを受け持つ（右の「時間選択ブロック」はDurationSelectorが別に
+ * #duration-slotへ描画する）:
+ *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンとテンプレートを
+ *     同じ1列（.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
+ *     「何をするか」という操作そのものの並びとして、1つのブロックにまとめている
+ *     （ユーザー指示：ツールを左に1ブロックとしてまとめたい）。
+ *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
+ *     選んだ道具の見た目を決める設定。「サイズ」の小・中・大ステッパーは
+ *     文字サイズとペンの線の太さを兼ねる共通の設定（ユーザー指示：鉛筆とペンの
+ *     統合にあわせて、このステッパーでペンの太さも変えられるようにしたい）。
+ * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
+ * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
+ * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
+ *
+ * テンプレートボタンを押すと、その上にどちらを置くか選ぶポップアップメニューが
+ * 開く（.icon-popover、fadeVisibility.tsの共通ヘルパーでhidden属性の付け外し＋
+ * .is-visibleクラスによるフェードを行う）。文字サイズのステッパーは道具に
+ * 関わらず常に表示したままにしており、出入りのアニメーションは持たない
+ * ——以前はテキスト道具のときだけ出し入れしていたが、その分バーの横幅が
+ * 変わって2行に折り返ってしまうことがあったため、最初から常時表示にして
+ * 横幅を固定した（ユーザー指示：絶対に2行にはしたくない）。
+ *
+ * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
+ * 更新する（innerHTMLを毎回作り直さない）。
  */
 export class Toolbar {
   private el: HTMLElement;
@@ -37,8 +65,19 @@ export class Toolbar {
   private tool: ToolbarTool = "pen";
   private color: string = DEFAULT_INK;
   private fontSizeStep: FontSizeStep = DEFAULT_FONT_SIZE_STEP;
-  private colorInput: HTMLInputElement;
-  /** テンプレートボタンを押した直後、どちらのテンプレートを置くか選ばせている間だけtrue。 */
+
+  private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
+
+  private stepperEl!: HTMLElement;
+  private stepperButtons = new Map<FontSizeStep, HTMLButtonElement>();
+
+  private swatchBtn!: HTMLButtonElement;
+  private colorInput!: HTMLInputElement;
+
+  private templateBtn!: HTMLButtonElement;
+  private templatePicker!: HTMLElement;
+  private templatePickerFade!: (show: boolean) => void;
+  /** テンプレートのポップアップメニュー（どちらを置くか選ぶ）が開いている間だけtrue。 */
   private templatePickerOpen = false;
 
   constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
@@ -47,21 +86,14 @@ export class Toolbar {
     this.onInsertTemplate = onInsertTemplate;
 
     this.el = document.createElement("div");
-    this.el.className = "toolbar";
+    // bottom-bar-fade: 画面切り替え時にこのバー全体がふわっとクロスフェードする
+    // ためのクラス（main.tsが表示・非表示を切り替える。ユーザー指示）。
+    this.el.className = "toolbar bottom-bar-fade";
     this.container.appendChild(this.el);
 
-    this.colorInput = document.createElement("input");
-    this.colorInput.type = "color";
-    this.colorInput.value = COLOR_INPUT_SEED;
-    this.colorInput.className = "toolbar-color-input";
-    this.colorInput.setAttribute("aria-label", "インクの色を選ぶ");
-    this.colorInput.addEventListener("input", () => {
-      this.color = this.colorInput.value;
-      this.renderInto();
-      this.onChange?.();
-    });
-
-    this.renderInto();
+    this.buildTools();
+    this.buildDetails();
+    this.syncAll();
   }
 
   getTool(): ToolbarTool {
@@ -77,23 +109,47 @@ export class Toolbar {
     return FONT_SIZE_STEPS[this.fontSizeStep];
   }
 
+  /**
+   * 基準円(半径340px)におけるペンの線の太さ(px)。文字サイズと同じ小・中・大の
+   * ステッパーを共有しており（ユーザー指示：鉛筆とペンを統合してサイズ変更を
+   * 効かせたい）、道具に応じてどちらの意味で使われるかが変わる。
+   * 実際の描画時はtoolStyle.toolRenderStyleでスケール・下限適用する。
+   */
+  getLineWidth(): number {
+    return PEN_WIDTH_STEPS[this.fontSizeStep];
+  }
+
   private setTool(tool: ToolbarTool): void {
     this.tool = tool;
-    this.renderInto();
+    this.syncAll();
     this.onChange?.();
   }
 
   private setFontSizeStep(step: FontSizeStep): void {
     this.fontSizeStep = step;
-    this.renderInto();
+    this.syncStepper();
     this.onChange?.();
   }
 
-  /** テンプレートボタンを押したら、どちらのテンプレートを置くか選ぶ小さな一覧を出す
-   *  （ユーザー指示：クリックしたときにどちらかを選べるようにしたい）。 */
+  /** テンプレートボタンを押したら、その上にどちらのテンプレートを置くか選ぶ
+   *  ポップアップメニューを出す（ユーザー指示：クリックしたら上にメニューを出したい）。 */
   private toggleTemplatePicker(): void {
-    this.templatePickerOpen = !this.templatePickerOpen;
-    this.renderInto();
+    if (this.templatePickerOpen) this.closeTemplatePicker();
+    else this.openTemplatePicker();
+  }
+
+  private openTemplatePicker(): void {
+    if (this.templatePickerOpen) return;
+    this.templatePickerOpen = true;
+    this.templateBtn.dataset.active = "true";
+    this.templatePickerFade(true);
+  }
+
+  private closeTemplatePicker(): void {
+    if (!this.templatePickerOpen) return;
+    this.templatePickerOpen = false;
+    this.templateBtn.dataset.active = "false";
+    this.templatePickerFade(false);
   }
 
   /**
@@ -103,13 +159,17 @@ export class Toolbar {
    * 置いた後に設定できるようにしたい）。
    */
   private chooseTemplate(id: TemplateId): void {
-    this.templatePickerOpen = false;
+    this.closeTemplatePicker();
     this.setTool("text");
     this.onInsertTemplate?.(id);
   }
 
-  private renderInto(): void {
-    this.el.innerHTML = "";
+  // --- 左ブロック（ツール選択ブロック）：道具アイコン＋テンプレートを1列に -----
+
+  private buildTools(): void {
+    const tools = document.createElement("div");
+    tools.className = "toolbar-tools control-block";
+    this.el.appendChild(tools);
 
     const pill = document.createElement("div");
     pill.className = "toolbar-pill";
@@ -118,63 +178,130 @@ export class Toolbar {
       btn.type = "button";
       btn.className = "toolbar-btn";
       btn.setAttribute("aria-label", TOOL_LABEL[tool]);
-      btn.setAttribute("aria-pressed", String(this.tool === tool));
-      btn.dataset.active = String(this.tool === tool);
       btn.innerHTML = ICONS[tool];
       btn.addEventListener("click", () => this.setTool(tool));
+      this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
-    this.el.appendChild(pill);
+    pill.appendChild(this.buildTemplateControl());
+    tools.appendChild(pill);
+  }
 
-    if (this.tool === "text") {
-      const stepper = document.createElement("div");
-      stepper.className = "font-size-stepper";
-      for (const step of FONT_SIZE_ORDER) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "font-size-btn";
-        btn.textContent = FONT_SIZE_LABEL[step];
-        btn.setAttribute("aria-label", `文字サイズ: ${FONT_SIZE_LABEL[step]}`);
-        btn.setAttribute("aria-pressed", String(this.fontSizeStep === step));
-        btn.style.opacity = this.fontSizeStep === step ? "1" : "0.4";
-        btn.addEventListener("click", () => this.setFontSizeStep(step));
-        stepper.appendChild(btn);
-      }
-      this.el.appendChild(stepper);
+  private syncPill(): void {
+    for (const [tool, btn] of this.toolButtons) {
+      const active = this.tool === tool;
+      btn.setAttribute("aria-pressed", String(active));
+      btn.dataset.active = String(active);
     }
+  }
 
-    const swatchBtn = document.createElement("button");
-    swatchBtn.type = "button";
-    swatchBtn.className = "toolbar-swatch";
-    swatchBtn.setAttribute("aria-label", "インクの色を選ぶ");
-    swatchBtn.style.background = this.color;
-    swatchBtn.appendChild(this.colorInput);
-    swatchBtn.addEventListener("click", (ev) => {
+  /** テンプレートボタンと、その上に開く「どちらを置くか選ぶ」ポップアップメニュー。
+   *  道具アイコンと同じ大きさ（.toolbar-btn）にして、道具の並び（.toolbar-pill）の
+   *  一員として見えるようにしている（ユーザー指示：消しゴムなどのツールと同じ
+   *  大きさに揃えたい）。メニューが開いている間は道具選択中と同じ見た目
+   *  （data-active）で強調する。 */
+  private buildTemplateControl(): HTMLElement {
+    const anchor = document.createElement("div");
+    anchor.className = "icon-anchor";
+
+    this.templateBtn = document.createElement("button");
+    this.templateBtn.type = "button";
+    this.templateBtn.className = "toolbar-btn";
+    this.templateBtn.setAttribute("aria-label", "テンプレートを置く");
+    this.templateBtn.innerHTML = ICONS.checklist;
+    this.templateBtn.addEventListener("click", () => this.toggleTemplatePicker());
+    anchor.appendChild(this.templateBtn);
+
+    this.templatePicker = document.createElement("div");
+    this.templatePicker.className = "template-popover icon-popover";
+    this.templatePicker.hidden = true;
+    this.templatePickerFade = createFadeVisibility(this.templatePicker);
+    for (const tpl of TEMPLATES) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "template-popover-item";
+      btn.textContent = tpl.label;
+      btn.addEventListener("click", () => this.chooseTemplate(tpl.id));
+      this.templatePicker.appendChild(btn);
+    }
+    anchor.appendChild(this.templatePicker);
+
+    return anchor;
+  }
+
+  // --- 中央ブロック（ツールの詳細ブロック）：色・サイズ -----------------------
+
+  private buildDetails(): void {
+    const details = document.createElement("div");
+    details.className = "toolbar-details control-block";
+    this.el.appendChild(details);
+
+    this.buildStepper(details);
+    this.buildSwatch(details);
+  }
+
+  private buildStepper(details: HTMLElement): void {
+    this.stepperEl = document.createElement("div");
+    this.stepperEl.className = "font-size-stepper";
+    for (const step of FONT_SIZE_ORDER) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "font-size-btn";
+      btn.textContent = FONT_SIZE_LABEL[step];
+      btn.setAttribute("aria-label", `サイズ: ${FONT_SIZE_LABEL[step]}`);
+      btn.addEventListener("click", () => this.setFontSizeStep(step));
+      this.stepperButtons.set(step, btn);
+      this.stepperEl.appendChild(btn);
+    }
+    details.appendChild(this.stepperEl);
+  }
+
+  /**
+   * サイズのステッパーは、道具に関わらず常に表示する（以前はテキスト道具の
+   * ときだけ出し入れしていたが、その分バーの横幅が変わって2行に折り返って
+   * しまうことがあった。最初から全部出しておけば横幅は変わらない、という
+   * ユーザー指示による）。テキスト道具でなくても、次にテキストを書くときの
+   * サイズやペンの太さを先に決めておける、と捉えれば自然な操作でもある。
+   */
+  private syncStepper(): void {
+    for (const [step, btn] of this.stepperButtons) {
+      const active = this.fontSizeStep === step;
+      btn.setAttribute("aria-pressed", String(active));
+      btn.style.opacity = active ? "1" : "0.4";
+    }
+  }
+
+  private buildSwatch(details: HTMLElement): void {
+    this.colorInput = document.createElement("input");
+    this.colorInput.type = "color";
+    this.colorInput.value = COLOR_INPUT_SEED;
+    this.colorInput.className = "toolbar-color-input";
+    this.colorInput.setAttribute("aria-label", "インクの色を選ぶ");
+    this.colorInput.addEventListener("input", () => {
+      this.color = this.colorInput.value;
+      this.syncSwatch();
+      this.onChange?.();
+    });
+
+    this.swatchBtn = document.createElement("button");
+    this.swatchBtn.type = "button";
+    this.swatchBtn.className = "toolbar-swatch";
+    this.swatchBtn.setAttribute("aria-label", "インクの色を選ぶ");
+    this.swatchBtn.appendChild(this.colorInput);
+    this.swatchBtn.addEventListener("click", (ev) => {
       if (ev.target === this.colorInput) return;
       this.colorInput.click();
     });
-    this.el.appendChild(swatchBtn);
+    details.appendChild(this.swatchBtn);
+  }
 
-    if (this.templatePickerOpen) {
-      const picker = document.createElement("span");
-      picker.className = "template-picker";
-      for (const tpl of TEMPLATES) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "text-link";
-        btn.textContent = tpl.label;
-        btn.addEventListener("click", () => this.chooseTemplate(tpl.id));
-        picker.appendChild(btn);
-      }
-      this.el.appendChild(picker);
-    } else {
-      const templateBtn = document.createElement("button");
-      templateBtn.type = "button";
-      templateBtn.className = "icon-btn";
-      templateBtn.setAttribute("aria-label", "テンプレートを置く");
-      templateBtn.innerHTML = ICONS.checklist;
-      templateBtn.addEventListener("click", () => this.toggleTemplatePicker());
-      this.el.appendChild(templateBtn);
-    }
+  private syncSwatch(): void {
+    this.swatchBtn.style.background = this.color;
+  }
+
+  private syncAll(): void {
+    this.syncPill();
+    this.syncStepper();
+    this.syncSwatch();
   }
 }

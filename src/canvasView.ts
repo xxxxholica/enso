@@ -37,6 +37,8 @@ export interface ToolState {
   lifespanDays: LifespanDays;
   /** 基準円(半径340px)におけるフォントサイズ(px)。テキストツールの時のみ使う。 */
   fontSize: number;
+  /** 基準円(半径340px)におけるペンの線の太さ(px)。ペン道具の時のみ使う。 */
+  lineWidth: number;
 }
 
 interface DrawState {
@@ -214,8 +216,8 @@ export class CircularCanvas {
     if (this.state.activeMemoId) {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
-      const { color, lifespanDays } = this.getToolState();
-      const memo = this.store.createMemo(p, { tool: tool as "pencil" | "pen" | "marker", color, lifespanDays });
+      const { color, lifespanDays, lineWidth } = this.getToolState();
+      const memo = this.store.createMemo(p, { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth });
       this.state.activeMemoId = memo.id;
     }
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
