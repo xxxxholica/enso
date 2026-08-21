@@ -1,7 +1,6 @@
 import "./style.css";
 import { CircularCanvas } from "./canvasView";
 import { ArchiveView } from "./archiveView";
-import { BoardShapeSelector } from "./boardShapeSelector";
 import { ICONS } from "./icons";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
@@ -19,7 +18,6 @@ app.innerHTML = `
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="archive">振り返り</button>
       </nav>
-      <div id="shape-slot"></div>
       <div id="primary-slot"></div>
       <div id="duration-slot"></div>
       <div class="reset-slot">
@@ -40,7 +38,6 @@ const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
 const archivePanel = document.querySelector<HTMLDivElement>("#archive-panel")!;
 // 道具バー（キャンバス表示中）と、振り返り用のシークバー（振り返り表示中）は
 // 同じ場所（操作パネルの上段）を共有する。表示中の画面に応じてどちらかだけを見せる。
-const shapeSlot = document.querySelector<HTMLDivElement>("#shape-slot")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
 
@@ -55,33 +52,14 @@ const onToolOrDurationChange = () => {
 };
 const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => canvasView.beginPlacingTemplate(id));
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
-// 盤面の形を切り替えると正規化座標の基準が変わり、書いた内容を保ったまま移せないため、
-// BoardShapeSelector側の確認を経て呼ばれるこの時点で全消去してから切り替える。
-const shapeSelector = new BoardShapeSelector(
-  shapeSlot,
-  () => store.getActive().length > 0,
-  (id) => {
-    canvasView.closeWritingSession();
-    canvasView.finishTextEditingIfOpen();
-    store.resetAll();
-    canvasView.setShapeId(id);
-    archiveView.setShapeId(id);
-    if (currentView === "archive") archiveView.render();
-  }
-);
 
-const canvasView = new CircularCanvas(
-  canvasPanel,
-  store,
-  () => ({
-    tool: toolbar.getTool(),
-    color: toolbar.getColor(),
-    lifespanDays: durationSelector.getLifespanDays(),
-    fontSize: toolbar.getFontSize(),
-  }),
-  shapeSelector.getShapeId()
-);
-const archiveView = new ArchiveView(archivePanel, primarySlot, store, shapeSelector.getShapeId());
+const canvasView = new CircularCanvas(canvasPanel, store, () => ({
+  tool: toolbar.getTool(),
+  color: toolbar.getColor(),
+  lifespanDays: durationSelector.getLifespanDays(),
+  fontSize: toolbar.getFontSize(),
+}));
+const archiveView = new ArchiveView(archivePanel, primarySlot, store);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // --- 画面切り替え -------------------------------------------------------

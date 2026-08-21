@@ -1,5 +1,3 @@
-import { getBoardShape } from "./boardShape";
-import type { BoardShape, BoardShapeId } from "./boardShape";
 import { fitCanvasToContainer } from "./canvasSizing";
 import { opacityAtTime } from "./fade";
 import { renderMemoAt } from "./memoRenderer";
@@ -48,7 +46,6 @@ export class ArchiveView {
   private seekbarContainer: HTMLElement;
   private store: MemoStore;
   private dpr = Math.max(1, window.devicePixelRatio || 1);
-  private shape: BoardShape;
 
   private previewCanvas!: HTMLCanvasElement;
   private previewCtx!: CanvasRenderingContext2D;
@@ -62,35 +59,16 @@ export class ArchiveView {
   private slider!: HTMLInputElement;
   private emptyEl!: HTMLElement;
 
-  constructor(
-    canvasContainer: HTMLElement,
-    seekbarContainer: HTMLElement,
-    store: MemoStore,
-    initialShapeId: BoardShapeId
-  ) {
+  constructor(canvasContainer: HTMLElement, seekbarContainer: HTMLElement, store: MemoStore) {
     this.canvasContainer = canvasContainer;
     this.seekbarContainer = seekbarContainer;
     this.store = store;
-    this.shape = getBoardShape(initialShapeId);
     this.buildCanvasDom();
     this.buildSeekbarDom();
-    this.applyShapeClass();
 
     const observer = new ResizeObserver(() => this.resize());
     observer.observe(this.canvasWrap);
     this.resize();
-  }
-
-  /** 盤面の形（円／眼鏡）を切り替える。 */
-  setShapeId(id: BoardShapeId): void {
-    this.shape = getBoardShape(id);
-    this.applyShapeClass();
-    this.resize();
-  }
-
-  /** 円のときだけCSSで角を丸める（眼鏡など円以外は内部のクリップだけで形を作る）。 */
-  private applyShapeClass(): void {
-    this.previewCanvas.classList.toggle("archive-preview-round", this.shape.id === "circle");
   }
 
   private buildCanvasDom(): void {
@@ -158,7 +136,7 @@ export class ArchiveView {
   }
 
   private resize(): void {
-    const { scale, width, height } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr, this.shape);
+    const { scale, width, height } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
     this.scale = scale;
     this.width = width;
     this.height = height;
@@ -205,13 +183,16 @@ export class ArchiveView {
     ctx.clearRect(0, 0, width, height);
     ctx.translate(cx, cy);
 
-    const shapePath = this.shape.buildPath(scale);
+    ctx.beginPath();
+    ctx.arc(0, 0, scale, 0, Math.PI * 2);
     ctx.strokeStyle = CIRCLE_BORDER;
     ctx.lineWidth = 1;
-    ctx.stroke(shapePath);
+    ctx.stroke();
 
     ctx.save();
-    ctx.clip(shapePath);
+    ctx.beginPath();
+    ctx.arc(0, 0, scale, 0, Math.PI * 2);
+    ctx.clip();
 
     drawRuledPaper(ctx, scale);
 

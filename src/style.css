@@ -70,13 +70,6 @@ body {
   justify-content: center;
 }
 
-/* --- 盤面の形（円／眼鏡）を切り替えるセレクタ。道具バーと同じピル型の見た目を使う。 --- */
-#shape-slot {
-  display: flex;
-  align-items: center;
-  flex: none;
-}
-
 .circle-canvas {
   display: block;
   cursor: crosshair;
@@ -377,20 +370,6 @@ body {
   white-space: nowrap;
 }
 
-/* --- 盤面（円／眼鏡）の切り替え確認。切り替えると書いた内容が消えるため、
-   全部消すボタンと同じ趣旨のインライン確認を挟む。 --- */
-.shape-confirm {
-  font-size: 11.5px;
-  color: oklch(22% 0.012 55 / 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: 320px;
-  text-align: center;
-}
-
 /* --- 振り返りビュー ------------------------------------------------ */
 /* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
    大きさを決める。消えたメモの一覧は持たない設計なので、円と「まだ何も
@@ -418,10 +397,6 @@ body {
 
 .archive-preview {
   display: block;
-}
-
-/* 盤面が円のときだけ角を丸める（眼鏡など円以外の形は内部のクリップだけで作る） */
-.archive-preview.archive-preview-round {
   border-radius: 50%;
 }
 

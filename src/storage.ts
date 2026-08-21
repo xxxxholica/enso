@@ -1,10 +1,7 @@
-import { BOARD_SHAPES, DEFAULT_BOARD_SHAPE_ID } from "./boardShape";
-import type { BoardShapeId } from "./boardShape";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, normalizedBoxSize } from "./textLayout";
 import type { DrawTool, Memo, StrokeMemo, TextMemo } from "./types";
 
 const STORAGE_KEY = "memos";
-const BOARD_SHAPE_KEY = "boardShape";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 
@@ -99,18 +96,4 @@ export function loadMemos(): Memo[] {
 
 export function saveMemos(memos: Memo[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(memos));
-}
-
-/** 盤面の形（円／眼鏡）の選択を読み込む。未保存・壊れたデータは既定（円）にする。 */
-export function loadBoardShape(): BoardShapeId {
-  try {
-    const raw = localStorage.getItem(BOARD_SHAPE_KEY);
-    return raw !== null && raw in BOARD_SHAPES ? (raw as BoardShapeId) : DEFAULT_BOARD_SHAPE_ID;
-  } catch {
-    return DEFAULT_BOARD_SHAPE_ID;
-  }
-}
-
-export function saveBoardShape(id: BoardShapeId): void {
-  localStorage.setItem(BOARD_SHAPE_KEY, id);
 }

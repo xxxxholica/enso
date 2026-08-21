@@ -1,7 +1,5 @@
-import { getBoardShape } from "./boardShape";
-import type { BoardShape, BoardShapeId } from "./boardShape";
 import { fitCanvasToContainer } from "./canvasSizing";
-import { circleIntersectsBox, pointNearStrokes } from "./geometry";
+import { circleIntersectsBox, clampToCircle, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -19,6 +17,7 @@ import type { ToolbarTool } from "./toolbar";
 import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
 const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
+const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
@@ -59,7 +58,6 @@ interface DrawState {
 export class CircularCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private shape: BoardShape;
   private scale = 0;
   private centerPx: Point = { x: 0, y: 0 };
   private dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -81,16 +79,10 @@ export class CircularCanvas {
   /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
   private templateHoverPoint: Point | null = null;
 
-  constructor(
-    container: HTMLElement,
-    store: MemoStore,
-    getToolState: () => ToolState,
-    initialShapeId: BoardShapeId
-  ) {
+  constructor(container: HTMLElement, store: MemoStore, getToolState: () => ToolState) {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
-    this.shape = getBoardShape(initialShapeId);
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -111,27 +103,19 @@ export class CircularCanvas {
     window.addEventListener("pointercancel", this.onPointerUp);
   }
 
-  /** 盤面の形（円／眼鏡）を切り替える。既存メモの正規化座標はそのまま保つ。 */
-  setShapeId(id: BoardShapeId): void {
-    this.pendingTemplate = null;
-    this.templateHoverPoint = null;
-    this.shape = getBoardShape(id);
-    this.resize();
-  }
-
-  /** 利用可能な幅・高さいっぱいまで盤面を広げ、上下限だけ設ける。 */
+  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける。 */
   private resize(): void {
-    const { scale, centerPx } = fitCanvasToContainer(this.canvas, this.container, this.dpr, this.shape);
+    const { scale, centerPx } = fitCanvasToContainer(this.canvas, this.container, this.dpr);
     this.scale = scale;
     this.centerPx = centerPx;
   }
 
-  /** 画面ピクセル座標 → 正規化座標（盤面の中心が原点）。盤面の外にあれば内側に丸め込む。 */
+  /** 画面ピクセル座標 → 正規化座標（円の半径を1とする、中心が原点）。円の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const x = (clientX - rect.left - this.centerPx.x) / this.scale;
     const y = (clientY - rect.top - this.centerPx.y) / this.scale;
-    return this.shape.clamp({ x, y });
+    return clampToCircle({ x, y }, 1);
   }
 
   private scheduleSessionClose(): void {
@@ -438,16 +422,18 @@ export class CircularCanvas {
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
     ctx.translate(this.centerPx.x, this.centerPx.y);
 
-    const shapePath = this.shape.buildPath(this.scale);
-
-    // 盤面の外枠
+    // 円の外枠
+    ctx.beginPath();
+    ctx.arc(0, 0, this.scale, 0, Math.PI * 2);
     ctx.strokeStyle = CIRCLE_BORDER;
     ctx.lineWidth = 1;
-    ctx.stroke(shapePath);
+    ctx.stroke();
 
-    // 盤面の外にはみ出さないようクリップ
+    // 円の外にはみ出さないようクリップ
     ctx.save();
-    ctx.clip(shapePath);
+    ctx.beginPath();
+    ctx.arc(0, 0, this.scale, 0, Math.PI * 2);
+    ctx.clip();
 
     drawRuledPaper(ctx, this.scale);
 
@@ -493,6 +479,12 @@ export class CircularCanvas {
     ctx.restore(); // clip
 
     if (activeMemos.length === 0) {
+      // 中心点
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fillStyle = CENTER_DOT;
+      ctx.fill();
+
       ctx.fillStyle = HINT_TEXT;
       ctx.font = "13px 'Noto Sans JP', sans-serif";
       ctx.textAlign = "center";
