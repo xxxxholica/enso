@@ -50,8 +50,9 @@ export class ArchiveView {
   private previewCanvas!: HTMLCanvasElement;
   private previewCtx!: CanvasRenderingContext2D;
   private canvasWrap!: HTMLElement;
-  private radius = 0;
-  private size = 0;
+  private scale = 0;
+  private width = 0;
+  private height = 0;
 
   private seekbarEl!: HTMLElement;
   private timestampEl!: HTMLElement;
@@ -135,9 +136,10 @@ export class ArchiveView {
   }
 
   private resize(): void {
-    const { radius, size } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
-    this.radius = radius;
-    this.size = size;
+    const { scale, width, height } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
+    this.scale = scale;
+    this.width = width;
+    this.height = height;
     this.renderPreviewAt(Number(this.slider.value) || Date.now());
   }
 
@@ -170,39 +172,40 @@ export class ArchiveView {
     this.timestampEl.textContent = formatRelativeTime(t, Date.now());
 
     const ctx = this.previewCtx;
-    const radius = this.radius;
-    const size = this.size;
-    const cx = size / 2;
-    const cy = size / 2;
+    const scale = this.scale;
+    const width = this.width;
+    const height = this.height;
+    const cx = width / 2;
+    const cy = height / 2;
 
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
+    ctx.clearRect(0, 0, width, height);
+    ctx.translate(cx, cy);
 
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, scale, 0, Math.PI * 2);
     ctx.strokeStyle = CIRCLE_BORDER;
     ctx.lineWidth = 1;
     ctx.stroke();
 
     ctx.save();
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, scale, 0, Math.PI * 2);
     ctx.clip();
-    ctx.translate(cx, cy);
 
-    drawRuledPaper(ctx, radius);
+    drawRuledPaper(ctx, scale);
 
     for (const memo of this.store.getAll()) {
       const opacity = opacityAtTime(memo.traceHistory, memo.lifespanDays, t);
       if (opacity === null || opacity <= 0) continue;
-      renderMemoAt(ctx, memo, radius, opacity);
+      renderMemoAt(ctx, memo, scale, opacity);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
     ctx.restore(); // clip
-    ctx.restore(); // setTransform
+    ctx.restore(); // translate + setTransform
   }
 }

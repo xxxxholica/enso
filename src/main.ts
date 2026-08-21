@@ -67,7 +67,7 @@ const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
 };
-const toolbar = new Toolbar(primarySlot, onToolOrDurationChange);
+const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => canvasView.beginPlacingTemplate(id));
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
 
 const canvasView = new CircularCanvas(canvasPanel, store, () => ({
