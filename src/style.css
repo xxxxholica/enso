@@ -1,0 +1,401 @@
+@import url("https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Noto+Sans+JP:wght@300;400;500&display=swap");
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* hidden属性は、同じ詳細度のクラスのdisplay指定より必ず優先させる */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: oklch(93% 0.006 75);
+  font-family: "Noto Sans JP", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: oklch(22% 0.012 55);
+}
+
+#app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px 18px;
+  gap: 14px;
+}
+
+.app-main {
+  width: 100%;
+  flex: 1;
+  min-height: 0; /* flex:1でもコンテンツに引っ張られて縮まなくなるのを防ぐ */
+  display: flex;
+}
+
+.view-panel {
+  /* height指定はしない。app-mainのalign-items:stretch(既定)に高さを委ねる方が
+     ネストしたflexで確実に効く（height:100%は祖先の高さがflex-growで確定した
+     ものだと「明示的」とみなされずautoに解決されてしまう場合があるため） */
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#canvas-panel {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 操作パネルの中で、道具バー（キャンバス表示中）とシークバー（振り返り表示中）が
+   共有するスロット。横並びの帯の中で余った幅を引き受けて伸びる
+   ——シークバーがちゃんとした長さのスライダーとして機能する幅を確保しつつ、
+   道具バー表示中はその余白の中でアイコン列が中央に収まる。 --- */
+#primary-slot {
+  flex: 1 1 240px;
+  min-width: 200px;
+  display: flex;
+  justify-content: center;
+}
+
+.circle-canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+/* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
+   完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目を揃えている。 --- */
+.text-editor-overlay {
+  position: fixed;
+  z-index: 20;
+  appearance: none;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px dashed oklch(22% 0.012 55 / 0.35);
+  border-radius: 6px;
+  background: oklch(98% 0.005 75 / 0.9);
+  text-align: center;
+  outline: none;
+}
+
+.text-editor-overlay::placeholder {
+  color: oklch(22% 0.012 55 / 0.35);
+}
+
+/* --- 振り返りビューのパネル。通常キャンバスと同じ大きさの円を出すため、
+   view-panelの既定(align-items:center)を上書きしてstretchにし、
+   .archive-viewが#archive-panelいっぱいの高さを持てるようにする
+   （%指定のheightは祖先がflex-growで確定した高さだと解決に失敗することがあるため、
+   ここでもheight:100%は使わずstretchに委ねる）。
+   一覧が増えて縦に収まりきらない場合はこのパネル自身がスクロールする。 --- */
+#archive-panel {
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+.app-footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+/* --- 下部の操作パネル。画面切り替え・道具・消えるまでの期間・全消去を、
+   区切り線で段を分けた縦積みではなく、1本の横並びの帯にまとめている
+   （すっきりさせるため、という明示的な指示による）。狭い画面では
+   flex-wrapで自然に2段以下へ折り返す。仕切り線は使わず、余白だけで
+   グループを分けている（折り返した時に線だけが浮くのを避けるため）。 --- */
+
+.control-panel {
+  width: 100%;
+  max-width: min(760px, 94vw);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  row-gap: 16px;
+  column-gap: 28px;
+  padding: 16px 26px;
+  border-radius: 26px;
+  background: oklch(98% 0.005 75);
+  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+}
+
+/* --- 画面切り替え（キャンバス／振り返り）。以前はページ上部の見出しの下にあったが、
+   操作パネルに統合した。今は他の道具類と同じ横並びの帯の中の1グループ。 --- */
+
+.view-nav {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex: none;
+}
+
+.view-nav-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: oklch(22% 0.012 55);
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: opacity 0.15s ease;
+}
+
+/* --- 道具バー（Appleメモ風のピル型ツールグループ＋色スウォッチ） --- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.toolbar-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: oklch(22% 0.012 55);
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+  opacity: 0.55;
+}
+
+.toolbar-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.toolbar-btn[data-active="true"] {
+  background: oklch(93% 0.006 75);
+  opacity: 1;
+}
+
+/* --- 文字サイズのステッパー（テキスト道具を選んでいる間だけ道具バーに現れる） --- */
+
+.font-size-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.font-size-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: oklch(22% 0.012 55);
+  cursor: pointer;
+  padding: 5px 9px;
+  border-radius: 999px;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.font-size-btn[aria-pressed="true"] {
+  background: oklch(93% 0.006 75);
+}
+
+.toolbar-swatch {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid oklch(98% 0.005 75);
+  box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px oklch(22% 0.012 55 / 0.12);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+}
+
+.toolbar-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
+
+.seekbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.seekbar-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.seekbar-timestamp {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+  color: oklch(22% 0.012 55 / 0.6);
+}
+
+.seekbar-track {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.seekbar-label {
+  flex: none;
+  font-size: 11px;
+  color: oklch(22% 0.012 55 / 0.4);
+}
+
+.seekbar-slider {
+  flex: 1;
+  accent-color: oklch(22% 0.012 55);
+  cursor: pointer;
+}
+
+/* --- 消えるまでの期間（控えめな1行セグメントコントロール） --- */
+
+.duration-row {
+  display: flex;
+  gap: 18px;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+
+.duration-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: oklch(22% 0.012 55);
+  cursor: pointer;
+  padding: 2px 0;
+  transition: opacity 0.15s ease;
+}
+
+.reset-slot {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.icon-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(22% 0.012 55 / 0.45);
+  cursor: pointer;
+  border-radius: 999px;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn:hover {
+  color: oklch(22% 0.012 55 / 0.8);
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.text-link {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: oklch(22% 0.012 55 / 0.4);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.reset-confirm {
+  font-size: 11.5px;
+  color: oklch(22% 0.012 55 / 0.6);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* --- 振り返りビュー ------------------------------------------------ */
+/* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
+   大きさを決める。消えたメモの一覧は持たない設計なので、円と「まだ何も
+   書かれていません」の空状態メッセージだけを縦に並べればよい。 */
+
+.archive-view {
+  width: 100%;
+  /* height指定はしない。#archive-panelのalign-items:stretchに高さを委ねる
+     （height:100%は祖先の高さがflex-growで確定したものだと解決に失敗することがあるため）。 */
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.archive-canvas-wrap {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.archive-preview {
+  display: block;
+  border-radius: 50%;
+}
+
+.archive-empty {
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+  font-size: 13px;
+  color: oklch(22% 0.012 55 / 0.45);
+}
