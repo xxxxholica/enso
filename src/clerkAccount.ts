@@ -1,4 +1,5 @@
 import { Clerk } from "@clerk/clerk-js";
+import { _setCurrentUser } from "./authState";
 
 /**
  * アカウント機能（ログイン・新規登録・ログアウト・現在のユーザー表示）はClerkに任せる。
@@ -101,6 +102,18 @@ export async function mountAccountWidget(
     } else {
       renderSignedOut();
     }
+
+    // コラボ機能などの他モジュールが、Clerkの詳細を知らずに「今のユーザー」を読めるようにする。
+    _setCurrentUser(
+      clerk.user
+        ? {
+            id: clerk.user.id,
+            name: clerk.user.fullName ?? clerk.user.username ?? "名前未設定",
+            imageUrl: clerk.user.imageUrl,
+          }
+        : null
+    );
+
     if (isSignedIn !== wasSignedIn) {
       wasSignedIn = isSignedIn;
       onAuthChange?.(
