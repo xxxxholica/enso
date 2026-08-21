@@ -6,7 +6,10 @@
 
 const common = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
 
-export const ICONS: Record<"pencil" | "pen" | "marker" | "eraser" | "text" | "move" | "trash", string> = {
+export const ICONS: Record<
+  "pencil" | "pen" | "marker" | "eraser" | "text" | "move" | "trash" | "shapeCircle" | "shapeGlasses",
+  string
+> = {
   pencil: `
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M4 20l1.2-4.4L15.6 5.2a1.7 1.7 0 0 1 2.4 0l0.8 0.8a1.7 1.7 0 0 1 0 2.4L8.4 18.8 4 20z" />
@@ -52,5 +55,17 @@ export const ICONS: Record<"pencil" | "pen" | "marker" | "eraser" | "text" | "mo
       <path d="M7 7l0.8 11.5A1.5 1.5 0 0 0 9.3 20h5.4a1.5 1.5 0 0 0 1.5-1.5L17 7" />
       <path d="M10.2 10.5v6" />
       <path d="M13.8 10.5v6" />
+    </svg>`,
+  shapeCircle: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="12" cy="12" r="8" />
+    </svg>`,
+  shapeGlasses: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="7" cy="13" r="4" />
+      <circle cx="17" cy="13" r="4" />
+      <path d="M11 12h2" />
+      <path d="M3 12l1-2" />
+      <path d="M21 12l-1-2" />
     </svg>`,
 };

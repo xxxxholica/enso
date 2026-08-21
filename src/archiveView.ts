@@ -1,3 +1,5 @@
+import { getBoardShape } from "./boardShape";
+import type { BoardShape, BoardShapeId } from "./boardShape";
 import { fitCanvasToContainer } from "./canvasSizing";
 import { opacityAtTime } from "./fade";
 import { renderMemoAt } from "./memoRenderer";
@@ -46,28 +48,49 @@ export class ArchiveView {
   private seekbarContainer: HTMLElement;
   private store: MemoStore;
   private dpr = Math.max(1, window.devicePixelRatio || 1);
+  private shape: BoardShape;
 
   private previewCanvas!: HTMLCanvasElement;
   private previewCtx!: CanvasRenderingContext2D;
   private canvasWrap!: HTMLElement;
-  private radius = 0;
-  private size = 0;
+  private scale = 0;
+  private width = 0;
+  private height = 0;
 
   private seekbarEl!: HTMLElement;
   private timestampEl!: HTMLElement;
   private slider!: HTMLInputElement;
   private emptyEl!: HTMLElement;
 
-  constructor(canvasContainer: HTMLElement, seekbarContainer: HTMLElement, store: MemoStore) {
+  constructor(
+    canvasContainer: HTMLElement,
+    seekbarContainer: HTMLElement,
+    store: MemoStore,
+    initialShapeId: BoardShapeId
+  ) {
     this.canvasContainer = canvasContainer;
     this.seekbarContainer = seekbarContainer;
     this.store = store;
+    this.shape = getBoardShape(initialShapeId);
     this.buildCanvasDom();
     this.buildSeekbarDom();
+    this.applyShapeClass();
 
     const observer = new ResizeObserver(() => this.resize());
     observer.observe(this.canvasWrap);
     this.resize();
+  }
+
+  /** 盤面の形（円／眼鏡）を切り替える。 */
+  setShapeId(id: BoardShapeId): void {
+    this.shape = getBoardShape(id);
+    this.applyShapeClass();
+    this.resize();
+  }
+
+  /** 円のときだけCSSで角を丸める（眼鏡など円以外は内部のクリップだけで形を作る）。 */
+  private applyShapeClass(): void {
+    this.previewCanvas.classList.toggle("archive-preview-round", this.shape.id === "circle");
   }
 
   private buildCanvasDom(): void {
@@ -135,9 +158,10 @@ export class ArchiveView {
   }
 
   private resize(): void {
-    const { radius, size } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
-    this.radius = radius;
-    this.size = size;
+    const { scale, width, height } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr, this.shape);
+    this.scale = scale;
+    this.width = width;
+    this.height = height;
     this.renderPreviewAt(Number(this.slider.value) || Date.now());
   }
 
@@ -170,39 +194,37 @@ export class ArchiveView {
     this.timestampEl.textContent = formatRelativeTime(t, Date.now());
 
     const ctx = this.previewCtx;
-    const radius = this.radius;
-    const size = this.size;
-    const cx = size / 2;
-    const cy = size / 2;
+    const scale = this.scale;
+    const width = this.width;
+    const height = this.height;
+    const cx = width / 2;
+    const cy = height / 2;
 
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = CIRCLE_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    ctx.clip();
+    ctx.clearRect(0, 0, width, height);
     ctx.translate(cx, cy);
 
-    drawRuledPaper(ctx, radius);
+    const shapePath = this.shape.buildPath(scale);
+    ctx.strokeStyle = CIRCLE_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke(shapePath);
+
+    ctx.save();
+    ctx.clip(shapePath);
+
+    drawRuledPaper(ctx, scale);
 
     for (const memo of this.store.getAll()) {
       const opacity = opacityAtTime(memo.traceHistory, memo.lifespanDays, t);
       if (opacity === null || opacity <= 0) continue;
-      renderMemoAt(ctx, memo, radius, opacity);
+      renderMemoAt(ctx, memo, scale, opacity);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
     ctx.restore(); // clip
-    ctx.restore(); // setTransform
+    ctx.restore(); // translate + setTransform
   }
 }

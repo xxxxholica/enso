@@ -1,5 +1,7 @@
+import { getBoardShape } from "./boardShape";
+import type { BoardShape, BoardShapeId } from "./boardShape";
 import { fitCanvasToContainer } from "./canvasSizing";
-import { circleIntersectsBox, clampToCircle, pointNearStrokes } from "./geometry";
+import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -15,7 +17,6 @@ import type { ToolbarTool } from "./toolbar";
 import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
 const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
-const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
@@ -54,7 +55,8 @@ interface DrawState {
 export class CircularCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private radius = 0;
+  private shape: BoardShape;
+  private scale = 0;
   private centerPx: Point = { x: 0, y: 0 };
   private dpr = Math.max(1, window.devicePixelRatio || 1);
   private state: DrawState = {
@@ -71,10 +73,16 @@ export class CircularCanvas {
   private store: MemoStore;
   private textEditor: HTMLTextAreaElement | null = null;
 
-  constructor(container: HTMLElement, store: MemoStore, getToolState: () => ToolState) {
+  constructor(
+    container: HTMLElement,
+    store: MemoStore,
+    getToolState: () => ToolState,
+    initialShapeId: BoardShapeId
+  ) {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
+    this.shape = getBoardShape(initialShapeId);
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -95,19 +103,25 @@ export class CircularCanvas {
     window.addEventListener("pointercancel", this.onPointerUp);
   }
 
-  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける。 */
+  /** 盤面の形（円／眼鏡）を切り替える。既存メモの正規化座標はそのまま保つ。 */
+  setShapeId(id: BoardShapeId): void {
+    this.shape = getBoardShape(id);
+    this.resize();
+  }
+
+  /** 利用可能な幅・高さいっぱいまで盤面を広げ、上下限だけ設ける。 */
   private resize(): void {
-    const { radius, centerPx } = fitCanvasToContainer(this.canvas, this.container, this.dpr);
-    this.radius = radius;
+    const { scale, centerPx } = fitCanvasToContainer(this.canvas, this.container, this.dpr, this.shape);
+    this.scale = scale;
     this.centerPx = centerPx;
   }
 
-  /** 画面ピクセル座標 → 正規化座標（円の半径を1とする、中心が原点）。 */
+  /** 画面ピクセル座標 → 正規化座標（盤面の中心が原点）。盤面の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
-    const x = (clientX - rect.left - this.centerPx.x) / this.radius;
-    const y = (clientY - rect.top - this.centerPx.y) / this.radius;
-    return clampToCircle({ x, y }, 1);
+    const x = (clientX - rect.left - this.centerPx.x) / this.scale;
+    const y = (clientY - rect.top - this.centerPx.y) / this.scale;
+    return this.shape.clamp({ x, y });
   }
 
   private scheduleSessionClose(): void {
@@ -129,7 +143,7 @@ export class CircularCanvas {
   }
 
   private hitTestMemo(p: Point): Memo | null {
-    const threshold = HIT_THRESHOLD_PX / this.radius;
+    const threshold = HIT_THRESHOLD_PX / this.scale;
     for (const memo of this.store.getActive()) {
       if (memo.kind === "stroke") {
         if (pointNearStrokes(p, memo.strokes, threshold)) return memo;
@@ -156,7 +170,7 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.radius);
+      this.store.eraseAt(p, ERASER_RADIUS_PX / this.scale);
       return;
     }
 
@@ -216,10 +230,10 @@ export class CircularCanvas {
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
     const canvasRect = this.canvas.getBoundingClientRect();
-    const fontPx = fontPxForRender(fontSize, this.radius);
-    const boxWidthPx = (REFERENCE_TEXT_BOX_WIDTH_PX / REFERENCE_RADIUS) * this.radius;
-    const screenX = canvasRect.left + this.centerPx.x + anchor.x * this.radius;
-    const screenY = canvasRect.top + this.centerPx.y + anchor.y * this.radius;
+    const fontPx = fontPxForRender(fontSize, this.scale);
+    const boxWidthPx = (REFERENCE_TEXT_BOX_WIDTH_PX / REFERENCE_RADIUS) * this.scale;
+    const screenX = canvasRect.left + this.centerPx.x + anchor.x * this.scale;
+    const screenY = canvasRect.top + this.centerPx.y + anchor.y * this.scale;
 
     const el = document.createElement("textarea");
     el.className = "text-editor-overlay";
@@ -309,7 +323,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.radius);
+      this.store.eraseAt(p, ERASER_RADIUS_PX / this.scale);
     }
   };
 
@@ -335,26 +349,23 @@ export class CircularCanvas {
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
-
-    // 円の外枠
-    ctx.beginPath();
-    ctx.arc(this.centerPx.x, this.centerPx.y, this.radius, 0, Math.PI * 2);
-    ctx.strokeStyle = CIRCLE_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 円の外にはみ出さないようクリップ
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(this.centerPx.x, this.centerPx.y, this.radius, 0, Math.PI * 2);
-    ctx.clip();
-
     ctx.translate(this.centerPx.x, this.centerPx.y);
 
-    drawRuledPaper(ctx, this.radius);
+    const shapePath = this.shape.buildPath(this.scale);
+
+    // 盤面の外枠
+    ctx.strokeStyle = CIRCLE_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke(shapePath);
+
+    // 盤面の外にはみ出さないようクリップ
+    ctx.save();
+    ctx.clip(shapePath);
+
+    drawRuledPaper(ctx, this.scale);
 
     const activeMemos = this.store.getActive();
-    const r = this.radius;
+    const r = this.scale;
 
     for (const memo of activeMemos) {
       const opacity = this.store.opacityOf(memo, now);
@@ -392,22 +403,12 @@ export class CircularCanvas {
     ctx.restore(); // clip
 
     if (activeMemos.length === 0) {
-      // 中心点
-      ctx.beginPath();
-      ctx.arc(this.centerPx.x, this.centerPx.y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = CENTER_DOT;
-      ctx.fill();
-
       ctx.fillStyle = HINT_TEXT;
       ctx.font = "13px 'Noto Sans JP', sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(
-        "ドラッグで書き始める",
-        this.centerPx.x,
-        this.centerPx.y + this.radius * 0.32
-      );
+      ctx.fillText("ドラッグで書き始める", 0, this.scale * 0.32);
     }
 
-    ctx.restore();
+    ctx.restore(); // translate + setTransform
   }
 }

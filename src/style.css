@@ -70,6 +70,13 @@ body {
   justify-content: center;
 }
 
+/* --- 盤面の形（円／眼鏡）を切り替えるセレクタ。道具バーと同じピル型の見た目を使う。 --- */
+#shape-slot {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
 .circle-canvas {
   display: block;
   cursor: crosshair;
@@ -389,6 +396,10 @@ body {
 
 .archive-preview {
   display: block;
+}
+
+/* 円のテンプレートのときだけ角を丸める（眼鏡など円以外の形は内部のクリップだけで作る） */
+.archive-preview.archive-preview-round {
   border-radius: 50%;
 }
 
