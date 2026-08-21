@@ -57,14 +57,18 @@ const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => canvasV
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
 // 盤面の形を切り替えると正規化座標の基準が変わり、書いた内容を保ったまま移せないため、
 // BoardShapeSelector側の確認を経て呼ばれるこの時点で全消去してから切り替える。
-const shapeSelector = new BoardShapeSelector(shapeSlot, (id) => {
-  canvasView.closeWritingSession();
-  canvasView.finishTextEditingIfOpen();
-  store.resetAll();
-  canvasView.setShapeId(id);
-  archiveView.setShapeId(id);
-  if (currentView === "archive") archiveView.render();
-});
+const shapeSelector = new BoardShapeSelector(
+  shapeSlot,
+  () => store.getActive().length > 0,
+  (id) => {
+    canvasView.closeWritingSession();
+    canvasView.finishTextEditingIfOpen();
+    store.resetAll();
+    canvasView.setShapeId(id);
+    archiveView.setShapeId(id);
+    if (currentView === "archive") archiveView.render();
+  }
+);
 
 const canvasView = new CircularCanvas(
   canvasPanel,

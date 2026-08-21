@@ -1,4 +1,4 @@
-export type TemplateId = "checklist" | "phoneMemo";
+export type TemplateId = "checklist" | "phoneMemo" | "buyList" | "outline";
 
 export interface TemplateDef {
   id: TemplateId;
@@ -15,7 +15,12 @@ export interface TemplateDef {
 export const TEMPLATES: TemplateDef[] = [
   { id: "checklist", label: "持ち物チェック", text: "持ち物チェック\n□ \n□ \n□ \n□ \n□ " },
   { id: "phoneMemo", label: "電話メモ", text: "電話メモ\n名前: \n日付: \n要件: \n電話番号: " },
-  { id: "buylist", label: "買い物リスト", text: "買い物リスト\nスーパー\n・  \nドラックストア\n・  \nその他\n・  " },
+  { id: "buyList", label: "買い物リスト", text: "買い物リスト\nスーパー\n・  \nドラックストア\n・  \nその他\n・  " },
+  {
+    id: "outline",
+    label: "新しいテーマ",
+    text: "メインテーマ: \n見出し1: \n見出し2: \n見出し3: ",
+  },
 ];
 
 export function getTemplateText(id: TemplateId): string {
