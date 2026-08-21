@@ -255,6 +255,14 @@ body {
   cursor: pointer;
 }
 
+/* --- テンプレートボタンを押した直後に出る、どちらを置くか選ぶ小さな一覧 --- */
+.template-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
 /* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
 
 .seekbar {

@@ -5,6 +5,8 @@ import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
+import { getTemplateText } from "./templates";
+import type { TemplateId } from "./templates";
 import {
   fontPxForRender,
   normalizedBoxSize,
@@ -29,10 +31,6 @@ const HIT_THRESHOLD_PX = 12;
 const ERASER_RADIUS_PX = 16;
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
-
-/** 持ち物チェックのテンプレート文面。項目は空欄のままにし、置いた後にテキスト道具で
- *  タップして書き込めるようにする。 */
-const CHECKLIST_TEMPLATE_TEXT = "持ち物チェック\n□ \n□ \n□ \n□ \n□ ";
 
 export interface ToolState {
   tool: ToolbarTool;
@@ -332,17 +330,18 @@ export class CircularCanvas {
   }
 
   /**
-   * 持ち物チェックのテンプレートを配置待ちにする。実際に置かれるのは次に盤面をタップした
-   * 場所（自由配置——ユーザー指示）で、それまでは道具バーの操作は通常どおり効く。
-   * 配置待ちの間はポインタを追いかけて配置ガイドを表示する（renderTemplateGuideで描く）。
+   * 指定したテンプレート（持ち物チェック／電話メモ）を配置待ちにする。実際に置かれるのは
+   * 次に盤面をタップした場所（自由配置——ユーザー指示）で、それまでは道具バーの操作は
+   * 通常どおり効く。配置待ちの間はポインタを追いかけて配置ガイドを表示する
+   * （renderTemplateGuideで描く）。
    */
-  beginPlacingChecklistTemplate(): void {
-    this.pendingTemplate = CHECKLIST_TEMPLATE_TEXT;
+  beginPlacingTemplate(id: TemplateId): void {
+    this.pendingTemplate = getTemplateText(id);
   }
 
   /** 配置待ちのテンプレート文面を、タップされた場所（形の外なら内側に丸め込んだ位置）に
    *  テキストメモとして置く。項目は空欄のまま——書き込むのは通常のテキストメモの編集と同じ操作でよい。
-   *  チェックリストは行ごとに長さが変わるため、中央揃えだと左端がガタつく。左揃えにする（ユーザー指示）。 */
+   *  項目は行ごとに長さが変わるため、中央揃えだと左端がガタつく。左揃えにする（ユーザー指示）。 */
   private placeTemplateAt(anchor: Point, text: string): void {
     const { color, lifespanDays, fontSize } = this.getToolState();
     const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize);

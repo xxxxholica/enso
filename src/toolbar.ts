@@ -1,5 +1,7 @@
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, type FontSizeStep } from "./textLayout";
+import { TEMPLATES } from "./templates";
+import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move";
@@ -31,16 +33,18 @@ export class Toolbar {
   private el: HTMLElement;
   private container: HTMLElement;
   private onChange?: () => void;
-  private onInsertChecklist?: () => void;
+  private onInsertTemplate?: (id: TemplateId) => void;
   private tool: ToolbarTool = "pen";
   private color: string = DEFAULT_INK;
   private fontSizeStep: FontSizeStep = DEFAULT_FONT_SIZE_STEP;
   private colorInput: HTMLInputElement;
+  /** テンプレートボタンを押した直後、どちらのテンプレートを置くか選ばせている間だけtrue。 */
+  private templatePickerOpen = false;
 
-  constructor(container: HTMLElement, onChange?: () => void, onInsertChecklist?: () => void) {
+  constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
     this.container = container;
     this.onChange = onChange;
-    this.onInsertChecklist = onInsertChecklist;
+    this.onInsertTemplate = onInsertTemplate;
 
     this.el = document.createElement("div");
     this.el.className = "toolbar";
@@ -85,15 +89,23 @@ export class Toolbar {
     this.onChange?.();
   }
 
+  /** テンプレートボタンを押したら、どちらのテンプレートを置くか選ぶ小さな一覧を出す
+   *  （ユーザー指示：クリックしたときにどちらかを選べるようにしたい）。 */
+  private toggleTemplatePicker(): void {
+    this.templatePickerOpen = !this.templatePickerOpen;
+    this.renderInto();
+  }
+
   /**
-   * 持ち物チェックのテンプレートを配置待ちにする（実際に置く場所は次に盤面をタップした位置
+   * 選んだテンプレートを配置待ちにする（実際に置く場所は次に盤面をタップした位置
    * ——ユーザー指示により自由配置にした）。項目は空欄のままにし、後からテキスト道具でタップして
    * 書き込めるよう、道具をテキストに切り替えておく（ユーザー指示：項目はテンプレートを
    * 置いた後に設定できるようにしたい）。
    */
-  private insertChecklist(): void {
+  private chooseTemplate(id: TemplateId): void {
+    this.templatePickerOpen = false;
     this.setTool("text");
-    this.onInsertChecklist?.();
+    this.onInsertTemplate?.(id);
   }
 
   private renderInto(): void {
@@ -143,12 +155,26 @@ export class Toolbar {
     });
     this.el.appendChild(swatchBtn);
 
-    const checklistBtn = document.createElement("button");
-    checklistBtn.type = "button";
-    checklistBtn.className = "icon-btn";
-    checklistBtn.setAttribute("aria-label", "持ち物チェックのテンプレートを置く");
-    checklistBtn.innerHTML = ICONS.checklist;
-    checklistBtn.addEventListener("click", () => this.insertChecklist());
-    this.el.appendChild(checklistBtn);
+    if (this.templatePickerOpen) {
+      const picker = document.createElement("span");
+      picker.className = "template-picker";
+      for (const tpl of TEMPLATES) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "text-link";
+        btn.textContent = tpl.label;
+        btn.addEventListener("click", () => this.chooseTemplate(tpl.id));
+        picker.appendChild(btn);
+      }
+      this.el.appendChild(picker);
+    } else {
+      const templateBtn = document.createElement("button");
+      templateBtn.type = "button";
+      templateBtn.className = "icon-btn";
+      templateBtn.setAttribute("aria-label", "テンプレートを置く");
+      templateBtn.innerHTML = ICONS.checklist;
+      templateBtn.addEventListener("click", () => this.toggleTemplatePicker());
+      this.el.appendChild(templateBtn);
+    }
   }
 }
