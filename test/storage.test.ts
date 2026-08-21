@@ -113,6 +113,7 @@ describe("storage migration（道具・色・なぞり履歴を持たない古�
       lifespanDays: null,
       status: "active",
       color: "#2f2a26",
+      align: "center",
     };
     saveMemos([memo]);
     expect(loadMemos()).toEqual([memo]);

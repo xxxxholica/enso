@@ -251,9 +251,9 @@ export class SharedCanvasView {
   }
 
   private resize(): void {
-    const { radius, size } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
-    this.radius = radius;
-    this.size = size;
+    const { scale, width } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
+    this.radius = scale;
+    this.size = width;
     this.render(Date.now());
   }
 

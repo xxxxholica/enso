@@ -13,8 +13,6 @@ export type MemoStatus = "active" | "faded";
 /** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。 */
 export type DrawTool = "pencil" | "pen" | "marker";
 
-export type MemoKind = "stroke" | "text";
-
 interface MemoBase {
   id: string;
   /** メモの代表座標（手書き=最初のストロークの始点、テキスト=テキストブロックの中心）。
