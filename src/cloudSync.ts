@@ -1,3 +1,5 @@
+import { _setApiTokenGetter, authFetch, isSignedIn } from "./apiClient";
+import type { TokenGetter } from "./apiClient";
 import type { Memo } from "./types";
 
 /**
@@ -13,30 +15,17 @@ import type { Memo } from "./types";
  *   単純な方式のみ。同時に複数端末から使うと、後から同期した方が勝つ。
  */
 
-const API_BASE = "https://api.onunu.me";
 const PUSH_DEBOUNCE_MS = 2000;
 
-type TokenGetter = () => Promise<string | null>;
-
-let tokenGetter: TokenGetter | null = null;
 let pushTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** ログイン状態が変わるたびに、Clerkのセッションからトークンを取れる関数を差し替える。未ログインならnullを渡す。 */
 export function setTokenGetter(getter: TokenGetter | null): void {
-  tokenGetter = getter;
+  _setApiTokenGetter(getter);
   if (!getter && pushTimer) {
     clearTimeout(pushTimer);
     pushTimer = undefined;
   }
-}
-
-async function authFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  if (!tokenGetter) throw new Error("未ログインです");
-  const token = await tokenGetter();
-  if (!token) throw new Error("セッションが取得できませんでした");
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
 /** サーバー側に保存済みのメモ一覧を取得する。まだ何も保存していない場合はnullを返す。 */
@@ -60,7 +49,7 @@ async function pushCanvasNow(memos: readonly Memo[]): Promise<void> {
 
 /** ローカルの変更をデバウンスしてサーバーに反映する。描画中の連続した点の追加のたびには送らない。 */
 export function schedulePush(memos: readonly Memo[]): void {
-  if (!tokenGetter) return;
+  if (!isSignedIn()) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     void pushCanvasNow(memos).catch((e) => {
