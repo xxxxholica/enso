@@ -6,7 +6,8 @@ import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
 import { mountAccountWidget } from "./clerkAccount";
-import { schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
+import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
+import { connectRealtimeSync } from "./realtimeSync";
 import { SharedCanvasView } from "./sharedCanvasView";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -45,12 +46,22 @@ app.innerHTML = `
 // 未ログイン時はsetTokenGetter(null)状態なのでschedulePushは何もしない。
 const store = new MemoStore((memos) => schedulePush(memos));
 
+// ログイン中は、他端末での変更をWebSocket通知で受け取り、その都度クラウドから
+// 取得し直してローカルに反映する（＝ページを開いたままでも他端末の変更が自動で見える）。
+// ログアウト時はdisconnectRealtimeを呼んで接続を切る。
+let disconnectRealtime: (() => void) | null = null;
+
 void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!, (session) => {
   if (session) {
     setTokenGetter(session.getToken);
     void syncOnSignIn(store);
+    disconnectRealtime = connectRealtimeSync(session, () => {
+      void refreshFromCloud(store);
+    });
   } else {
     setTokenGetter(null);
+    disconnectRealtime?.();
+    disconnectRealtime = null;
   }
 });
 
@@ -62,11 +73,6 @@ const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
 
-// 道具バー・期間セレクタを先に組み立てる（＝フッターの高さを確定させてから
-// キャンバスの初期サイズを計算させるため。順序を逆にすると、初回描画時に
-// フッターがまだ空でキャンバスが大きすぎるサイズで一瞬計算されてしまう）
-// 道具・色・消えるまでの期間のいずれかを切り替えたら、書きかけのセッションを閉じ、
-// 編集中のテキストがあれば確定する（古いメモへ違う設定のまま追記されるのを防ぐ）
 const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
@@ -108,7 +114,6 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
 });
 setView("canvas");
 
-// --- 全体リセット（確認を挟む。ダイアログではなくインライン確認） -------
 const resetBtn = document.querySelector<HTMLButtonElement>("#reset-btn")!;
 const resetConfirm = document.querySelector<HTMLSpanElement>("#reset-confirm")!;
 const resetYes = document.querySelector<HTMLButtonElement>("#reset-yes")!;
@@ -129,7 +134,6 @@ resetYes.addEventListener("click", () => {
   if (currentView === "archive") archiveView.render();
 });
 
-// --- 描画ループ：毎フレーム不透明度を再計算して反映する -----------------
 function frame(): void {
   const now = Date.now();
   const changed = store.tick(now);
