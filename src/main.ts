@@ -53,7 +53,7 @@ const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
 };
-const toolbar = new Toolbar(primarySlot, onToolOrDurationChange);
+const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, () => canvasView.beginPlacingChecklistTemplate());
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
 // 盤面の形を切り替えると正規化座標の基準が変わり、書いた内容を保ったまま移せないため、
 // BoardShapeSelector側の確認を経て呼ばれるこの時点で全消去してから切り替える。

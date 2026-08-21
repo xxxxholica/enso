@@ -58,6 +58,10 @@ export interface TextMemo extends MemoBase {
   /** 行数から決まるテキストブロックの高さ。円の半径を1とする正規化単位。
    *  なぞって復活・消しゴムの当たり判定に使う。 */
   boxHeight: number;
+  /** 行の横方向の揃え方。省略時（既存データ含む）は"center"として扱う。
+   *  持ち物チェックのテンプレートのように項目を縦に並べる文面は、行ごとに
+   *  幅が違っても左端が揃って読みやすい"left"にする。 */
+  align?: "center" | "left";
 }
 
 export type Memo = StrokeMemo | TextMemo;

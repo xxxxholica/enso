@@ -20,6 +20,8 @@ const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
+/** テンプレートの配置ガイド（指を離すまでの位置プレビュー）の不透明度。 */
+const TEMPLATE_GUIDE_ALPHA = 0.4;
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -27,6 +29,10 @@ const HIT_THRESHOLD_PX = 12;
 const ERASER_RADIUS_PX = 16;
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
+
+/** 持ち物チェックのテンプレート文面。項目は空欄のままにし、置いた後にテキスト道具で
+ *  タップして書き込めるようにする。 */
+const CHECKLIST_TEMPLATE_TEXT = "持ち物チェック\n□ \n□ \n□ \n□ \n□ ";
 
 export interface ToolState {
   tool: ToolbarTool;
@@ -72,6 +78,10 @@ export class CircularCanvas {
   private container: HTMLElement;
   private store: MemoStore;
   private textEditor: HTMLTextAreaElement | null = null;
+  /** 配置待ちのテンプレート文面。設定中は次のタップでその場所に置く（自由配置）。 */
+  private pendingTemplate: string | null = null;
+  /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
+  private templateHoverPoint: Point | null = null;
 
   constructor(
     container: HTMLElement,
@@ -105,6 +115,8 @@ export class CircularCanvas {
 
   /** 盤面の形（円／眼鏡）を切り替える。既存メモの正規化座標はそのまま保つ。 */
   setShapeId(id: BoardShapeId): void {
+    this.pendingTemplate = null;
+    this.templateHoverPoint = null;
     this.shape = getBoardShape(id);
     this.resize();
   }
@@ -140,6 +152,8 @@ export class CircularCanvas {
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
     this.state.activeMemoId = null;
     this.state.idleTimer = null;
+    this.pendingTemplate = null;
+    this.templateHoverPoint = null;
   }
 
   private hitTestMemo(p: Point): Memo | null {
@@ -165,6 +179,15 @@ export class CircularCanvas {
     ev.preventDefault();
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = this.toNormalized(ev.clientX, ev.clientY);
+
+    if (this.pendingTemplate) {
+      // テンプレート配置待ち: タップした場所にそのまま置く（今選んでいる道具は問わない）
+      this.placeTemplateAt(p, this.pendingTemplate);
+      this.pendingTemplate = null;
+      this.templateHoverPoint = null;
+      return;
+    }
+
     const tool = this.getToolState().tool;
 
     if (tool === "eraser") {
@@ -229,6 +252,7 @@ export class CircularCanvas {
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
+    const align = editingMemo?.align ?? "center";
     const canvasRect = this.canvas.getBoundingClientRect();
     const fontPx = fontPxForRender(fontSize, this.scale);
     const boxWidthPx = (REFERENCE_TEXT_BOX_WIDTH_PX / REFERENCE_RADIUS) * this.scale;
@@ -244,6 +268,7 @@ export class CircularCanvas {
     el.style.fontFamily = TEXT_FONT_FAMILY;
     el.style.fontSize = `${fontPx}px`;
     el.style.lineHeight = "1.4";
+    el.style.textAlign = align;
     el.style.width = `${boxWidthPx}px`;
     // 完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目が一致するよう、
     // 編集中も同じくアンカー点を中心に配置し、行が増えるたびに縦位置も再センタリングする。
@@ -306,7 +331,64 @@ export class CircularCanvas {
     this.textEditor?.blur();
   }
 
+  /**
+   * 持ち物チェックのテンプレートを配置待ちにする。実際に置かれるのは次に盤面をタップした
+   * 場所（自由配置——ユーザー指示）で、それまでは道具バーの操作は通常どおり効く。
+   * 配置待ちの間はポインタを追いかけて配置ガイドを表示する（renderTemplateGuideで描く）。
+   */
+  beginPlacingChecklistTemplate(): void {
+    this.pendingTemplate = CHECKLIST_TEMPLATE_TEXT;
+  }
+
+  /** 配置待ちのテンプレート文面を、タップされた場所（形の外なら内側に丸め込んだ位置）に
+   *  テキストメモとして置く。項目は空欄のまま——書き込むのは通常のテキストメモの編集と同じ操作でよい。
+   *  チェックリストは行ごとに長さが変わるため、中央揃えだと左端がガタつく。左揃えにする（ユーザー指示）。 */
+  private placeTemplateAt(anchor: Point, text: string): void {
+    const { color, lifespanDays, fontSize } = this.getToolState();
+    const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize);
+    const { width, height } = normalizedBoxSize(fontSize, lines.length);
+    this.store.createTextMemo(anchor, text, lines, fontSize, width, height, {
+      color,
+      lifespanDays,
+      align: "left",
+    });
+  }
+
+  /** 配置待ちの間、ポインタの位置に「ここに置かれる」ことを示す薄いプレビューを描く。
+   *  実際に置かれた後と同じ見た目（renderMemoAt）を使うので、位置・折り返し・揃えが
+   *  そのまま本番の見た目のガイドになる。 */
+  private renderTemplateGuide(ctx: CanvasRenderingContext2D, radius: number): void {
+    if (!this.pendingTemplate || !this.templateHoverPoint) return;
+    const { color, fontSize } = this.getToolState();
+    const lines = wrapTextAtReferenceScale(this.ctx, this.pendingTemplate, fontSize);
+    const { width, height } = normalizedBoxSize(fontSize, lines.length);
+    const preview: TextMemo = {
+      id: "template-guide",
+      kind: "text",
+      x: this.templateHoverPoint.x,
+      y: this.templateHoverPoint.y,
+      text: this.pendingTemplate,
+      textLines: lines,
+      fontSize,
+      boxWidth: width,
+      boxHeight: height,
+      align: "left",
+      createdAt: 0,
+      lastTracedAt: 0,
+      traceHistory: [0],
+      lifespanDays: null,
+      status: "active",
+      color,
+    };
+    renderMemoAt(ctx, preview, radius, TEMPLATE_GUIDE_ALPHA);
+  }
+
   private onPointerMove = (ev: PointerEvent): void => {
+    if (this.pendingTemplate) {
+      // 配置待ちの間はポインタを追いかけてガイドを表示するだけ（実際に置くのはタップ時）
+      this.templateHoverPoint = this.toNormalized(ev.clientX, ev.clientY);
+      return;
+    }
     if (this.state.mode === "idle") return;
     const p = this.toNormalized(ev.clientX, ev.clientY);
 
@@ -342,10 +424,16 @@ export class CircularCanvas {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す
+    // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+    // テンプレート配置待ちの間は、次のタップで何かが置かれることが伝わるカーソルにする。
     const tool = this.getToolState().tool;
-    this.canvas.style.cursor =
-      tool === "move" ? (this.state.mode === "moving" ? "grabbing" : "grab") : "crosshair";
+    this.canvas.style.cursor = this.pendingTemplate
+      ? "copy"
+      : tool === "move"
+        ? this.state.mode === "moving"
+          ? "grabbing"
+          : "grab"
+        : "crosshair";
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
@@ -399,6 +487,9 @@ export class CircularCanvas {
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
+
+    // テンプレート配置待ちの間、置かれる場所のガイドを薄く表示する
+    this.renderTemplateGuide(ctx, r);
 
     ctx.restore(); // clip
 

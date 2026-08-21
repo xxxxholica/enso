@@ -70,6 +70,7 @@ function migrate(raw: Record<string, unknown>): Memo {
       fontSize,
       boxWidth: typeof raw.boxWidth === "number" ? raw.boxWidth : fallbackBox.width,
       boxHeight: typeof raw.boxHeight === "number" ? raw.boxHeight : fallbackBox.height,
+      align: raw.align === "left" ? "left" : "center",
     };
     return textMemo;
   }

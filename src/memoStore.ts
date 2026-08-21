@@ -70,7 +70,7 @@ export class MemoStore {
     fontSize: number,
     boxWidth: number,
     boxHeight: number,
-    style: { color: string; lifespanDays: LifespanDays },
+    style: { color: string; lifespanDays: LifespanDays; align?: "center" | "left" },
     now: number = Date.now()
   ): TextMemo {
     const memo: TextMemo = {
@@ -89,6 +89,7 @@ export class MemoStore {
       lifespanDays: style.lifespanDays,
       status: "active",
       color: style.color,
+      align: style.align ?? "center",
     };
     this.memos.push(memo);
     this.persist();

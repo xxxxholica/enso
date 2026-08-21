@@ -412,7 +412,7 @@ body {
   display: block;
 }
 
-/* 円のテンプレートのときだけ角を丸める（眼鏡など円以外の形は内部のクリップだけで作る） */
+/* 盤面が円のときだけ角を丸める（眼鏡など円以外の形は内部のクリップだけで作る） */
 .archive-preview.archive-preview-round {
   border-radius: 50%;
 }

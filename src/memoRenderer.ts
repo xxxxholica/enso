@@ -39,13 +39,17 @@ export function renderMemoAt(
   ctx.fillStyle = memo.color;
   const fontPx = fontPxForRender(memo.fontSize, radius);
   ctx.font = `${fontPx}px ${TEXT_FONT_FAMILY}`;
-  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const lineHeight = fontPx * LINE_HEIGHT_MULTIPLIER;
   const totalHeight = memo.textLines.length * lineHeight;
   let ly = memo.y * radius - totalHeight / 2 + lineHeight / 2;
+  // 持ち物チェックのテンプレートのように行ごとに幅が違う文面は、中央揃えだと左端がガタつくため
+  // 左揃えにできる（align省略時・既存データは中央揃えのまま）。
+  const isLeft = memo.align === "left";
+  ctx.textAlign = isLeft ? "left" : "center";
+  const lx = isLeft ? (memo.x - memo.boxWidth / 2) * radius : memo.x * radius;
   for (const line of memo.textLines) {
-    ctx.fillText(line, memo.x * radius, ly);
+    ctx.fillText(line, lx, ly);
     ly += lineHeight;
   }
 }
