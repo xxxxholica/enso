@@ -369,6 +369,20 @@ body {
   white-space: nowrap;
 }
 
+/* --- 盤面（円／眼鏡）の切り替え確認。切り替えると書いた内容が消えるため、
+   全部消すボタンと同じ趣旨のインライン確認を挟む。 --- */
+.shape-confirm {
+  font-size: 11.5px;
+  color: oklch(22% 0.012 55 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 320px;
+  text-align: center;
+}
+
 /* --- 振り返りビュー ------------------------------------------------ */
 /* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
    大きさを決める。消えたメモの一覧は持たない設計なので、円と「まだ何も
