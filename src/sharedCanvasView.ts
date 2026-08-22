@@ -3,6 +3,7 @@ import { fitCanvasToContainer } from "./canvasSizing";
 import { computeOpacity } from "./fade";
 import { renderMemoAt } from "./memoRenderer";
 import { drawRuledPaper } from "./paper";
+import { getNickname, setNickname } from "./sharedCanvasNicknames";
 import {
   createSharedCanvas,
   getSharedCanvas,
@@ -113,9 +114,19 @@ export class SharedCanvasView {
     const body = document.createElement("div");
     body.className = "shared-body";
 
+    const roomPanel = document.createElement("div");
+    roomPanel.className = "shared-room-panel";
+
     this.roomListEl = document.createElement("ul");
     this.roomListEl.className = "shared-room-list";
-    body.appendChild(this.roomListEl);
+    roomPanel.appendChild(this.roomListEl);
+
+    const roomHint = document.createElement("p");
+    roomHint.className = "shared-room-hint";
+    roomHint.textContent = "名前はこの端末だけに表示されます(他の参加者には見えません)。";
+    roomPanel.appendChild(roomHint);
+
+    body.appendChild(roomPanel);
 
     this.canvasWrap = document.createElement("div");
     this.canvasWrap.className = "archive-canvas-wrap shared-canvas-wrap";
@@ -215,15 +226,54 @@ export class SharedCanvasView {
     this.emptyEl.hidden = this.rooms.length > 0;
     for (const room of this.rooms) {
       const li = document.createElement("li");
+      li.className = "shared-room-item";
+
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "text-link shared-room-btn";
-      btn.textContent = room.id;
+      btn.textContent = getNickname(room.id) ?? room.id;
       btn.setAttribute("aria-pressed", String(room.id === this.selectedId));
       btn.addEventListener("click", () => void this.selectRoom(room.id));
       li.appendChild(btn);
+
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "text-link shared-room-rename";
+      renameBtn.textContent = "名前を変更";
+      renameBtn.addEventListener("click", () => this.startRename(li, room.id));
+      li.appendChild(renameBtn);
+
       this.roomListEl.appendChild(li);
     }
+  }
+
+  /** ルーム項目の名前ボタンを、blurで確定・Escapeでキャンセルする入力欄に一時的に置き換える。 */
+  private startRename(li: HTMLLIElement, id: string): void {
+    const labelBtn = li.querySelector<HTMLButtonElement>(".shared-room-btn");
+    if (!labelBtn) return;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "shared-room-rename-input";
+    input.value = getNickname(id) ?? id;
+    labelBtn.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let cancelled = false;
+    input.addEventListener("blur", () => {
+      if (!cancelled) setNickname(id, input.value);
+      this.renderRoomList();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === "Escape") {
+        cancelled = true;
+        input.blur();
+      }
+    });
   }
 
   private async selectRoom(id: string): Promise<void> {

@@ -617,6 +617,13 @@ body {
   gap: 20px;
 }
 
+.shared-room-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 120px;
+}
+
 .shared-room-list {
   list-style: none;
   margin: 0;
@@ -624,7 +631,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 120px;
+}
+
+.shared-room-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .shared-room-btn {
@@ -634,6 +646,28 @@ body {
 .shared-room-btn[aria-pressed="true"] {
   color: oklch(22% 0.012 55 / 0.9);
   font-weight: 500;
+}
+
+.shared-room-rename {
+  font-size: 10.5px;
+  color: oklch(22% 0.012 55 / 0.3);
+}
+
+.shared-room-rename-input {
+  flex: 1;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 6px;
+  border: 1px solid oklch(22% 0.012 55 / 0.25);
+  border-radius: 6px;
+  background: oklch(98% 0.005 75);
+  color: inherit;
+}
+
+.shared-room-hint {
+  font-size: 10.5px;
+  color: oklch(22% 0.012 55 / 0.35);
+  max-width: 200px;
 }
 
 .shared-canvas-wrap {
