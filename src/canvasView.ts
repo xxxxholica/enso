@@ -1,5 +1,7 @@
 import { fitCanvasToContainer } from "./canvasSizing";
-import { circleIntersectsBox, clampToCircle, pointNearStrokes } from "./geometry";
+import { DEFAULT_FRAME_SHAPE_ID, getFrameShape } from "./frameShape";
+import type { FrameShapeId } from "./frameShape";
+import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -57,12 +59,40 @@ interface DrawState {
  * 大きさ（px）が変化しても、既存のメモが縮んで見えたり位置がずれたりしない
  * ——ウィンドウを広げれば単純にその分だけ拡大して描かれる。
  */
+export interface CircularCanvasOptions {
+  /** キャンバスの一辺に対する内容円の半径の割合。省略した場合はfitCanvasToContainer
+   *  の既定値（固定0.43）を使う。キャンバスの大きさ・フレーム形状・縁取りの太さから
+   *  毎回もっとも大きく安全に収まる値を動的に計算したい呼び出し元（SMUIのレンズ）は、
+   *  sizeを受け取る関数を渡す（canvasSizing.computeAutoScale参照）。 */
+  contentScaleFactor?: number | ((size: number) => number);
+  frameShapeId?: FrameShapeId;
+  /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
+   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。 */
+  frameStrokeColor?: string;
+  frameStrokeWidth?: number;
+  /** falseの場合、ポインタ操作を一切受け付けない。SMUIの右レンズが共有キャンバスに
+   *  まだ接続されていない間、白い罫線の紙だけを表示するプレースホルダー表現に使う
+   *  （ユーザー指示）。既定true。 */
+  interactive?: boolean;
+}
+
 export class CircularCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private scale = 0;
   private centerPx: Point = { x: 0, y: 0 };
   private dpr = Math.max(1, window.devicePixelRatio || 1);
+  private resizeObserver: ResizeObserver;
+  private contentScaleFactor: number | ((size: number) => number) | undefined;
+  private frameShapeId: FrameShapeId;
+  private frameStrokeColor: string;
+  private frameStrokeWidth: number;
+  private interactive: boolean;
+  /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
+   *  resize()/setFrameShape()のタイミングでだけ組み立て直し、render()（毎フレーム）
+   *  では使い回す——Path2Dの構築自体は軽くないため。 */
+  private framePath: Path2D = new Path2D();
+  private strokePath: Path2D = new Path2D();
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -81,10 +111,20 @@ export class CircularCanvas {
   /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
   private templateHoverPoint: Point | null = null;
 
-  constructor(container: HTMLElement, store: MemoStore, getToolState: () => ToolState) {
+  constructor(
+    container: HTMLElement,
+    store: MemoStore,
+    getToolState: () => ToolState,
+    options: CircularCanvasOptions = {}
+  ) {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
+    this.frameShapeId = options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID;
+    this.frameStrokeColor = options.frameStrokeColor ?? CIRCLE_BORDER;
+    this.frameStrokeWidth = options.frameStrokeWidth ?? 1;
+    this.interactive = options.interactive ?? true;
+    this.contentScaleFactor = options.contentScaleFactor;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -95,29 +135,56 @@ export class CircularCanvas {
     this.resize();
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
-    const observer = new ResizeObserver(() => this.resize());
-    observer.observe(this.container);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.container);
 
-    this.canvas.style.touchAction = "none";
-    this.canvas.addEventListener("pointerdown", this.onPointerDown);
-    this.canvas.addEventListener("pointermove", this.onPointerMove);
-    window.addEventListener("pointerup", this.onPointerUp);
-    window.addEventListener("pointercancel", this.onPointerUp);
+    if (this.interactive) {
+      this.canvas.style.touchAction = "none";
+      this.canvas.addEventListener("pointerdown", this.onPointerDown);
+      this.canvas.addEventListener("pointermove", this.onPointerMove);
+      window.addEventListener("pointerup", this.onPointerUp);
+      window.addEventListener("pointercancel", this.onPointerUp);
+    }
   }
 
   /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける。 */
   private resize(): void {
-    const { scale, centerPx } = fitCanvasToContainer(this.canvas, this.container, this.dpr);
+    const { scale, centerPx } = fitCanvasToContainer(
+      this.canvas,
+      this.container,
+      this.dpr,
+      this.contentScaleFactor
+    );
     this.scale = scale;
     this.centerPx = centerPx;
+    this.rebuildFramePaths();
   }
 
-  /** 画面ピクセル座標 → 正規化座標（円の半径を1とする、中心が原点）。円の外にあれば内側に丸め込む。 */
+  /** クリップ境界と外枠線のPath2Dを、今のscale/フレーム形状/縁の太さから組み立て直す。
+   *  resize()（コンテナサイズ変化時）とsetFrameShape()（resize()経由）でだけ呼ばれる。 */
+  private rebuildFramePaths(): void {
+    const shape = getFrameShape(this.frameShapeId);
+    this.framePath = shape.buildPath(this.scale);
+    this.strokePath = shape.buildPath(this.scale + this.frameStrokeWidth / 2);
+  }
+
+  /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
+  setFrameShape(id: FrameShapeId): void {
+    this.frameShapeId = id;
+    // 動的計算時のscale自体はMAX_SHAPE_REACH基準で形状に関わらず一定だが、
+    // クリップ境界・紙の塗り範囲（drawRuledPaperのfillHalfExtent）は形状ごとに
+    // 異なるため、次のrender()で正しく反映されるようここでresize()して
+    // centerPx等を確定させておく。
+    this.resize();
+  }
+
+  /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
+   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const x = (clientX - rect.left - this.centerPx.x) / this.scale;
     const y = (clientY - rect.top - this.centerPx.y) / this.scale;
-    return clampToCircle({ x, y }, 1);
+    return getFrameShape(this.frameShapeId).clamp({ x, y });
   }
 
   private scheduleSessionClose(): void {
@@ -386,7 +453,7 @@ export class CircularCanvas {
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy);
+      this.store.translateMemo(this.state.movingMemoId, dx, dy, getFrameShape(this.frameShapeId).clamp);
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
@@ -409,39 +476,42 @@ export class CircularCanvas {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
-    // テンプレート配置待ちの間は、次のタップで何かが置かれることが伝わるカーソルにする。
-    const tool = this.getToolState().tool;
-    this.canvas.style.cursor = this.pendingTemplate
-      ? "copy"
-      : tool === "move"
-        ? this.state.mode === "moving"
-          ? "grabbing"
-          : "grab"
-        : "crosshair";
+    if (this.interactive) {
+      // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+      // テンプレート配置待ちの間は、次のタップで何かが置かれることが伝わるカーソルにする。
+      const tool = this.getToolState().tool;
+      this.canvas.style.cursor = this.pendingTemplate
+        ? "copy"
+        : tool === "move"
+          ? this.state.mode === "moving"
+            ? "grabbing"
+            : "grab"
+          : "crosshair";
+    }
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
     ctx.translate(this.centerPx.x, this.centerPx.y);
 
-    // 円の外枠
-    ctx.beginPath();
-    ctx.arc(0, 0, this.scale, 0, Math.PI * 2);
-    ctx.strokeStyle = CIRCLE_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    const shape = getFrameShape(this.frameShapeId);
 
-    // 円の外にはみ出さないようクリップ
+    // 枠の外にはみ出さないようクリップ（外枠の線自体は中身の描画が終わってから、
+    // クリップ境界より外側に描く——太い枠線をクリップ境界の上に中心線として描くと、
+    // 線の内側半分が後から描くメモに隠れてしまうため）。
     ctx.save();
-    ctx.beginPath();
-    ctx.arc(0, 0, this.scale, 0, Math.PI * 2);
-    ctx.clip();
+    ctx.clip(this.framePath);
 
-    drawRuledPaper(ctx, this.scale);
-
-    const activeMemos = this.store.getActive();
     const r = this.scale;
 
+    // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
+    // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
+    // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
+    // 透けて見える帯ができてしまう（ユーザー指摘）。
+    drawRuledPaper(ctx, this.scale, this.scale * shape.maxReach);
+
+    // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
+    // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
+    const activeMemos = this.store.getActive();
     for (const memo of activeMemos) {
       const opacity = this.store.opacityOf(memo, now);
       if (opacity <= 0) continue;
@@ -480,7 +550,15 @@ export class CircularCanvas {
 
     ctx.restore(); // clip
 
-    if (activeMemos.length === 0) {
+    // 外枠線。クリップ境界（this.scale）よりも線幅の半分だけ外側にオフセットした
+    // 別パスに描くことで、太い線でも内側半分が中身の描画に隠れず、かつクリップされる
+    // 描画可能領域自体も狭めない（通常キャンバスの既定値=1pxではオフセットは0.5pxのみ
+    // で見た目の変化は無い）。
+    ctx.strokeStyle = this.frameStrokeColor;
+    ctx.lineWidth = this.frameStrokeWidth;
+    ctx.stroke(this.strokePath);
+
+    if (this.interactive && activeMemos.length === 0) {
       // 中心点
       ctx.beginPath();
       ctx.arc(0, 0, 3, 0, Math.PI * 2);
@@ -494,5 +572,22 @@ export class CircularCanvas {
     }
 
     ctx.restore(); // translate + setTransform
+  }
+
+  /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した
+   *  ポインタリスナーを解除する——これを呼ばずにcanvas要素だけDOMから外すと、
+   *  監視・リスナーがこのインスタンス（とstore等それが閉じ込めているもの）を
+   *  永久に参照し続けてしまう（SMUIの右レンズはルーム切替のたびに新しい
+   *  CircularCanvasへ差し替わるため、古い方を破棄せず放置するとリークする）。 */
+  destroy(): void {
+    this.resizeObserver.disconnect();
+    if (this.interactive) {
+      this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+      this.canvas.removeEventListener("pointermove", this.onPointerMove);
+      window.removeEventListener("pointerup", this.onPointerUp);
+      window.removeEventListener("pointercancel", this.onPointerUp);
+    }
+    this.textEditor?.remove();
+    this.canvas.remove();
   }
 }

@@ -6,7 +6,19 @@
 
 const common = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
 
-export const ICONS: Record<"pen" | "marker" | "eraser" | "text" | "move" | "checklist", string> = {
+export const ICONS: Record<
+  | "pen"
+  | "marker"
+  | "eraser"
+  | "text"
+  | "move"
+  | "checklist"
+  | "shapeRound"
+  | "shapeOval"
+  | "shapeSquare"
+  | "sharedRooms",
+  string
+> = {
   pen: `
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M5 19.5l0.6-3 11-11 2.4 2.4-11 11z" />
@@ -46,5 +58,22 @@ export const ICONS: Record<"pen" | "marker" | "eraser" | "text" | "move" | "chec
       <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
       <path d="M8.5 11l1.5 1.5L13 9" />
       <path d="M8.5 16l1.5 1.5L13 14" />
+    </svg>`,
+  shapeRound: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="12" cy="12" r="8" />
+    </svg>`,
+  shapeOval: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <ellipse cx="12" cy="12" rx="9" ry="7" />
+    </svg>`,
+  shapeSquare: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <rect x="4" y="5" width="16" height="14" rx="3.5" />
+    </svg>`,
+  sharedRooms: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="9" cy="12" r="5.5" />
+      <circle cx="15" cy="12" r="5.5" />
     </svg>`,
 };

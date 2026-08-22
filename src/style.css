@@ -48,6 +48,15 @@ body {
   gap: 16px;
 }
 
+/* --- アカウント表示と、SMUI（共有）タブ表示中だけ現れる共有ルームメニューを
+   まとめて右寄せする器。ボタン自体（#shared-room-menu-slot）はhidden属性で
+   出し入れするので、このラッパー自体は常に存在する。 --- */
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .account-badge {
   display: flex;
   align-items: center;
@@ -144,6 +153,14 @@ body {
   overflow-y: auto;
 }
 
+/* --- SMUI（共有）のパネル。#archive-panelと同じ理由で、view-panelの既定
+   (align-items:center)を上書きしてstretchにし、.smui-frameがパネルいっぱいの
+   高さを持てるようにする——これが無いと.smui-viewは中身ぶんの高さしか持たず、
+   2つのレンズがキャンバスタブの円のように縦方向の余白を使い切れない。 --- */
+#shared-panel {
+  align-items: stretch;
+}
+
 .app-footer {
   width: 100%;
   display: flex;
@@ -170,7 +187,10 @@ body {
 
 .control-panel {
   width: 100%;
-  max-width: min(760px, 94vw);
+  /* SMUI（共有）表示中はフレーム形状セレクタが4つ目のブロックとして加わるため、
+     キャンバス表示中（3ブロック）より必要な幅が増える。他の2画面ではブロック数が
+     変わらないため、上限を上げても見た目に悪影響はない。 */
+  max-width: min(900px, 96vw);
   min-height: 72px;
   display: flex;
   flex-wrap: nowrap;
@@ -319,6 +339,35 @@ body {
   pointer-events: auto;
 }
 
+/* --- ヘッダー（画面上部）に置くアイコンボタン用の向き違い。既定の.icon-popover
+   は下部バーのボタン上に開く前提で上向き(bottom:100%)になっているが、
+   ヘッダーでそのまま使うと画面外に開いてしまうため、下向きに変える
+   （共有ルームメニュー、sharedRoomMenu.ts）。 --- */
+.icon-popover--below {
+  top: 100%;
+  bottom: auto;
+  margin-top: 10px;
+  margin-bottom: 0;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+.icon-popover--below.is-visible {
+  transform: translateX(-50%) translateY(0);
+}
+
+/* --- ヘッダー右端に近いボタン用。中央揃え(left:50%+translateX(-50%))のままだと
+   画面右端でポップアップが画面外にはみ出すため、ボタンの右端に揃えて左方向に
+   広がるようにする（共有ルームメニュー、sharedRoomMenu.ts）。 --- */
+.icon-popover--align-end {
+  left: auto;
+  right: 0;
+  transform: translateY(-6px);
+}
+
+.icon-popover--align-end.is-visible {
+  transform: translateY(0);
+}
+
 /* --- テンプレートのメニューは縦積みの一覧。タップ領域・文字を大きめにして
    メニューらしく読みやすくした。 --- */
 .template-popover {
@@ -426,7 +475,7 @@ body {
 }
 
 /* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）と
-   sharedCanvasView（部屋の作成・招待リンクのコピーなど）で使う共通部品。 --- */
+   smuiView（部屋の作成・招待リンクのコピーなど）で使う共通部品。 --- */
 .text-link {
   appearance: none;
   border: none;
@@ -568,14 +617,6 @@ body {
   color: oklch(22% 0.012 55 / 0.45);
 }
 
-.shared-main {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-
 .shared-toolbar {
   display: flex;
   align-items: center;
@@ -596,7 +637,7 @@ body {
 }
 
 .shared-invite-input {
-  width: min(320px, 60vw);
+  width: 100%;
   font: inherit;
   font-size: 12px;
   padding: 4px 8px;
@@ -606,17 +647,6 @@ body {
   color: inherit;
 }
 
-.shared-body {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-}
-
 .shared-room-list {
   list-style: none;
   margin: 0;
@@ -624,7 +654,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 120px;
+  /* ルーム数が増えても popover 自体は伸びず、一覧の内側だけスクロールする。 */
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .shared-room-btn {
@@ -636,6 +668,184 @@ body {
   font-weight: 500;
 }
 
-.shared-canvas-wrap {
-  flex: 0 1 auto;
+/* --- ヘッダーの共有ルームメニュー（sharedRoomMenu.ts）。.icon-popoverの
+   共通の見た目に、このメニュー固有の横幅・縦積みレイアウトを足す。 --- */
+.shared-room-popover {
+  min-width: 240px;
+  max-width: min(320px, 86vw);
+}
+
+.shared-room-menu-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* --- SMUI（鯖江メガネUI）ビュー：眼鏡フレーム内に個人（左）・共有（右）の
+   2つの独立したレンズ（キャンバス）を並べる。旧「共有」タブを置き換える。
+   #shared-panelのalign-items:stretch（上で追加）から.smui-view→.smui-frame→
+   .smui-lens→.smui-lens-canvas-wrapまで「残りの高さを埋める(flex:1 1 auto;
+   min-height:0)」を連鎖させることで、#archive-panel/.archive-canvas-wrapと
+   同じ仕組みでレンズがパネルの高さいっぱいまで育つ。以前はここに
+   aspect-ratio:1/1を指定して正方形を「幅から」逆算していたため、高さの余裕を
+   使い切れなかった（widthだけでheightが決まってしまい、fitCanvasToContainer()
+   のmin(width,height)判定に高さの余地が渡らなかった）——stretch連鎖で高さも
+   実寸として持たせることで、本来のmin(width,height)判定が効くようになる。 --- */
+.smui-view {
+  width: 100%;
+  height: 100%;
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.smui-frame {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  /* flex-wrapは持たせない: 縦積みへの切り替えは@media (max-width:700px)の
+     flex-direction:columnだけで行う。wrapを許すと、smuiView.tsが計算する
+     レンズの箱幅が何らかの理由でframeの実横幅よりわずかに大きくなった場合に
+     意図せず縦積みへ化けてしまう（過去に発生したバグ）——横並びを保証したい
+     ここでは折り返させたくない。 */
+  align-items: stretch;
+  justify-content: center;
+  gap: 20px;
+}
+
+.smui-lens {
+  /* 横幅はflex-growに任せず、smuiView.ts（syncLensBoxWidths）がJSで実測して
+     インラインstyle.widthを設定する——箱の高さ（.smui-frameのstretchで決まる、
+     横幅とは無関係な値）に一致させることで、箱がちょうど正方形になり、
+     中の円（computeSquareSizeでmin(幅,高さ)判定）が箱の横幅いっぱいまで届く。
+     以前はflex:1 1 320pxで横幅だけが際限なく伸び、高さ基準で決まる円は
+     箱の中央に取り残されて、2つのレンズが接合部から離れて見えていた
+     （ユーザー指摘：レンズを接合部に寄せたい）。min-widthはJSが実行される前
+     （またはモバイル幅でJS側が意図的にwidthを外している間）の保険。 */
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.smui-lens-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: oklch(22% 0.012 55 / 0.6);
+  white-space: nowrap;
+}
+
+.smui-lens-canvas-wrap {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative; /* smui-lens-statusをこの箱基準で重ねて表示するため */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 右レンズの中身（実際のCircularCanvas）が入る、差し替え可能な入れ物。
+   ルーム接続時に丸ごと innerHTML="" して作り直すのはこの要素だけで、
+   .smui-lens-canvas-wrap自体と.smui-lens-status（下記）は消えずに残る。 --- */
+.smui-lens-canvas-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 右レンズの案内・読み込み中・失敗時のメッセージ。canvas（白い罫線の紙）の
+   上に重ねて表示する。 --- */
+.smui-lens-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 80%;
+  margin: 0 auto;
+  text-align: center;
+  font-size: 12.5px;
+  color: oklch(22% 0.012 55 / 0.45);
+  pointer-events: none;
+}
+
+/* --- レンズをつなぐブリッジ（実際の眼鏡の橋の部分）。装飾専用の要素で、
+   色・太さはsmuiView.tsのSMUI_FRAME_COLOR/SMUI_FRAME_WEIGHT_PXからCSS変数
+   として渡される（レンズの縁取りと同じ値を共有し、1つの連続したフレーム素材に
+   見せるため）。構造は.smui-lens（ラベル＋残りを中央寄せするcanvas-wrap）を
+   鏡写しにしてある: .smui-bridge-label-spacerが.smui-lens-labelと同じ高さ、
+   .smui-bridge-trackが.smui-lens-canvas-wrapと同じ「flex:1で中央寄せ」——
+   これによりバー本体の垂直位置が、固定pxの目分量ではなくレンズ円の実際の
+   中心と正確に揃う。 --- */
+.smui-bridge {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.smui-bridge-label-spacer {
+  height: 15px; /* .smui-lens-labelのfont-size(12px)相当の行の高さ */
+  margin-bottom: 10px; /* .smui-lensのgapと揃える */
+  flex: 0 0 auto;
+}
+
+.smui-bridge-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+/* --- バー本体。実際の左右position:left/widthは、smuiView.tsのupdateBridgeBar()
+   が両レンズの縁の実測位置（getBoundingClientRect + computeSquareSizeから
+   逆算した縁の座標）に合わせてインラインstyleで設定する——固定pxやCSSだけの
+   目分量では、レンズの大きさ・太さ・形状（Ovalは横に張り出す等）に応じて
+   変わる縁の位置に正確に届かないため（ユーザー指摘の「レンズ同士が接続されて
+   見えない」問題への対応）。.smui-bridge-track（40px幅）の外まで左右に
+   はみ出して届くことがあるため、意図的にoverflowをクリップしていない。 --- */
+.smui-bridge-bar {
+  position: absolute;
+  top: 50%;
+  height: var(--smui-frame-weight, 12px);
+  background: var(--smui-frame-color, oklch(30% 0.02 55));
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+/* --- 狭い画面ではレンズを横に並べる余地がないため、縦積みに切り替える。
+   縦積みになると水平のブリッジバーは意味をなさないため、非表示にする。 --- */
+@media (max-width: 700px) {
+  .smui-frame {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .smui-lens {
+    /* 縦積みレイアウトでは横幅を高さに合わせる意味が無いため、smuiView.tsの
+       syncLensBoxWidthsはこの幅ではinline style.widthを外し、ここのwidth:100%
+       （幅基準の正方形）に委ねる。 */
+    width: 100%;
+    max-width: 420px;
+    flex: 0 0 auto;
+    aspect-ratio: auto;
+  }
+
+  .smui-lens-canvas-wrap {
+    aspect-ratio: 1 / 1;
+    flex: 0 0 auto;
+  }
+
+  .smui-bridge {
+    display: none;
+  }
 }

@@ -8,36 +8,41 @@ function makeId(): string {
 }
 
 /**
- * メモ全体の状態を保持し、localStorage と同期させるストア。
+ * メモ全体の状態を保持し、既定ではlocalStorageと同期させるストア。
  * 保存・復元・経時フェードの判定・なぞり復活・全体リセットをまとめて担う。
  */
 export class MemoStore {
   private memos: Memo[];
   private onChange?: (memos: readonly Memo[]) => void;
+  private persistLocally: boolean;
 
   /**
    * onChangeは、アカウント同期（cloudSync.ts）がローカルの変更をクラウドに
    * 反映するためのフック。ログインしていない間は呼ばれても何もしない。
+   * persistLocallyをfalseにすると、localStorage["memos"]を一切読み書きしない
+   * （個人用ストアと衝突させたくない共有キャンバス用インスタンス、
+   * sharedCanvasSync.ts参照——真の保存先はサーバー側のため、ここでは何も保存しない）。
    */
-  constructor(onChange?: (memos: readonly Memo[]) => void) {
-    this.memos = loadMemos();
+  constructor(onChange?: (memos: readonly Memo[]) => void, persistLocally: boolean = true) {
+    this.persistLocally = persistLocally;
+    this.memos = persistLocally ? loadMemos() : [];
     this.onChange = onChange;
   }
 
   private persist(): void {
-    saveMemos(this.memos);
+    if (this.persistLocally) saveMemos(this.memos);
     this.onChange?.(this.memos);
   }
 
   /**
-   * クラウドから取得したメモ一覧で丸ごと置き換える（アカウントログイン時の同期用）。
-   * ローカルの変更点だけを賢く合成するような処理はせず、常にクラウド側を正として上書きする
-   * ——複数端末での本格的な競合解決は今回のスコープ外。
+   * クラウド（またはルームのサーバー側の内容）で丸ごと置き換える（アカウントログイン時や
+   * 共有キャンバスのポーリング同期用）。ローカルの変更点だけを賢く合成するような処理はせず、
+   * 常にサーバー側を正として上書きする——複数端末/複数人での本格的な競合解決は今回のスコープ外。
    */
   replaceAll(memos: Memo[]): void {
     this.memos = memos;
-    saveMemos(this.memos);
-    // クラウドから取り込んだ直後にそのまま押し戻す(onChange経由の再送信)必要はないため、
+    if (this.persistLocally) saveMemos(this.memos);
+    // 取り込んだ直後にそのまま押し戻す(onChange経由の再送信)必要はないため、
     // ここではpersist()を経由せずonChangeを呼ばない。
   }
 
@@ -177,29 +182,37 @@ export class MemoStore {
   /**
    * メモ全体（手描き・テキストどちらも）を (dx, dy) だけ平行移動する
    * （移動道具でドラッグしている間、ポインタが動くたびに呼ばれる差分移動）。
-   * 円の外にはみ出さないよう、移動後の各点は円の半径1にクランプする
-   * ——ストロークは点ごとにクランプするため、円周に触れた部分は形が
-   * わずかに丸められる（描画時のクランプと同じ挙動）。
+   * 描画可能領域の外にはみ出さないよう、移動後の各点はclampで丸め込む
+   * ——ストロークは点ごとにクランプするため、境界に触れた部分は形がわずかに
+   * 丸められる（描画時のクランプと同じ挙動）。既定は半径1の円だが、SMUIの
+   * ように選んだフレーム形状（楕円/長方形）の輪郭でクランプしたい呼び出し元は
+   * frameShape.tsの対応するclampを渡す——このストア自体は「今どの形状を
+   * 見ているか」を知らない（同じ個人MemoStoreが、常に円の「キャンバス」タブと
+   * 形状を選べるSMUIの左レンズの両方から使われるため、ストアの状態としては
+   * 持てない）。
    * 移動は「消えるまでの期間」や「なぞって復活」とは無関係な、位置だけの
    * 操作として扱う。よって lastTracedAt / traceHistory には触れない
    * ——ただ場所を直しただけで内容に触れたわけではない、という判断。
    */
-  translateMemo(memoId: string, dx: number, dy: number): void {
+  translateMemo(
+    memoId: string,
+    dx: number,
+    dy: number,
+    clamp: (p: Point) => Point = (p) => clampToCircle(p, 1)
+  ): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.status !== "active") return;
     if (dx === 0 && dy === 0) return;
 
     if (memo.kind === "stroke") {
-      memo.strokes = memo.strokes.map((stroke) =>
-        stroke.map((p) => clampToCircle({ x: p.x + dx, y: p.y + dy }, 1))
-      );
+      memo.strokes = memo.strokes.map((stroke) => stroke.map((p) => clamp({ x: p.x + dx, y: p.y + dy })));
       const first = memo.strokes[0]?.[0];
       if (first) {
         memo.x = first.x;
         memo.y = first.y;
       }
     } else {
-      const moved = clampToCircle({ x: memo.x + dx, y: memo.y + dy }, 1);
+      const moved = clamp({ x: memo.x + dx, y: memo.y + dy });
       memo.x = moved.x;
       memo.y = moved.y;
     }

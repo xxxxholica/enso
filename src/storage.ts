@@ -1,9 +1,13 @@
+import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
+import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, normalizedBoxSize } from "./textLayout";
 import type { DrawTool, Memo, StrokeMemo, TextMemo } from "./types";
 
 const STORAGE_KEY = "memos";
+const FRAME_SHAPE_KEY = "smuiFrameShape";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
+const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -96,4 +100,20 @@ export function loadMemos(): Memo[] {
 
 export function saveMemos(memos: Memo[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(memos));
+}
+
+/** SMUI（眼鏡デュアルビュー）で選んだフレーム形状（着せ替え）。 */
+export function loadFrameShape(): FrameShapeId {
+  try {
+    const raw = localStorage.getItem(FRAME_SHAPE_KEY);
+    return raw !== null && VALID_FRAME_SHAPES.has(raw as FrameShapeId)
+      ? (raw as FrameShapeId)
+      : DEFAULT_FRAME_SHAPE_ID;
+  } catch {
+    return DEFAULT_FRAME_SHAPE_ID;
+  }
+}
+
+export function saveFrameShape(id: FrameShapeId): void {
+  localStorage.setItem(FRAME_SHAPE_KEY, id);
 }

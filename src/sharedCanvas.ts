@@ -4,10 +4,11 @@ import type { Memo } from "./types";
 /**
  * 共有キャンバス（コラボ機能）のAPI呼び出し。api.onunu.me の /shared-canvases 系。
  * すべてのエンドポイントで Authorization ヘッダーが必須のため、未ログイン時は
- * 呼び出し元（sharedCanvasView.ts）でガードすること。
+ * 呼び出し元（smuiView.ts）でガードすること。
  *
- * スコープ（今回=Lv1でやること）: 作成・参加・一覧・閲覧のみ。
- * 書き込みの保存（PUT）・楽観ロック(409)の扱いはコラボ機能Lv2側の課題であり、ここでは実装しない。
+ * 作成・参加・一覧・閲覧に加え、PUTによる保存も行う（SMUIの右レンズで実際に
+ * 書き込めるようにするため）。同時編集の競合解決（楽観ロック等）は行わず、
+ * 最後に保存した内容が勝つ単純な方式（sharedCanvasSync.ts側でポーリングする）。
  */
 
 export interface SharedCanvasSummary {
@@ -55,4 +56,14 @@ export async function getSharedCanvas(id: string): Promise<SharedCanvasDetail> {
   const data: unknown = await res.json();
   const memos = (data as { memos?: unknown }).memos;
   return { id, memos: Array.isArray(memos) ? (memos as Memo[]) : [] };
+}
+
+/** 指定した共有キャンバスの中身を保存する（メンバー外は403で失敗する）。 */
+export async function saveSharedCanvas(id: string, memos: readonly Memo[]): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ memos }),
+  });
+  if (!res.ok) throw new Error(`共有キャンバスの保存に失敗しました (status: ${res.status})`);
 }

@@ -63,6 +63,44 @@ export function isInsideCircle(p: Point, radius: number): boolean {
 }
 
 /**
+ * 楕円（原点中心・半径rx,ry）の内側に点を丸め込む。原点からpへの向きはそのまま
+ * 保ち、その方向の楕円境界までの距離に縮める（clampToCircleのrx=ry=radius版と
+ * 同じ考え方の一般化）。
+ */
+export function clampToEllipse(p: Point, rx: number, ry: number): Point {
+  const norm = (p.x * p.x) / (rx * rx) + (p.y * p.y) / (ry * ry);
+  if (norm <= 1) return p;
+  const scale = 1 / Math.sqrt(norm);
+  return { x: p.x * scale, y: p.y * scale };
+}
+
+/**
+ * 角丸長方形（原点中心、半辺half、角丸半径cornerRadius）の内側に点を丸め込む。
+ * 直線の辺に近い（=角の丸め部分の外にある）点は軸ごとに素直にクランプし、
+ * 角の丸め部分にある点はその角の中心（各辺からcornerRadiusだけ内側）からの
+ * 距離をcornerRadiusに縮める。
+ */
+export function clampToRoundedRect(p: Point, half: number, cornerRadius: number): Point {
+  const inner = half - cornerRadius;
+  const ax = Math.abs(p.x);
+  const ay = Math.abs(p.y);
+  if (ax <= inner || ay <= inner) {
+    return {
+      x: Math.max(-half, Math.min(half, p.x)),
+      y: Math.max(-half, Math.min(half, p.y)),
+    };
+  }
+  const cx = Math.sign(p.x) * inner;
+  const cy = Math.sign(p.y) * inner;
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  const d = Math.hypot(dx, dy);
+  if (d <= cornerRadius) return p;
+  const scale = cornerRadius / d;
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/**
  * 消しゴム: center から radius 以内にある点をストロークから取り除く。
  * 取り除いた場所でストロークが分断される場合は、複数の断片に分けて返す
  * （2点未満になった断片は消える）。全く消えなければ元と同じ内容の1本を返す。
