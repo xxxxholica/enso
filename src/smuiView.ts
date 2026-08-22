@@ -54,11 +54,14 @@ export class SmuiView {
   private bridgeEl!: HTMLElement;
   private leftLensEl!: HTMLElement;
   private rightLensEl!: HTMLElement;
+  private leftLabelEl!: HTMLElement;
+  private rightLabelRowEl!: HTMLElement;
   private leftWrapEl!: HTMLElement;
   private rightWrap!: HTMLElement;
   private rightCanvasContainer!: HTMLElement;
   private rightStatusEl!: HTMLElement;
   private rightLabelEl!: HTMLElement;
+  private roomMenuSlotEl!: HTMLElement;
   private bridgeTrackEl!: HTMLElement;
   private bridgeBarEl!: HTMLElement;
 
@@ -67,7 +70,6 @@ export class SmuiView {
   private roomSync: SharedRoomSync | null = null;
 
   private active = false;
-  private selectedId: string | null = null;
 
   constructor(
     container: HTMLElement,
@@ -82,7 +84,7 @@ export class SmuiView {
 
     this.leftLens = new CircularCanvas(this.leftWrapEl, personalStore, getToolState, this.lensOptions());
     this.rightLens = this.buildPlaceholderRightLens();
-    this.setRightStatus("右上のメニューからルームを作成・参加してください");
+    this.setRightStatus("上のアイコンからルームを作成・参加してください");
 
     // ブリッジの実際の位置・幅は、両レンズの縁の実測値に合わせてJSで計算する
     // （CSSだけでは、レンズの太さ・大きさに応じて変わる縁の位置に正確に届かない
@@ -103,6 +105,13 @@ export class SmuiView {
     bridgeResizeObserver.observe(this.leftWrapEl);
     bridgeResizeObserver.observe(this.rightWrap);
     this.syncLayout();
+  }
+
+  /** 右レンズの「共有キャンバス」ラベル横にある空の器。main.tsがここに
+   *  SharedRoomMenuをマウントする（このクラス自身はルーム作成・選択のUIを
+   *  持たず、置き場所を提供するだけ）。 */
+  getRoomMenuSlot(): HTMLElement {
+    return this.roomMenuSlotEl;
   }
 
   /** 両レンズ（左レンズ・右レンズのプレースホルダー/実体）に共通するCircularCanvas
@@ -161,8 +170,13 @@ export class SmuiView {
     // ブリッジ・隙間ぶんを引いて2等分する。
     const maxWidthToFitSideBySide = (frameRect.width - bridgeWidth - gapPx * 2) / 2;
 
-    const leftHeight = this.leftLensEl.getBoundingClientRect().height;
-    const rightHeight = this.rightLensEl.getBoundingClientRect().height;
+    // レンズの箱(.smui-lens)全体の高さではなく、ラベル行を除いた「canvas-wrap
+    // に実際に使える高さ」を上限にする——canvas-wrapはaspect-ratio:1/1（幅=高さ）
+    // なので、ラベル行の高さを差し引かずに.smui-lens全体の高さを幅の上限にすると、
+    // ラベル行の分だけ.smui-lensからはみ出してしまう（右レンズはボタンがある分
+    // ラベル行が高く、より顕著に出る）。
+    const leftHeight = this.wrapHeightBudget(this.leftLensEl, this.leftLabelEl);
+    const rightHeight = this.wrapHeightBudget(this.rightLensEl, this.rightLabelRowEl);
     // 下限（MIN_CANVAS_SIZE）は設けない——横並びに収まる幅を最優先にする単純な
     // 計算にする（ユーザー指示）。DESKTOP_LAYOUT_QUERYが真になる最小幅
     // （701px）でもmaxWidthToFitSideBySideは200pxを十分上回るため、実務上
@@ -171,6 +185,15 @@ export class SmuiView {
 
     if (leftHeight > 0) this.leftLensEl.style.width = `${clamp(leftHeight)}px`;
     if (rightHeight > 0) this.rightLensEl.style.width = `${clamp(rightHeight)}px`;
+  }
+
+  /** レンズの箱の高さから、ラベル行と.smui-lensのgapぶんを差し引いた、
+   *  canvas-wrap（aspect-ratio:1/1の正方形）が使ってよい最大の一辺。 */
+  private wrapHeightBudget(lensEl: HTMLElement, labelRowEl: HTMLElement): number {
+    const lensHeight = lensEl.getBoundingClientRect().height;
+    const labelRowHeight = labelRowEl.getBoundingClientRect().height;
+    const lensGap = parseFloat(getComputedStyle(lensEl).rowGap) || 0;
+    return lensHeight - labelRowHeight - lensGap;
   }
 
   /** レンズの箱幅・ブリッジの位置と幅を、この順番でまとめて再計算する
@@ -196,6 +219,13 @@ export class SmuiView {
    * 浮いて見えてしまっていた（ユーザー指摘）。見た目の短さより「必ず両方の
    * 縁につながって見える」ことを優先し、上限を設けず実測の隙間そのものを
    * バーの幅にする。
+   *
+   * 縦位置も同じ理由でCSSの目分量（トラックの50%）ではなくJSの実測にする。
+   * .smui-lens-canvas-wrapはwidth<=heightになるようJSで箱幅を決めているため
+   * （syncLensBoxWidths）、円の直径は常に箱の「幅」基準——align-items:flex-start
+   * で円を箱の上端に寄せている今の見た目と一致させるには、円の中心Yを
+   * 「箱の上端 + 直径/2」として測る必要があり、ラベル行の高さ（左右で異なって
+   * よい——右レンズにはSharedRoomMenuのボタンが並ぶ）に依存しない。
    */
   private updateBridgeBar(): void {
     const trackRect = this.bridgeTrackEl.getBoundingClientRect();
@@ -208,6 +238,17 @@ export class SmuiView {
     const width = Math.max(0, rightEdgeX - leftEdgeX);
     this.bridgeBarEl.style.left = `${leftEdgeX - trackRect.left}px`;
     this.bridgeBarEl.style.width = `${width}px`;
+
+    const centerY = (this.lensCenterY(this.leftWrapEl) + this.lensCenterY(this.rightWrap)) / 2;
+    this.bridgeBarEl.style.top = `${centerY - trackRect.top}px`;
+  }
+
+  /** レンズの箱(wrap)の垂直中心の画面Y座標。wrapはaspect-ratio:1/1で円ちょうどの
+   *  大きさなので、wrap自体の中心がそのまま円の中心になる。 */
+  private lensCenterY(wrapEl: HTMLElement): number {
+    const rect = wrapEl.getBoundingClientRect();
+    const size = computeSquareSize(wrapEl);
+    return rect.top + size / 2;
   }
 
   /** レンズの箱(wrap)の中央から、内容円+縁取りの外側の端までの画面X座標。
@@ -240,16 +281,17 @@ export class SmuiView {
     const leftLabel = document.createElement("div");
     leftLabel.className = "smui-lens-label";
     leftLabel.textContent = "個人キャンバス";
+    this.leftLabelEl = leftLabel;
     this.leftLensEl.appendChild(leftLabel);
     this.leftWrapEl = document.createElement("div");
     this.leftWrapEl.className = "smui-lens-canvas-wrap";
     this.leftLensEl.appendChild(this.leftWrapEl);
     frame.appendChild(this.leftLensEl);
 
-    // ブリッジ（レンズをつなぐ橋）。.smui-lensと同じ「ラベル分のスペーサ＋残りを
-    // 中央寄せする器」という構造を鏡写しにすることで、バー本体がレンズの
-    // canvas-wrap（＝実際のレンズ円）の垂直中央と正確に揃う——固定pxの目分量に
-    // 頼らず、レンズのラベル行の高さがどうであってもズレない。
+    // ブリッジ（レンズをつなぐ橋）。バー本体の縦位置はupdateBridgeBar()が
+    // 左右レンズの実測値から直接計算する（下記label-spacerはブリッジ上部に
+    // レンズのラベル行ぶんの余白を見せるための見た目調整のみで、位置計算には
+    // 使わない）。
     this.bridgeEl = document.createElement("div");
     this.bridgeEl.className = "smui-bridge";
     const bridgeLabelSpacer = document.createElement("div");
@@ -265,10 +307,20 @@ export class SmuiView {
 
     this.rightLensEl = document.createElement("div");
     this.rightLensEl.className = "smui-lens smui-lens--right";
+
+    // ラベルとルーム作成・選択ボタン（SharedRoomMenu、main.tsがgetRoomMenuSlot()
+    // 経由でここにマウントする）を横並びにする行。以前はヘッダー最上部にあり、
+    // 右レンズから離れていて見つけにくかった（ユーザー指摘）ため、操作対象の
+    // すぐ横に置く。
+    this.rightLabelRowEl = document.createElement("div");
+    this.rightLabelRowEl.className = "smui-lens-label-row";
     this.rightLabelEl = document.createElement("div");
     this.rightLabelEl.className = "smui-lens-label";
     this.rightLabelEl.textContent = "共有キャンバス";
-    this.rightLensEl.appendChild(this.rightLabelEl);
+    this.rightLabelRowEl.appendChild(this.rightLabelEl);
+    this.roomMenuSlotEl = document.createElement("div");
+    this.rightLabelRowEl.appendChild(this.roomMenuSlotEl);
+    this.rightLensEl.appendChild(this.rightLabelRowEl);
 
     // rightWrap自身はCircularCanvasの入れ物を差し替えても消えない、常設の
     // 位置基準（position:relative、style.cssのsmui-lens-canvas-wrap参照）。
@@ -317,17 +369,11 @@ export class SmuiView {
     );
   }
 
-  private updateRightLabel(): void {
-    this.rightLabelEl.textContent = this.selectedId
-      ? `共有キャンバス: ${this.selectedId.slice(0, 8)}`
-      : "共有キャンバス";
-  }
-
-  /** ヘッダーのSharedRoomMenuで作成・選択されたルームを右レンズに読み込む。 */
+  /** ヘッダーのSharedRoomMenuで作成・選択されたルームを右レンズに読み込む。
+   *  ラベルは常に「共有キャンバス」のまま——ルームIDはSharedRoomMenuの
+   *  トリガーボタン自身が表示するようになった（ユーザー指摘）ため、ここでは
+   *  出さない。 */
   async selectRoom(id: string): Promise<void> {
-    this.selectedId = id;
-    this.updateRightLabel();
-
     this.roomSync?.stop();
     this.roomSync = null;
     this.rightLens = this.buildPlaceholderRightLens();
