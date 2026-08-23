@@ -47,9 +47,6 @@ const TEMPLATE_GUIDE_ALPHA = 0.4;
  *  overlay（DOM側のテキスト編集欄）と同じ紙色・線色に揃えている。 */
 const INFO_BOX_BG = "oklch(98% 0.005 75 / 0.96)";
 const INFO_BOX_BORDER = "oklch(22% 0.012 55 / 0.18)";
-const INFO_BAR_TRACK = "oklch(22% 0.012 55 / 0.12)";
-const INFO_BAR_FILL_REMAINING = "oklch(22% 0.012 55 / 0.55)";
-const INFO_BAR_FILL_EXTENDABLE = "oklch(22% 0.012 55 / 0.32)";
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -669,12 +666,9 @@ export class CircularCanvas {
     return null;
   }
 
-  /** 「残り時間」「回復できる時間」を、背景つきのボックスの中に2本のバーで
-   *  表示する（ユーザー指示：具体的な量はバーの中に出す。詰めすぎず、ゆったり
-   *  とした余白を取る）。触れている/ホバーしている点(point、正規化座標)の
-   *  すぐ下にボックスを置く。レイアウトは上から順に、余白→見出し→隙間→バー→
-   *  グループ間の余白→見出し→隙間→バー→余白、という積み上げで決める
-   *  （固定の高さを先に決めて後から詰め込むと窮屈になりやすいため）。 */
+  /** 「残り時間」「回復できる時間」を、背景つきのボックスの中に文字だけで
+   *  表示する（ユーザー指示：バーは無くし、文字だけでよい）。触れている/
+   *  ホバーしている点(point、正規化座標)のすぐ下にボックスを置く。 */
   private renderReviveInfoBox(ctx: CanvasRenderingContext2D, memoId: string, point: Point, r: number): void {
     const budget = this.store.reviveBudgetOf(memoId);
     if (!budget) return;
@@ -682,17 +676,12 @@ export class CircularCanvas {
 
     const boxW = 220;
     const padding = 18;
-    const labelHeight = 14;
-    const labelToBarGap = 8;
-    const barH = 22;
-    const groupGap = 20;
-    const groupHeight = labelHeight + labelToBarGap + barH;
-    const boxH = padding * 2 + groupHeight * 2 + groupGap;
+    const lineHeight = 22;
+    const boxH = padding * 2 + lineHeight * 2;
 
     const boxX = p.x - boxW / 2;
     const boxY = p.y + 22;
-    const barX = boxX + padding;
-    const barW = boxW - padding * 2;
+    const textX = boxX + padding;
 
     ctx.save();
     ctx.beginPath();
@@ -703,80 +692,35 @@ export class CircularCanvas {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    const remainingRatio = budget.lifespanMs > 0 ? budget.remainingMs / budget.lifespanMs : 0;
-    const extendableRatio = budget.lifespanMs > 0 ? budget.extendableMs / budget.lifespanMs : 0;
-
-    const firstBarY = boxY + padding + labelHeight + labelToBarGap;
-    const secondBarY = firstBarY + barH + groupGap + labelHeight + labelToBarGap;
-
-    this.drawReviveInfoBar(
+    this.drawReviveInfoLine(ctx, textX, boxY + padding + lineHeight * 0.7, "残り時間", formatDurationJa(budget.remainingMs));
+    this.drawReviveInfoLine(
       ctx,
-      barX,
-      firstBarY,
-      barW,
-      barH,
-      labelToBarGap,
-      "残り時間",
-      formatDurationJa(budget.remainingMs),
-      remainingRatio,
-      INFO_BAR_FILL_REMAINING
-    );
-    this.drawReviveInfoBar(
-      ctx,
-      barX,
-      secondBarY,
-      barW,
-      barH,
-      labelToBarGap,
+      textX,
+      boxY + padding + lineHeight * 1.7,
       "回復できる時間",
-      budget.extendableMs > 0 ? formatDurationJa(budget.extendableMs) : "なし",
-      extendableRatio,
-      INFO_BAR_FILL_EXTENDABLE
+      budget.extendableMs > 0 ? formatDurationJa(budget.extendableMs) : "なし"
     );
     ctx.restore();
   }
 
-  /** 見出し（バーの少し上、薄い文字）＋バー（比率ぶん塗りつぶし、中央に具体的な
-   *  量を白フチ文字で重ねて背景の濃さに関わらず読めるようにする）を1組描く。 */
-  private drawReviveInfoBar(
+  /** 見出し（薄い文字）＋具体的な量（濃い文字）を1行に横並びで描く。 */
+  private drawReviveInfoLine(
     ctx: CanvasRenderingContext2D,
     x: number,
-    barY: number,
-    width: number,
-    barH: number,
-    labelToBarGap: number,
+    baselineY: number,
     label: string,
-    valueText: string,
-    ratio: number,
-    fillColor: string
+    valueText: string
   ): void {
-    // 見出しと具体的な量は、バーの左上に横並びで置く（ユーザー指摘：バーの中に
-    // 白フチ文字で重ねる見せ方は、フチが目立ってしまいデザインに合わなかった）。
-    // バー自体には何も重ねず、塗り具合だけで見せる。
-    const textY = barY - labelToBarGap;
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.font = "11px 'Noto Sans JP', sans-serif";
+    ctx.font = "12px 'Noto Sans JP', sans-serif";
     ctx.fillStyle = HINT_TEXT;
-    ctx.fillText(label, x, textY);
+    ctx.fillText(label, x, baselineY);
     const labelWidth = ctx.measureText(label).width;
 
-    ctx.font = "600 12.5px 'Noto Sans JP', sans-serif";
+    ctx.font = "600 13px 'Noto Sans JP', sans-serif";
     ctx.fillStyle = "oklch(22% 0.012 55)";
-    ctx.fillText(valueText, x + labelWidth + 6, textY);
-
-    ctx.beginPath();
-    ctx.roundRect(x, barY, width, barH, barH / 2);
-    ctx.fillStyle = INFO_BAR_TRACK;
-    ctx.fill();
-
-    const fillW = Math.max(0, Math.min(width, width * ratio));
-    if (fillW > 0) {
-      ctx.beginPath();
-      ctx.roundRect(x, barY, fillW, barH, Math.min(barH / 2, fillW / 2));
-      ctx.fillStyle = fillColor;
-      ctx.fill();
-    }
+    ctx.fillText(valueText, x + labelWidth + 8, baselineY);
   }
 
   private onPointerMove = (ev: PointerEvent): void => {

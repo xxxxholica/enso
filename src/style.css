@@ -394,6 +394,8 @@ body {
   cursor: pointer;
   transition: background-color 0.15s ease, opacity 0.15s ease;
   opacity: 0.55;
+  /* ホバー案内(.tool-tooltip)をこのボタン基準で重ねて表示するため（ユーザー指示）。 */
+  position: relative;
 }
 
 .toolbar-btn svg {
@@ -404,6 +406,18 @@ body {
 .toolbar-btn[data-active="true"] {
   background: oklch(93% 0.006 75);
   opacity: 1;
+}
+
+/* --- 道具ボタンにホバーしたときの「これは何のボタンか」という案内
+   （ペン／マーカー／テキスト／選択／なぞる／消しゴム、ユーザー指示）。
+   .icon-popoverと同じ見た目・フェードをそのまま流用し、1単語だけなので
+   詰まった見た目になるよう改行させず余白を絞る。 --- */
+.tool-tooltip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: oklch(22% 0.012 55 / 0.85);
+  white-space: nowrap;
 }
 
 /* --- 文字サイズのステッパー。道具に関わらず常に.toolbar-detailsに表示している

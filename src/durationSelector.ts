@@ -2,6 +2,14 @@ import type { LifespanDays } from "./types";
 import { DURATION_STEPS } from "./durationSteps";
 import { MS_PER_DAY } from "./fade";
 
+/** 初期表示の「消えるまでの期間」（ユーザー指示：15分→1日に変更）。ラベルで
+ *  探すことで、DURATION_STEPSの並び・段階数が変わっても指し示す先がずれない
+ *  ようにする。見つからなければ先頭にフォールバックする。 */
+const DEFAULT_INDEX = Math.max(
+  0,
+  DURATION_STEPS.findIndex((step) => step.label === "1日")
+);
+
 /**
  * 下部バー・右ブロック（時間選択ブロック）: 「消えるまでの期間」だけを選ぶ
  * シークバー。道具（Toolbar）とは独立した軸として扱う。
@@ -22,7 +30,7 @@ export class DurationSelector {
   private onChange?: () => void;
   private labelEl!: HTMLElement;
   private slider!: HTMLInputElement;
-  private index = 0; // 先頭（15分）がデフォルト
+  private index = DEFAULT_INDEX;
 
   constructor(container: HTMLElement, onChange?: () => void) {
     this.container = container;

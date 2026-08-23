@@ -21,7 +21,7 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
-  move: "移動",
+  move: "選択",
   trace: "なぞる",
   eraser: "消しゴム",
 };
@@ -184,6 +184,7 @@ export class Toolbar {
       btn.setAttribute("aria-label", TOOL_LABEL[tool]);
       btn.innerHTML = ICONS[tool];
       btn.addEventListener("click", () => this.setTool(tool));
+      this.attachToolTooltip(btn, TOOL_LABEL[tool]);
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
@@ -204,6 +205,26 @@ export class Toolbar {
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
+  }
+
+  /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／なぞる／
+   *  消しゴム）を付ける（ユーザー指示）。既存のテンプレートメニュー等と同じ
+   *  .icon-popoverの見た目・フェード（createFadeVisibility）をそのまま流用し、
+   *  1単語だけの案内なので.tool-tooltipで詰まった見た目に整える。タッチでは
+   *  「押さずに触れる」状態が無く、タップの前後にちらつくだけになってしまう
+   *  ため、pointerType==="mouse"のときだけ働かせる（PCに限る、というユーザー
+   *  指示。revive情報のホバー表示と同じ考え方）。 */
+  private attachToolTooltip(btn: HTMLButtonElement, label: string): void {
+    const tooltip = document.createElement("span");
+    tooltip.className = "icon-popover tool-tooltip";
+    tooltip.textContent = label;
+    tooltip.hidden = true;
+    btn.appendChild(tooltip);
+    const setVisible = createFadeVisibility(tooltip);
+    btn.addEventListener("pointerenter", (ev) => {
+      if (ev.pointerType === "mouse") setVisible(true);
+    });
+    btn.addEventListener("pointerleave", () => setVisible(false));
   }
 
   /** テンプレートボタンと、その上に開く「どちらを置くか選ぶ」ポップアップメニュー。
