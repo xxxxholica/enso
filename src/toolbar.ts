@@ -187,7 +187,14 @@ export class Toolbar {
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
-    pill.appendChild(this.buildTemplateControl());
+    // テンプレートは「途中から挿入する」道具バーの1ボタンから、キャンバスを
+    // 使い始める最初の選択肢へ格上げする予定（Issue化済み）。それまでの間、
+    // 下部バーからは一時的に隠す——ロジック（配置待ち・自由配置など）は
+    // 新しいUIからそのまま呼び出せるよう残しておくため、要素自体は組み立てた
+    // ままhiddenにするだけにとどめる（ユーザー指示）。
+    const templateControl = this.buildTemplateControl();
+    templateControl.hidden = true;
+    pill.appendChild(templateControl);
     tools.appendChild(pill);
   }
 
