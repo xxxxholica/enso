@@ -63,6 +63,67 @@ export function isInsideCircle(p: Point, radius: number): boolean {
 }
 
 /**
+ * 楕円（原点中心・半径rx,ry）の内側に点を丸め込む。原点からpへの向きはそのまま
+ * 保ち、その方向の楕円境界までの距離に縮める（clampToCircleのrx=ry=radius版と
+ * 同じ考え方の一般化）。
+ */
+export function clampToEllipse(p: Point, rx: number, ry: number): Point {
+  const norm = (p.x * p.x) / (rx * rx) + (p.y * p.y) / (ry * ry);
+  if (norm <= 1) return p;
+  const scale = 1 / Math.sqrt(norm);
+  return { x: p.x * scale, y: p.y * scale };
+}
+
+/**
+ * 角丸長方形（原点中心、半辺half、角丸半径cornerRadius）の内側に点を丸め込む。
+ * 直線の辺に近い（=角の丸め部分の外にある）点は軸ごとに素直にクランプし、
+ * 角の丸め部分にある点はその角の中心（各辺からcornerRadiusだけ内側）からの
+ * 距離をcornerRadiusに縮める。
+ */
+export function clampToRoundedRect(p: Point, half: number, cornerRadius: number): Point {
+  const inner = half - cornerRadius;
+  const ax = Math.abs(p.x);
+  const ay = Math.abs(p.y);
+  if (ax <= inner || ay <= inner) {
+    return {
+      x: Math.max(-half, Math.min(half, p.x)),
+      y: Math.max(-half, Math.min(half, p.y)),
+    };
+  }
+  const cx = Math.sign(p.x) * inner;
+  const cy = Math.sign(p.y) * inner;
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  const d = Math.hypot(dx, dy);
+  if (d <= cornerRadius) return p;
+  const scale = cornerRadius / d;
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/**
+ * 眼鏡形状（左右レンズ+ブリッジ、見た目は非凸な1つの輪郭）の内側に点を丸め込む。
+ * ブリッジ部分は見た目には連続した1つの輪郭の一部だが、書き込める領域としては
+ * 意図的に含めない——左右レンズのどちらかの内側ならpをそのまま返し、それ以外
+ * （ブリッジの隙間も含む）は常に近い方のレンズの境界に丸め込む（ユーザー指示：
+ * 接合部には書き込めないようにする）。lensClampは単一レンズ（原点中心の
+ * ローカル座標）向けのclamp（clampToCircle/clampToEllipse/clampToRoundedRect
+ * のいずれか）。centerOffsetは左右レンズ中心の原点からのX距離（正規化単位）。
+ */
+export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, centerOffset: number): Point {
+  const rightLocal: Point = { x: p.x - centerOffset, y: p.y };
+  const leftLocal: Point = { x: p.x + centerOffset, y: p.y };
+  const rightClamped = lensClamp(rightLocal);
+  const leftClamped = lensClamp(leftLocal);
+  const insideRight = rightClamped.x === rightLocal.x && rightClamped.y === rightLocal.y;
+  const insideLeft = leftClamped.x === leftLocal.x && leftClamped.y === leftLocal.y;
+  if (insideRight || insideLeft) return p;
+
+  const candRight: Point = { x: rightClamped.x + centerOffset, y: rightClamped.y };
+  const candLeft: Point = { x: leftClamped.x - centerOffset, y: leftClamped.y };
+  return distance(p, candRight) <= distance(p, candLeft) ? candRight : candLeft;
+}
+
+/**
  * 消しゴム: center から radius 以内にある点をストロークから取り除く。
  * 取り除いた場所でストロークが分断される場合は、複数の断片に分けて返す
  * （2点未満になった断片は消える）。全く消えなければ元と同じ内容の1本を返す。

@@ -4,11 +4,14 @@ import { ArchiveView } from "./archiveView";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
+import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
-import { SharedCanvasView } from "./sharedCanvasView";
+import { SharedRoomMenu } from "./sharedRoomMenu";
+import { SmuiView } from "./smuiView";
+import { loadFramePattern, loadFrameShape, saveFramePattern, saveFrameShape } from "./storage";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -18,7 +21,9 @@ app.innerHTML = `
       <button type="button" class="view-nav-btn" data-view="archive">振り返り</button>
       <button type="button" class="view-nav-btn" data-view="shared">共有</button>
     </nav>
-    <div id="account-slot"></div>
+    <div class="app-header-right">
+      <div id="account-slot"></div>
+    </div>
   </header>
   <main class="app-main">
     <div id="canvas-panel" class="view-panel"></div>
@@ -68,19 +73,39 @@ const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
 const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
+  smuiView.closeWritingSessions();
+  smuiView.finishTextEditingIfOpen();
 };
-const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => canvasView.beginPlacingTemplate(id));
+// テンプレート挿入は「今表示中の画面」の共有キャンバス／通常キャンバスに置く
+// （道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回すため）。
+const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => {
+  if (currentView === "shared") smuiView.beginPlacingTemplate(id);
+  else canvasView.beginPlacingTemplate(id);
+});
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
 
-const canvasView = new CircularCanvas(canvasPanel, store, () => ({
+const getToolState = () => ({
   tool: toolbar.getTool(),
   color: toolbar.getColor(),
   lifespanDays: durationSelector.getLifespanDays(),
   fontSize: toolbar.getFontSize(),
   lineWidth: toolbar.getLineWidth(),
-}));
+});
+
+const canvasView = new CircularCanvas(canvasPanel, store, getToolState);
 const archiveView = new ArchiveView(archivePanel, primarySlot, store);
-const sharedView = new SharedCanvasView(sharedPanel, () => setView("shared"));
+// SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
+// （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
+// ——選んだ共有キャンバス（ルーム）のMemoStoreだけを扱う（個人MemoStoreの
+// storeはcanvasView/archiveViewにのみ渡す）。
+// ルームの作成・選択（SharedRoomMenu）・見た目の設定（AppearanceSelector、
+// フレームの形・色）は、いずれも眼鏡キャンバスの下に横並びで埋め込む
+// （smuiView.getRoomMenuSlot()/getAppearanceSlot()、ユーザー指示）——
+// smuiView自身がsharedPanelのhidden属性で他の2画面では自動的に隠れるため、
+// 個別のフェード処理は不要。
+let frameShapeId = loadFrameShape();
+let framePatternId = loadFramePattern();
+const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // 画面切り替え時、道具バー・時間選択ブロックをふわっとフェードイン／
@@ -90,6 +115,31 @@ const setDurationVisible = createFadeVisibility(durationSlot);
 // 初期表示（キャンバス）ではフェードインさせず、最初から見えている状態にする。
 toolbarEl.classList.add("is-visible");
 durationSlot.classList.add("is-visible");
+
+new AppearanceSelector(
+  smuiView.getAppearanceSlot(),
+  frameShapeId,
+  framePatternId,
+  (id) => {
+    frameShapeId = id;
+    saveFrameShape(id);
+    smuiView.setFrameShape(id);
+  },
+  (id) => {
+    framePatternId = id;
+    saveFramePattern(id);
+    smuiView.setFramePattern(id);
+  }
+);
+
+// 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。招待リンク経由の
+// 自動参加（?join=...）は表示中の画面と無関係に裏で動くため、ボタン自体は
+// 常に生成しておく。
+new SharedRoomMenu(
+  smuiView.getRoomMenuSlot(),
+  (id) => void smuiView.selectRoom(id),
+  () => setView("shared")
+);
 
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "archive" | "shared" = "canvas";
@@ -114,23 +164,23 @@ function setView(view: "canvas" | "archive" | "shared"): void {
     btn.style.opacity = btn.dataset.view === view ? "1" : "0.45";
   });
 
-  // まず今表示している下部バーの中身を丸ごとフェードアウトさせる。
+  // まず今表示している下部バー・ヘッダーの中身を丸ごとフェードアウトさせる。
   setToolbarVisible(false);
   setDurationVisible(false);
   archiveView.setActive(false);
-  sharedView.setActive(false);
+  smuiView.setActive(false);
 
   window.setTimeout(() => {
     // フェードアウト待ちの間にさらに別の画面へ切り替えられていた場合は、
     // 古い方のフェードインは行わない（最後に呼ばれた切り替えだけを反映する）。
     if (currentView !== view) return;
-    setToolbarVisible(view === "canvas");
-    // 時間選択ブロック（DurationSelector）はキャンバス表示中だけ意味を持つ
-    // （振り返り中はそのシークバーが#primary-slotを占有し、共有中はそもそも
-    // 道具を持たないため）。
-    setDurationVisible(view === "canvas");
+    // 道具バーはキャンバス表示中に加え、SMUI（共有）の左右レンズでも描画に
+    // 使うため表示する。時間選択ブロック（DurationSelector）は振り返り中は
+    // そのシークバーが#primary-slotを占有するため両方とも表示しない。
+    setToolbarVisible(view === "canvas" || view === "shared");
+    setDurationVisible(view === "canvas" || view === "shared");
     archiveView.setActive(view === "archive");
-    sharedView.setActive(view === "shared");
+    smuiView.setActive(view === "shared");
     if (view === "archive") archiveView.render();
   }, FADE_TRANSITION_MS);
 }
@@ -150,9 +200,9 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
 function frame(): void {
   const now = Date.now();
   const changed = store.tick(now);
-  canvasView.render(now);
+  if (currentView === "canvas") canvasView.render(now);
   if (changed && currentView === "archive") archiveView.render();
-  if (currentView === "shared") sharedView.render(now);
+  if (currentView === "shared") smuiView.render(now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

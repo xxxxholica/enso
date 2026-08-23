@@ -48,6 +48,14 @@ body {
   gap: 16px;
 }
 
+/* --- アカウント表示を右寄せする器。共有ルームメニューは右レンズのラベル横に
+   埋め込むため、ここには置かない（smuiView.ts参照）。 --- */
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .account-badge {
   display: flex;
   align-items: center;
@@ -144,6 +152,15 @@ body {
   overflow-y: auto;
 }
 
+/* --- SMUI（共有）のパネル。#archive-panelと同じ理由で、view-panelの既定
+   (align-items:center)を上書きしてstretchにし、.smui-canvas-wrapがパネル
+   いっぱいの高さを持てるようにする——これが無いと.smui-viewは中身ぶんの
+   高さしか持たず、共有キャンバスがキャンバスタブの円のように縦方向の余白を
+   使い切れない。 --- */
+#shared-panel {
+  align-items: stretch;
+}
+
 .app-footer {
   width: 100%;
   display: flex;
@@ -170,7 +187,7 @@ body {
 
 .control-panel {
   width: 100%;
-  max-width: min(760px, 94vw);
+  max-width: min(900px, 96vw);
   min-height: 72px;
   display: flex;
   flex-wrap: nowrap;
@@ -319,6 +336,22 @@ body {
   pointer-events: auto;
 }
 
+/* --- ヘッダー（画面上部）に置くアイコンボタン用の向き違い。既定の.icon-popover
+   は下部バーのボタン上に開く前提で上向き(bottom:100%)になっているが、
+   ヘッダーでそのまま使うと画面外に開いてしまうため、下向きに変える
+   （共有ルームメニュー、sharedRoomMenu.ts）。 --- */
+.icon-popover--below {
+  top: 100%;
+  bottom: auto;
+  margin-top: 10px;
+  margin-bottom: 0;
+  transform: translateX(-50%) translateY(-6px);
+}
+
+.icon-popover--below.is-visible {
+  transform: translateX(-50%) translateY(0);
+}
+
 /* --- テンプレートのメニューは縦積みの一覧。タップ領域・文字を大きめにして
    メニューらしく読みやすくした。 --- */
 .template-popover {
@@ -425,8 +458,10 @@ body {
   cursor: pointer;
 }
 
-/* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）と
-   sharedCanvasView（部屋の作成・招待リンクのコピーなど）で使う共通部品。 --- */
+/* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）で
+   使う。共有ルームメニュー内の文字ボタンは.pill-btn（下記）を使う——
+   アイコンのみの.toolbar-btnと違い、文字だけだと押せることが伝わりにくい
+   （ユーザー指摘）ため、そちらは背景色を持たせている。 --- */
 .text-link {
   appearance: none;
   border: none;
@@ -568,35 +603,62 @@ body {
   color: oklch(22% 0.012 55 / 0.45);
 }
 
-.shared-main {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
+/* --- ポップオーバーの中を「作成／招待リンク／ルーム一覧」の3区画に分ける
+   仕切り。以前は全部が同じ余白・同じ背景で単純に縦に並ぶだけで、要素の
+   まとまりが見た目に伝わらなかった（ユーザー指摘：色々な要素が区切られる
+   ことなく1枚に同居している）。最初の区画は仕切り線を引かない。 --- */
+.shared-menu-section {
+  padding-top: 12px;
+  border-top: 1px solid oklch(22% 0.012 55 / 0.08);
 }
 
-.shared-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12.5px;
+.shared-menu-section:first-child {
+  padding-top: 0;
+  border-top: none;
 }
 
+/* --- 各区画の小見出し（「招待リンク」「参加中のルーム」）。 --- */
+.shared-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: oklch(22% 0.012 55 / 0.45);
+  margin-bottom: 6px;
+}
+
+/* --- 作成・自動参加のエラー／一時的な状態表示。以前は「作成しました」
+   「リンクをコピーしました」のような成功メッセージも同じ場所に出しており、
+   その分だけ毎回1行分の高さが増減して落ち着きがなかった（ユーザー指摘：
+   無駄な表示で1行使う）。成功はボタン自身の文字を変える・招待リンクが
+   現れることで伝え、ここに出すのはエラーと自動参加中の一時表示だけにした
+   ——空文字の間は<p>の既定marginごと消し、行として場所を取らないようにする。 --- */
 .shared-status {
+  margin: 0;
+  font-size: 12px;
   color: oklch(22% 0.012 55 / 0.5);
 }
 
+.shared-status:empty {
+  display: none;
+}
+
 .shared-invite {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   font-size: 12px;
   color: oklch(22% 0.012 55 / 0.6);
 }
 
+/* --- 入力欄とコピーボタンだけの行。見出し（「招待リンク」）を同じ行に
+   同居させていた以前は、狭い幅でコピーボタンが弾かれて次の行に落ちて
+   しまっていた（ユーザー指摘：招待リンクとコピーは一行で表示すべき）。
+   見出しを別行にしたことで、この行は2要素だけになり収まりやすくなる。 --- */
+.shared-invite-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .shared-invite-input {
-  width: min(320px, 60vw);
+  flex: 1 1 auto;
+  min-width: 0;
   font: inherit;
   font-size: 12px;
   padding: 4px 8px;
@@ -606,15 +668,18 @@ body {
   color: inherit;
 }
 
-.shared-body {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
+/* --- ルーム未選択の間は、招待リンクの行自体を隠すのではなく、この
+   disabled・薄い表示のまま常に出しておく（ユーザー指摘：出る位置を事前に
+   分かるようにしたい）。振り返りビューのシークバーが空状態でも専用メッセージ
+   を出さずdisabled表示だけで伝えているのと同じ考え方。 --- */
+.shared-invite-input:disabled {
+  opacity: 0.4;
+}
+
+.pill-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
 }
 
 .shared-room-list {
@@ -623,19 +688,189 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 120px;
-}
-
-.shared-room-btn {
-  padding: 4px 6px;
+  /* 塗りつぶしのピルが隙間なく並ぶと圧迫感が出る（ユーザー指摘）ため、
+     項目同士の間隔を広めに取る。 */
+  gap: 8px;
+  /* ルーム数が増えても popover 自体は伸びず、一覧の内側だけスクロールする。 */
+  max-height: 220px;
+  overflow-y: auto;
+  /* スクロールバーとピルの間に余白を持たせる。 */
+  padding-right: 2px;
 }
 
 .shared-room-btn[aria-pressed="true"] {
-  color: oklch(22% 0.012 55 / 0.9);
-  font-weight: 500;
+  background: oklch(88% 0.008 75);
+  color: oklch(22% 0.012 55 / 0.95);
+  font-weight: 600;
 }
 
-.shared-canvas-wrap {
-  flex: 0 1 auto;
+/* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
+   文字だけの装飾なしボタン（旧.text-link）だと押せることが伝わりにくかった
+   （ユーザー指摘）ため、背景色つきのピル型にする。共有ルームメニュー内の
+   「＋ルームを作成」・招待リンクの「コピー」・ルーム一覧の各項目で共通して
+   使う——これらは全部.icon-popover（背景oklch(98% 0.005 75)）の中に置かれる
+   ため、それより一段暗いトーンにして溶けないようにする（.toolbar-btnの
+   data-active時が.control-blockの上で使っているのと同じ組み合わせ）。 --- */
+.pill-btn {
+  appearance: none;
+  border: none;
+  background: oklch(93% 0.006 75);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: oklch(22% 0.012 55 / 0.85);
+  white-space: nowrap;
+  padding: 5px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.pill-btn:hover {
+  background: oklch(88% 0.008 75);
+}
+
+/* --- トリガーボタン（sharedRoomMenu.ts）だけ、ポップオーバーの外・右レンズの
+   ラベル横（地色oklch(93% 0.006 75)のページの上）に直接置かれるため、
+   .pill-btnの既定色だと今度はページと同化してしまう——ポップオーバーの
+   カードと同じ明るいトーンに個別で上書きする。開いている間はさらに一段
+   暗くして目立たせる（他の.pill-btnはクリックした瞬間だけの一時的な操作
+   なのでこの状態を持たない）。 --- */
+.shared-room-trigger {
+  background: oklch(98% 0.005 75);
+}
+
+.shared-room-trigger:hover {
+  background: oklch(93% 0.008 75);
+}
+
+.shared-room-trigger[data-active="true"] {
+  background: oklch(88% 0.008 75);
+}
+
+/* --- 共有ルームメニュー（sharedRoomMenu.ts、右レンズのラベル横）。
+   .icon-popoverの共通の見た目に、このメニュー固有の横幅・縦積みレイアウトを
+   足す。幅が狭いと文字ボタン・招待リンク入力欄が詰まって圧迫感が出やすい
+   （ユーザー指摘）ため、下限・上限とも少し広げてある。 --- */
+.shared-room-popover {
+  min-width: 260px;
+  max-width: min(340px, 90vw);
+  padding: 14px 16px;
+}
+
+/* --- 見た目の設定（appearanceSelector.ts）のトリガーボタン。共有ルーム
+   メニューのトリガーと同じ理由（ページの地色に埋もれないよう明るいトーンで
+   個別に上書き）に加え、アイコン+文字を横並びにする。 --- */
+.appearance-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: oklch(98% 0.005 75);
+}
+
+.appearance-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.appearance-trigger:hover {
+  background: oklch(93% 0.008 75);
+}
+
+.appearance-trigger[data-active="true"] {
+  background: oklch(88% 0.008 75);
+}
+
+/* --- 見た目の設定のポップアップ。「フレームの形」「フレームの色」の2区画を
+   縦に並べる——.shared-menu-section/.shared-section-labelを共有ルームメニュー
+   と同じ区切りの見た目のまま流用する。 --- */
+.appearance-popover {
+  min-width: 220px;
+  padding: 14px 16px;
+}
+
+.shared-room-menu-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* --- SMUI（鯖江メガネUI）ビュー：「共有」タブ。個人キャンバスは含まず、
+   大きな眼鏡形状1枚（左右レンズ+ブリッジが1つの連続領域、CircularCanvasの
+   frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
+   （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
+   (flex:1 1 auto; min-height:0)」を連鎖させることで、#archive-panel/
+   .archive-canvas-wrapと同じ仕組みでキャンバスがパネルの高さいっぱいまで育つ。 --- */
+.smui-view {
+  width: 100%;
+  height: 100%;
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* --- ルーム作成・選択（SharedRoomMenu）の置き場所。眼鏡キャンバスの下に
+   中央寄せで置く（ユーザー指示）。フレーム形状・柄のセレクタ（AppearanceSelector）
+   もルーム設定ボタンの右隣に横並びで置く（ユーザー指示）。
+   min-heightはボタンの見た目上の高さに固定しておく——
+   ボタンの中身（「+ルームを作成」⇔選択中のルームID）が変わってもこの行の
+   高さ自体は変わらないようにし、共有キャンバス（.smui-canvas-wrap、
+   flex:1 1 auto）の実際の高さがルーム選択のたびに変わってフレームの太さ
+   （frameStrokeWidthは高さに比例）まで変化して見えてしまう、という事態を
+   避ける。 --- */
+.smui-room-menu-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-height: 34px;
+}
+
+.smui-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  position: relative; /* smui-canvas-statusをこの箱基準で重ねて表示するため */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 中身（実際のCircularCanvas）が入る、差し替え可能な入れ物。ルーム接続時に
+   丸ごと innerHTML="" して作り直すのはこの要素だけで、.smui-canvas-wrap自体と
+   .smui-canvas-status（下記）は消えずに残る。 --- */
+.smui-canvas-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* --- 案内・読み込み中・失敗時のメッセージ。canvas（白い罫線の紙）の上に
+   重ねて表示する。中央の接合部（ブリッジ）には書き込めない（clampToGlasses
+   参照）ため、キャンバス全体の中央(inset:0)に置くとブリッジの真上に乗って
+   しまう——右レンズの中央（ルーム作成ボタンに近い側）に寄せる（ユーザー指示）。
+   実際のtop/leftはsmuiView.tsのrepositionStatus()がcanvas要素自身の
+   getBoundingClientRectを基にpxで設定し直す（canvasはwrap内でレターボックス
+   されることがあり、%指定だけだとズレるため）。ここのtop:50%;left:75%は
+   JSが初回実行される直前の一瞬だけ使われるフォールバック。
+   transform:translate(-50%,-50%)で中心点そのものを指定する方式にしている
+   ——left:50%;right:0+max-widthで「右半分の中でcenter」を組もうとすると、
+   abspos要素にleft/right両方とwidth:autoを与えた場合の幅計算にmax-widthが
+   効かず（実測、Chromium）box幅が右半分いっぱいに広がってしまい、狭い画面で
+   テキストが右レンズの外まではみ出す不具合があったため。 --- */
+.smui-canvas-status {
+  position: absolute;
+  top: 50%;
+  left: 75%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  text-align: center;
+  font-size: 12.5px;
+  color: oklch(22% 0.012 55 / 0.45);
+  pointer-events: none;
 }
