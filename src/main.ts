@@ -4,14 +4,14 @@ import { ArchiveView } from "./archiveView";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
-import { FrameShapeSelector } from "./frameShapeSelector";
+import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
-import { loadFrameShape, saveFrameShape } from "./storage";
+import { loadFramePattern, loadFrameShape, saveFramePattern, saveFrameShape } from "./storage";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -22,7 +22,6 @@ app.innerHTML = `
       <button type="button" class="view-nav-btn" data-view="shared">共有</button>
     </nav>
     <div class="app-header-right">
-      <div id="frame-shape-slot" class="bottom-bar-fade" hidden></div>
       <div id="account-slot"></div>
     </div>
   </header>
@@ -70,7 +69,6 @@ const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
 // 同じ場所（操作パネルの上段）を共有する。表示中の画面に応じてどちらかだけを見せる。
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
-const frameShapeSlot = document.querySelector<HTMLDivElement>("#frame-shape-slot")!;
 
 const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
@@ -78,8 +76,8 @@ const onToolOrDurationChange = () => {
   smuiView.closeWritingSessions();
   smuiView.finishTextEditingIfOpen();
 };
-// テンプレート挿入は「今表示中の画面」の左レンズ／通常キャンバスに置く
-// （道具バー自体はキャンバス・SMUIの両画面で共通の1つのインスタンスを使い回すため）。
+// テンプレート挿入は「今表示中の画面」の共有キャンバス／通常キャンバスに置く
+// （道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回すため）。
 const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => {
   if (currentView === "shared") smuiView.beginPlacingTemplate(id);
   else canvasView.beginPlacingTemplate(id);
@@ -96,37 +94,47 @@ const getToolState = () => ({
 
 const canvasView = new CircularCanvas(canvasPanel, store, getToolState);
 const archiveView = new ArchiveView(archivePanel, primarySlot, store);
-// SMUI（眼鏡デュアルビュー）: 旧「共有」タブを置き換える。左レンズは通常キャンバスと
-// 同じ個人MemoStore（store）をそのまま表示・編集し、右レンズが選んだ共有キャンバスを扱う。
-// フレーム形状（丸眼鏡/楕円/長方形）はヘッダー右端、アカウント表示の左隣
-// （FrameShapeSelector、ユーザー指示）が持つ。
-// ルームの作成・選択（SharedRoomMenu）は、右レンズの「共有キャンバス」ラベル横に
-// 埋め込む（smuiView.getRoomMenuSlot()）——操作対象（右レンズ）のすぐそばに
-// 操作系を置くことで、選択・作成の導線を短くする（ユーザー指摘：以前ヘッダー最上部に
-// あったときは右レンズから離れすぎていて見つけにくかった）。
+// SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
+// （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
+// ——選んだ共有キャンバス（ルーム）のMemoStoreだけを扱う（個人MemoStoreの
+// storeはcanvasView/archiveViewにのみ渡す）。
+// ルームの作成・選択（SharedRoomMenu）・見た目の設定（AppearanceSelector、
+// フレームの形・色）は、いずれも眼鏡キャンバスの下に横並びで埋め込む
+// （smuiView.getRoomMenuSlot()/getAppearanceSlot()、ユーザー指示）——
+// smuiView自身がsharedPanelのhidden属性で他の2画面では自動的に隠れるため、
+// 個別のフェード処理は不要。
 let frameShapeId = loadFrameShape();
-const smuiView = new SmuiView(sharedPanel, store, getToolState, frameShapeId);
+let framePatternId = loadFramePattern();
+const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // 画面切り替え時、道具バー・時間選択ブロックをふわっとフェードイン／
 // フェードアウトさせる（archiveViewのシークバーも同じ仕組み。ユーザー指示）。
 const setToolbarVisible = createFadeVisibility(toolbarEl);
 const setDurationVisible = createFadeVisibility(durationSlot);
-const setFrameShapeVisible = createFadeVisibility(frameShapeSlot);
 // 初期表示（キャンバス）ではフェードインさせず、最初から見えている状態にする。
 toolbarEl.classList.add("is-visible");
 durationSlot.classList.add("is-visible");
 
-new FrameShapeSelector(frameShapeSlot, frameShapeId, (id) => {
-  frameShapeId = id;
-  saveFrameShape(id);
-  smuiView.setFrameShape(id);
-});
+new AppearanceSelector(
+  smuiView.getAppearanceSlot(),
+  frameShapeId,
+  framePatternId,
+  (id) => {
+    frameShapeId = id;
+    saveFrameShape(id);
+    smuiView.setFrameShape(id);
+  },
+  (id) => {
+    framePatternId = id;
+    saveFramePattern(id);
+    smuiView.setFramePattern(id);
+  }
+);
 
-// 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。右レンズの
-// ラベル横に埋め込むため、smuiPanel自身のhidden属性で自動的に他の2画面では
-// 隠れる（フェード処理は不要）。招待リンク経由の自動参加（?join=...）は
-// 表示中の画面と無関係に裏で動くため、ボタン自体は常に生成しておく。
+// 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。招待リンク経由の
+// 自動参加（?join=...）は表示中の画面と無関係に裏で動くため、ボタン自体は
+// 常に生成しておく。
 new SharedRoomMenu(
   smuiView.getRoomMenuSlot(),
   (id) => void smuiView.selectRoom(id),
@@ -159,7 +167,6 @@ function setView(view: "canvas" | "archive" | "shared"): void {
   // まず今表示している下部バー・ヘッダーの中身を丸ごとフェードアウトさせる。
   setToolbarVisible(false);
   setDurationVisible(false);
-  setFrameShapeVisible(false);
   archiveView.setActive(false);
   smuiView.setActive(false);
 
@@ -172,9 +179,6 @@ function setView(view: "canvas" | "archive" | "shared"): void {
     // そのシークバーが#primary-slotを占有するため両方とも表示しない。
     setToolbarVisible(view === "canvas" || view === "shared");
     setDurationVisible(view === "canvas" || view === "shared");
-    // フレーム形状セレクタはSMUI（共有）表示中だけ意味を持つため、他の2画面
-    // では出さない（ユーザー指示）。
-    setFrameShapeVisible(view === "shared");
     archiveView.setActive(view === "archive");
     smuiView.setActive(view === "shared");
     if (view === "archive") archiveView.render();

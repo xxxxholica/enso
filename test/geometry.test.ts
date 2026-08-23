@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
   clampToCircle,
+  clampToGlasses,
   eraseFromStroke,
   isInsideCircle,
   pointNearStroke,
@@ -97,6 +98,49 @@ describe("eraseFromStroke（消しゴム）", () => {
     ];
     const result = eraseFromStroke(twoPoints, { x: 100, y: 0 }, 3);
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("clampToGlasses（眼鏡形状=左右レンズの和集合、ブリッジは書き込み不可）", () => {
+  const centerOffset = 1.3;
+  const clamp = (p: { x: number; y: number }) => clampToGlasses(p, (local) => clampToCircle(local, 1), centerOffset);
+
+  it("右レンズの内側の点はそのまま", () => {
+    expect(clamp({ x: centerOffset + 0.1, y: 0 })).toEqual({ x: centerOffset + 0.1, y: 0 });
+  });
+
+  it("左レンズの内側の点はそのまま", () => {
+    expect(clamp({ x: -centerOffset - 0.1, y: 0 })).toEqual({ x: -centerOffset - 0.1, y: 0 });
+  });
+
+  it("ブリッジ（レンズの間）は書き込めない領域: 最も近いレンズの境界に丸め込まれる", () => {
+    const p = clamp({ x: 0, y: 0.1 });
+    expect(p).not.toEqual({ x: 0, y: 0.1 });
+    expect(Math.hypot(Math.abs(p.x) - centerOffset, p.y)).toBeCloseTo(1, 5);
+  });
+
+  it("右レンズの外側の点は円周上に丸め込まれる", () => {
+    const p = clamp({ x: centerOffset + 5, y: 0 });
+    expect(Math.hypot(p.x - centerOffset, p.y)).toBeCloseTo(1);
+  });
+
+  it("両レンズの外側の点は、最も近い方のレンズの境界に丸め込まれる", () => {
+    const p = clamp({ x: 0, y: 5 });
+    expect(p.y).toBeLessThan(5);
+    expect(Math.hypot(Math.abs(p.x) - centerOffset, p.y)).toBeCloseTo(1, 5);
+  });
+
+  it("クランプ結果は常にいずれかのレンズの内側（クランプの冪等性）", () => {
+    const samples = [
+      { x: 0, y: 0.5 },
+      { x: 3, y: 3 },
+      { x: -3, y: -3 },
+      { x: 0.5, y: 1 },
+    ];
+    for (const p of samples) {
+      const clamped = clamp(p);
+      expect(clamp(clamped)).toEqual(clamped);
+    }
   });
 });
 

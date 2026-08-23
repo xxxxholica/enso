@@ -101,6 +101,29 @@ export function clampToRoundedRect(p: Point, half: number, cornerRadius: number)
 }
 
 /**
+ * 眼鏡形状（左右レンズ+ブリッジ、見た目は非凸な1つの輪郭）の内側に点を丸め込む。
+ * ブリッジ部分は見た目には連続した1つの輪郭の一部だが、書き込める領域としては
+ * 意図的に含めない——左右レンズのどちらかの内側ならpをそのまま返し、それ以外
+ * （ブリッジの隙間も含む）は常に近い方のレンズの境界に丸め込む（ユーザー指示：
+ * 接合部には書き込めないようにする）。lensClampは単一レンズ（原点中心の
+ * ローカル座標）向けのclamp（clampToCircle/clampToEllipse/clampToRoundedRect
+ * のいずれか）。centerOffsetは左右レンズ中心の原点からのX距離（正規化単位）。
+ */
+export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, centerOffset: number): Point {
+  const rightLocal: Point = { x: p.x - centerOffset, y: p.y };
+  const leftLocal: Point = { x: p.x + centerOffset, y: p.y };
+  const rightClamped = lensClamp(rightLocal);
+  const leftClamped = lensClamp(leftLocal);
+  const insideRight = rightClamped.x === rightLocal.x && rightClamped.y === rightLocal.y;
+  const insideLeft = leftClamped.x === leftLocal.x && leftClamped.y === leftLocal.y;
+  if (insideRight || insideLeft) return p;
+
+  const candRight: Point = { x: rightClamped.x + centerOffset, y: rightClamped.y };
+  const candLeft: Point = { x: leftClamped.x - centerOffset, y: leftClamped.y };
+  return distance(p, candRight) <= distance(p, candLeft) ? candRight : candLeft;
+}
+
+/**
  * 消しゴム: center から radius 以内にある点をストロークから取り除く。
  * 取り除いた場所でストロークが分断される場合は、複数の断片に分けて返す
  * （2点未満になった断片は消える）。全く消えなければ元と同じ内容の1本を返す。

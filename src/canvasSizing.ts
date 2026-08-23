@@ -36,8 +36,9 @@ export function computeSquareSize(container: HTMLElement): number {
  * 最も遠くまで届く距離（正規化単位、frameShape.ts参照）。
  *
  * 縁取りの外側の端までの距離は maxReach*(scale + frameStrokeWidth/2) +
- * frameStrokeWidth/2（=computeOuterReach参照）で、これがsize/2を超えない
- * ようscaleを逆算する。
+ * frameStrokeWidth/2で、これがsize/2を超えないようscaleを逆算する
+ * （実際の縁取り描画がfillベースになった今の方式が必要とする余白
+ * maxReach*scale + frameStrokeWidthより常に大きい、安全側の見積もり）。
  *
  * SMUIのレンズ（canvasView.ts）が、固定のcontentScaleFactorではなく
  * 「今のキャンバスの大きさ・縁取りの太さで安全な範囲でなるべく大きく」を
@@ -51,14 +52,35 @@ export function computeAutoScale(size: number, maxReach: number, frameStrokeWidt
 }
 
 /**
- * scale（正規化1単位あたりのpx）とframeStrokeWidthのもとで、ある方向
- * （reachFactor、frameShape.tsのmaxReach/horizontalReach）における縁取りの
- * 外側の端まで、原点からの距離（px）。SMUIのブリッジ（レンズをつなぐ橋、
- * smuiView.ts）を実際に描かれる縁取りの外端にぴったり合わせるために使う。
+ * コンテナの利用可能な幅・高さに収まる、指定アスペクト比（幅/高さ）の最大の
+ * 矩形サイズを返す。高さ（aspectRatio>=1を前提に短辺側になる）にだけ
+ * MIN/MAX_CANVAS_SIZEを適用する。共有キャンバス（眼鏡形状、横長）が
+ * computeSquareSize/fitCanvasToContainerの「常に正方形」という前提に
+ * 合わないため、横長コンテナ向けに新設した。
  */
-export function computeOuterReach(scale: number, reachFactor: number, frameStrokeWidth: number): number {
-  const strokeScale = scale + frameStrokeWidth / 2;
-  return reachFactor * strokeScale + frameStrokeWidth / 2;
+export function computeRectSize(container: HTMLElement, aspectRatio: number): { width: number; height: number } {
+  const rect = container.getBoundingClientRect();
+  const availW = rect.width;
+  const availH = rect.height || rect.width / aspectRatio;
+
+  let width = availW;
+  let height = width / aspectRatio;
+  if (height > availH) {
+    height = availH;
+    width = height * aspectRatio;
+  }
+
+  height = Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, height));
+  width = height * aspectRatio;
+
+  // MIN_CANVAS_SIZEへの引き上げは、狭い画面×横長のaspectRatio（眼鏡形状など）
+  // では幅がavailWを超えてしまうことがある——コンテナの外にはみ出す（ヒンジ等の
+  // 装飾が画面端で切れる）よりは、下限を割ってでも幅内に収める方を優先する。
+  if (width > availW) {
+    width = availW;
+    height = width / aspectRatio;
+  }
+  return { width, height };
 }
 
 /**
@@ -67,15 +89,16 @@ export function computeOuterReach(scale: number, reachFactor: number, frameStrok
  * このタイミングで適用し、以後の座標計算に使う半径・中心を返す。
  * contentScaleFactorは固定の割合（数値）のほか、キャンバスの一辺（px）を
  * 受け取ってその都度の割合を返す関数も渡せる（SMUIレンズの動的マージン計算、
- * computeAutoScale参照）。
+ * computeAutoScale参照）。呼び出し元がすでにcomputeSquareSize(container)を
+ * 計算済みなら、getBoundingClientRect()の二重呼び出しを避けるためsizeで渡せる。
  */
 export function fitCanvasToContainer(
   canvas: HTMLCanvasElement,
   container: HTMLElement,
   dpr: number,
-  contentScaleFactor: number | ((size: number) => number) = 0.43
+  contentScaleFactor: number | ((size: number) => number) = 0.43,
+  size: number = computeSquareSize(container)
 ): CanvasGeometry {
-  const size = computeSquareSize(container);
   const factor = typeof contentScaleFactor === "function" ? contentScaleFactor(size) : contentScaleFactor;
   const scale = size * factor;
   canvas.style.width = `${size}px`;

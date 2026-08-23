@@ -1,6 +1,18 @@
-import { fitCanvasToContainer } from "./canvasSizing";
-import { DEFAULT_FRAME_SHAPE_ID, getFrameShape } from "./frameShape";
-import type { FrameShapeId } from "./frameShape";
+import { computeAutoScale, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
+import {
+  DEFAULT_FRAME_SHAPE_ID,
+  getFrameShape,
+  getGlassesFrameShape,
+  glassesBridgeHalfWidth,
+  GLASSES_HINGE_TAB_HALF_HEIGHT,
+  GLASSES_HINGE_TAB_LENGTH,
+  GLASSES_HINGE_TAB_RADIUS,
+  GLASSES_HORIZONTAL_REACH_WITH_HINGE,
+  GLASSES_VERTICAL_REACH,
+} from "./frameShape";
+import type { FrameShape, FrameShapeId } from "./frameShape";
+import { DEFAULT_FRAME_PATTERN_ID, getFramePattern } from "./framePattern";
+import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
@@ -22,6 +34,9 @@ const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
+/** ルーム未接続時（frameKind:"glasses" かつ interactive:false）の共有キャンバスの
+ *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
+const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** テンプレートの配置ガイド（指を離すまでの位置プレビュー）の不透明度。 */
 const TEMPLATE_GUIDE_ALPHA = 0.4;
@@ -67,13 +82,26 @@ export interface CircularCanvasOptions {
   contentScaleFactor?: number | ((size: number) => number);
   frameShapeId?: FrameShapeId;
   /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
-   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。 */
+   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。太さは、
+   *  キャンバスの実サイズ（px）を受け取ってウィンドウサイズに比例した値を
+   *  返す関数でも渡せる——固定pxだと、ウィンドウが小さくなってもフレームの
+   *  太さだけ変わらず、レンズに対して相対的に太すぎ/細すぎに見えてしまう
+   *  （SMUIの共有キャンバス、ユーザー指摘）。 */
   frameStrokeColor?: string;
-  frameStrokeWidth?: number;
+  frameStrokeWidth?: number | ((canvasSizePx: number) => number);
   /** falseの場合、ポインタ操作を一切受け付けない。SMUIの右レンズが共有キャンバスに
    *  まだ接続されていない間、白い罫線の紙だけを表示するプレースホルダー表現に使う
    *  （ユーザー指示）。既定true。 */
   interactive?: boolean;
+  /** "single"(既定): 通常キャンバスと同じ、正方形コンテナに1つの形状（丸眼鏡/楕円/
+   *  長方形）を描く。"glasses": 共有キャンバス専用、横長の矩形コンテナに左右レンズ+
+   *  ブリッジを1つの連続領域として描く——frameShapeIdは「眼鏡のレンズスタイル」として
+   *  解釈される（frameShape.tsのgetGlassesFrameShape参照）。 */
+  frameKind?: "single" | "glasses";
+  /** frameKind==="glasses"の時だけ意味を持つ、フレームの柄・質感（マット/べっ甲/
+   *  クリア/木目）。省略時はDEFAULT_FRAME_PATTERN_ID。"single"（通常キャンバス
+   *  タブ）は常にframeStrokeColorの単色のままで、この値は無視される。 */
+  framePatternId?: FramePatternId;
 }
 
 export class CircularCanvas {
@@ -86,13 +114,27 @@ export class CircularCanvas {
   private contentScaleFactor: number | ((size: number) => number) | undefined;
   private frameShapeId: FrameShapeId;
   private frameStrokeColor: string;
-  private frameStrokeWidth: number;
+  private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
+  /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
+   *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
+  private frameStrokeWidth = 1;
   private interactive: boolean;
+  private frameKind: "single" | "glasses";
+  private framePatternId: FramePatternId;
   /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
    *  resize()/setFrameShape()のタイミングでだけ組み立て直し、render()（毎フレーム）
    *  では使い回す——Path2Dの構築自体は軽くないため。 */
   private framePath: Path2D = new Path2D();
   private strokePath: Path2D = new Path2D();
+  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKind==="glasses"の時だけ
+   *  framePatternIdから組み立てる（"single"はframeStrokeColorそのまま）。
+   *  rebuildFramePaths()と同じタイミングで組み立て直す。 */
+  private frameStyle: CanvasPattern | CanvasGradient | string = "";
+  /** ブリッジ（接合部）の半分の高さ（scale基準、正規化単位）。frameKind==="glasses"
+   *  の時だけ意味を持つ——「接合部をフレームと同じ太さにする」（ユーザー指示）ため、
+   *  frameStrokeWidth（px）をその時のscaleで正規化単位に変換した値。
+   *  rebuildFramePaths()で組み立て直す。 */
+  private glassesBridgeHalfHeight = 0;
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -122,8 +164,10 @@ export class CircularCanvas {
     this.getToolState = getToolState;
     this.frameShapeId = options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID;
     this.frameStrokeColor = options.frameStrokeColor ?? CIRCLE_BORDER;
-    this.frameStrokeWidth = options.frameStrokeWidth ?? 1;
+    this.frameStrokeWidthOption = options.frameStrokeWidth ?? 1;
     this.interactive = options.interactive ?? true;
+    this.frameKind = options.frameKind ?? "single";
+    this.framePatternId = options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID;
     this.contentScaleFactor = options.contentScaleFactor;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
@@ -147,25 +191,97 @@ export class CircularCanvas {
     }
   }
 
-  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける。 */
+  /** 今のframeKindに応じたフレーム形状を返す（"glasses"なら眼鏡形状ファミリー、
+   *  "single"なら従来通りの単一形状）。 */
+  private currentShape(): FrameShape {
+    return this.frameKind === "glasses" ? getGlassesFrameShape(this.frameShapeId) : getFrameShape(this.frameShapeId);
+  }
+
+  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける
+   *  （frameKind==="single"）。frameKind==="glasses"の場合は、正方形ではなく
+   *  GLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の横長矩形として
+   *  広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
+   *  computeAutoScaleした小さい方をscaleとして採用する。 */
   private resize(): void {
-    const { scale, centerPx } = fitCanvasToContainer(
-      this.canvas,
-      this.container,
-      this.dpr,
-      this.contentScaleFactor
-    );
-    this.scale = scale;
-    this.centerPx = centerPx;
+    if (this.frameKind === "glasses") {
+      // ヒンジの鋲がキャンバス要素の外にクリップされないよう、横方向の余白は
+      // GLASSES_HORIZONTAL_REACH_WITH_HINGE（鋲ぶんを含む）を基準にする。
+      const aspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
+      const { width, height } = computeRectSize(this.container, aspectRatio);
+      // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
+      // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
+      // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
+      // 「確定済みの実寸」を基準にする。
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(height);
+      const scale = Math.min(
+        computeAutoScale(width, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
+        computeAutoScale(height, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
+      );
+      this.canvas.style.width = `${width}px`;
+      this.canvas.style.height = `${height}px`;
+      this.canvas.width = Math.round(width * this.dpr);
+      this.canvas.height = Math.round(height * this.dpr);
+      this.scale = scale;
+      this.centerPx = { x: width / 2, y: height / 2 };
+    } else {
+      const size = computeSquareSize(this.container);
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(size);
+      const { scale, centerPx } = fitCanvasToContainer(
+        this.canvas,
+        this.container,
+        this.dpr,
+        this.contentScaleFactor,
+        size
+      );
+      this.scale = scale;
+      this.centerPx = centerPx;
+    }
     this.rebuildFramePaths();
+  }
+
+  private resolveFrameStrokeWidth(canvasSizePx: number): number {
+    return typeof this.frameStrokeWidthOption === "function"
+      ? this.frameStrokeWidthOption(canvasSizePx)
+      : this.frameStrokeWidthOption;
   }
 
   /** クリップ境界と外枠線のPath2Dを、今のscale/フレーム形状/縁の太さから組み立て直す。
    *  resize()（コンテナサイズ変化時）とsetFrameShape()（resize()経由）でだけ呼ばれる。 */
   private rebuildFramePaths(): void {
-    const shape = getFrameShape(this.frameShapeId);
-    this.framePath = shape.buildPath(this.scale);
-    this.strokePath = shape.buildPath(this.scale + this.frameStrokeWidth / 2);
+    const shape = this.currentShape();
+    // strokePathはframePathを「一定距離（frameStrokeWidth）だけ外側に
+    // オフセットした」輪郭として組み立てる——以前はscale自体をscale+
+    // frameStrokeWidth/2に置き換える「一様スケール」で近似していたが、直線から
+    // 曲線へ切り替わる場所（squareの角、glassesの接合部の付け根）では一様スケール
+    // が実際の一定距離オフセットと一致せず、縁取りと内側の紙の間に隙間ができて
+    // しまっていた（ユーザー指摘・実測確認済み）。buildPathのoffset引数（scaleは
+    // 据え置き、各パーツの大きさにoffsetを足す）を使うことで、この隙間が生まれない。
+    //
+    // offsetの大きさはframeStrokeWidthそのもの（半分ではない）にする——
+    // 塗りつぶし(fill)後に紙でframePathぶんを隠すことで縁取りを表現する今の
+    // 方式では、見た目の縁取りの太さ＝strokePathとframePathの差分＝offset
+    // そのものになる（以前のctx.stroke()方式は、centerlineをframeStrokeWidth/2
+    // だけオフセットしたpathを、さらにlineWidth=frameStrokeWidthでストローク
+    // することで両側にframeStrokeWidth/2ずつ広がっていたため、offsetは半分で
+    // 良かった——fill方式に変えた際にこの半分だけ残ってしまっており、縁取りが
+    // 本来の半分の太さしかなくなっていた。ユーザー指摘）。
+    const offset = this.frameStrokeWidth;
+    if (this.frameKind === "glasses") {
+      // 「接合部をフレームと同じ太さに」（ユーザー指示）: ブリッジの半分の高さを
+      // frameStrokeWidth（px）から今のscaleで正規化単位に逆算し、buildPathに
+      // 渡す——buildPath自体は固定のデフォルト値ではなく、この値でブリッジの
+      // 切り欠き位置を決める。
+      this.glassesBridgeHalfHeight = this.frameStrokeWidth / 2 / this.scale;
+      this.framePath = shape.buildPath(this.scale, this.glassesBridgeHalfHeight, 0);
+      this.strokePath = shape.buildPath(this.scale, this.glassesBridgeHalfHeight, offset);
+    } else {
+      this.framePath = shape.buildPath(this.scale);
+      this.strokePath = shape.buildPath(this.scale, undefined, offset);
+    }
+    this.frameStyle =
+      this.frameKind === "glasses"
+        ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scale * shape.horizontalReach)
+        : this.frameStrokeColor;
   }
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
@@ -178,13 +294,20 @@ export class CircularCanvas {
     this.resize();
   }
 
+  /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
+   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+  setFramePattern(id: FramePatternId): void {
+    this.framePatternId = id;
+    this.resize();
+  }
+
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
    *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const x = (clientX - rect.left - this.centerPx.x) / this.scale;
     const y = (clientY - rect.top - this.centerPx.y) / this.scale;
-    return getFrameShape(this.frameShapeId).clamp({ x, y });
+    return this.currentShape().clamp({ x, y });
   }
 
   private scheduleSessionClose(): void {
@@ -453,7 +576,7 @@ export class CircularCanvas {
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy, getFrameShape(this.frameShapeId).clamp);
+      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.currentShape().clamp);
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
@@ -493,21 +616,39 @@ export class CircularCanvas {
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
     ctx.translate(this.centerPx.x, this.centerPx.y);
 
-    const shape = getFrameShape(this.frameShapeId);
+    const shape = this.currentShape();
 
-    // 枠の外にはみ出さないようクリップ（外枠の線自体は中身の描画が終わってから、
-    // クリップ境界より外側に描く——太い枠線をクリップ境界の上に中心線として描くと、
-    // 線の内側半分が後から描くメモに隠れてしまうため）。
+    // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
+    // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
+    // 重ねて内側を隠す」方式で描く——中身の描画が終わってから太い線を
+    // クリップ境界の外側にstroke()する以前の方式は、直線から曲線へ切り替わる
+    // 場所（squareの角、glassesの接合部の付け根）で「一様スケール」と「本来の
+    // 一定距離オフセット」がわずかにズレ、縁取りと紙の間にごく細い隙間ができて
+    // しまっていた（ユーザー指摘）。strokePathはframePathを原点から一様拡大した
+    // ものなので、原点を含むstar-shapedな形状であるframePath/strokePathの性質上
+    // strokePathは常にframePathを包含する——大小2つの塗りつぶしの差分として
+    // 縁取りを表現すれば、このズレの影響を受けず隙間が生まれない。
+    ctx.fillStyle = this.frameStyle;
+    ctx.fill(this.strokePath);
+
+    // 枠の外にはみ出さないようクリップ。
     ctx.save();
     ctx.clip(this.framePath);
 
     const r = this.scale;
 
-    // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
-    // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
-    // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
-    // 透けて見える帯ができてしまう（ユーザー指摘）。
-    drawRuledPaper(ctx, this.scale, this.scale * shape.maxReach);
+    if (this.frameKind === "glasses" && !this.interactive) {
+      // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
+      const half = this.scale * shape.maxReach;
+      ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
+      ctx.fillRect(-half, -half, half * 2, half * 2);
+    } else {
+      // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
+      // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
+      // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
+      // 透けて見える帯ができてしまう（ユーザー指摘）。
+      drawRuledPaper(ctx, this.scale, this.scale * shape.maxReach);
+    }
 
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
     // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
@@ -550,13 +691,26 @@ export class CircularCanvas {
 
     ctx.restore(); // clip
 
-    // 外枠線。クリップ境界（this.scale）よりも線幅の半分だけ外側にオフセットした
-    // 別パスに描くことで、太い線でも内側半分が中身の描画に隠れず、かつクリップされる
-    // 描画可能領域自体も狭めない（通常キャンバスの既定値=1pxではオフセットは0.5pxのみ
-    // で見た目の変化は無い）。
-    ctx.strokeStyle = this.frameStrokeColor;
-    ctx.lineWidth = this.frameStrokeWidth;
-    ctx.stroke(this.strokePath);
+    // ブリッジ（接合部）は書き込める領域に含めない（clampToGlasses参照）ため、
+    // 紙の罫線が透けて見えないよう、フレームと同じ柄・質感で塗りつぶした太い
+    // バーとして見せる——構造的な連結部であり、書けない場所であることが
+    // 見た目からも伝わるようにする（ユーザー指示）。クリップ(framePath)の外側
+    // （ctx.restore()の後）で描く——strokePathのブリッジ部分の高さはframePathより
+    // 大きい（接合部もframePathをoffsetぶん外側に広げた分だけ、紙で隠れない
+    // フレーム色の帯がframePathの外側にできる）ため、framePathでクリップした
+    // ままだとこの帯を覆いきれず、紙とフレーム色の境目が細い筋として見えて
+    // しまっていた（ユーザー指摘・実測確認済み）。クリップの外で、strokePath
+    // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
+    // 出なくなる。
+    if (this.frameKind === "glasses") {
+      this.drawGlassesBridgeBar(ctx);
+    }
+
+    // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
+    // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
+    if (this.frameKind === "glasses") {
+      this.drawGlassesHinges(ctx, shape);
+    }
 
     if (this.interactive && activeMemos.length === 0) {
       // 中心点
@@ -572,6 +726,60 @@ export class CircularCanvas {
     }
 
     ctx.restore(); // translate + setTransform
+  }
+
+  /** ヒンジ（フレームの縁から外側に飛び出す小さな角丸タブ）を描く。正面から
+   *  見た実物の眼鏡はつる（テンプル）が奥に折れてほぼ見えないため、つるの線は
+   *  描かず、縁に付く小さな出っ張りだけを残す（ユーザー指摘・参考イラスト）。
+   *  内側の端は縁取りの外側の端（strokePathの実際の見た目の縁）にぴったり付け、
+   *  そこから外側にタブを伸ばす——単に外側の水平先端（scale*horizontalReach）
+   *  を中心に置くと、縁取りの内側に埋もれて見えてしまうため（ユーザー指摘）。
+   *  strokePathはframePathをframeStrokeWidthぶん外側にオフセットした輪郭
+   *  （rebuildFramePaths参照）なので、水平方向の実際の外側の縁は
+   *  scale*horizontalReach + frameStrokeWidthになる——以前はcomputeOuterReach
+   *  （ctx.stroke()でframeStrokeWidth/2ずつ両側に広がっていた旧方式向けの式）を
+   *  流用していたが、fillベースの新方式では値が合わずヒンジが縁から離れて
+   *  見えてしまっていた（ユーザー指摘）。
+   *
+   *  タブの大きさはthis.frameStrokeWidth（ウィンドウサイズに応じて動的に
+   *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
+   *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
+   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
+  private drawGlassesHinges(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
+    const frameOuterEdge = this.scale * shape.horizontalReach + this.frameStrokeWidth;
+    const tabLength = this.scale * GLASSES_HINGE_TAB_LENGTH;
+    const tabHalfHeight = this.scale * GLASSES_HINGE_TAB_HALF_HEIGHT;
+    const tabRadius = this.scale * GLASSES_HINGE_TAB_RADIUS;
+
+    for (const direction of [1, -1] as const) {
+      const innerX = direction * frameOuterEdge;
+      const outerX = innerX + direction * tabLength;
+      const left = Math.min(innerX, outerX);
+
+      ctx.beginPath();
+      ctx.roundRect(left, -tabHalfHeight, tabLength, tabHalfHeight * 2, tabRadius);
+      ctx.fillStyle = this.frameStyle;
+      ctx.fill();
+    }
+  }
+
+  /** ブリッジ（接合部）を、フレームと同じ柄・質感で塗りつぶす。書き込める領域は
+   *  レンズの内側だけ（clampToGlasses参照）なので、ここは常にフレーム素材で覆い、
+   *  紙の罫線を透けさせない——クリップ(framePath)の外側（render()参照）で、
+   *  strokePath自身のブリッジの高さ（frameStrokeWidthぶんオフセットした後の高さ、
+   *  glassesBridgeHalfHeight*scale + frameStrokeWidth）ぴったりに塗る。
+   *
+   *  framePath基準の高さ（オフセット前）ぴったりに塗っていた以前の版は、
+   *  strokePathの方がブリッジでもoffsetぶん背が高く、framePathの外側
+   *  （紙で隠れない）にフレーム色の帯がすでに描かれていた——それをclampToGlasses
+   *  でクリップしたbridge-barが覆いきれず、紙とその帯の境目が細い筋として
+   *  見えてしまっていた（ユーザー指摘・実測確認済み）。strokePath自身の高さに
+   *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
+  private drawGlassesBridgeBar(ctx: CanvasRenderingContext2D): void {
+    const halfWidth = this.scale * glassesBridgeHalfWidth(this.frameShapeId, this.glassesBridgeHalfHeight);
+    const halfHeight = this.scale * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
+    ctx.fillStyle = this.frameStyle;
+    ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
   }
 
   /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した

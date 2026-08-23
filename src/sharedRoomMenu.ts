@@ -1,5 +1,6 @@
 import { onUserChange } from "./authState";
 import { createFadeVisibility } from "./fadeVisibility";
+import { notifyClose, notifyOpen } from "./exclusivePopover";
 import {
   createSharedCanvas,
   joinSharedCanvas,
@@ -12,17 +13,16 @@ const CREATE_LABEL = "+ 新しい共有キャンバスを作る";
 const COPY_LABEL = "コピー";
 
 /**
- * 右レンズの「共有キャンバス」ラベル横（smuiView.getRoomMenuSlot()）に置く、
- * 共有キャンバス（ルーム）の作成・選択・招待リンクのポップアップメニュー。
- * レンズ自体は「選んだルームのキャンバス」だけを表示するようにし、ルームの
- * 作成・切り替えという操作はここに切り出してある。
+ * 眼鏡キャンバスの下（smuiView.getRoomMenuSlot()）に置く、共有キャンバス
+ * （ルーム）の作成・選択・招待リンクのポップアップメニュー。キャンバス自体は
+ * 「選んだルームのキャンバス」だけを表示するようにし、ルームの作成・切り替え
+ * という操作はここに切り出してある。
  *
  * 実際にどのルームを表示するかは、選択結果をコールバック（onSelectRoom）で
  * SmuiView.selectRoom()へ渡すだけで、このクラス自身はキャンバスの中身を
  * 一切扱わない。ポップアップの開閉は道具バーのテンプレート選択（toolbar.ts の
- * buildTemplateControl）と同じ .icon-anchor/.icon-popover パターンを流用するが、
- * ボタンがレンズのラベル行（上端）にあり上に開く余地が無いため、上ではなく
- * 下（レンズの上に重なる向き）に開くよう変える（.icon-popover--below）。
+ * buildTemplateControl）と同じ .icon-anchor/.icon-popover パターンをそのまま
+ * 使う——ボタンが画面下寄りにあるため、既定の上向きに開けば画面内に収まる。
  */
 export class SharedRoomMenu {
   private onSelectRoom: (id: string) => void;
@@ -31,6 +31,7 @@ export class SharedRoomMenu {
   private signedIn = false;
   private busy = false;
   private open = false;
+  private readonly closeRef = () => this.close();
 
   private btn!: HTMLButtonElement;
   private popover!: HTMLElement;
@@ -81,7 +82,11 @@ export class SharedRoomMenu {
     anchor.appendChild(this.btn);
 
     this.popover = document.createElement("div");
-    this.popover.className = "shared-room-popover icon-popover icon-popover--below";
+    // ボタンが眼鏡キャンバスの下（画面下寄り）に置かれるようになったため、
+    // 下向き(icon-popover--below)ではなく既定の上向き（道具バーのテンプレート
+    // メニューと同じ）に開く——下向きのままだと画面外にはみ出してしまう
+    // （ユーザー指摘）。
+    this.popover.className = "shared-room-popover icon-popover";
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);
 
@@ -177,6 +182,7 @@ export class SharedRoomMenu {
 
   private openMenu(): void {
     if (this.open) return;
+    notifyOpen(this.closeRef);
     this.open = true;
     this.btn.dataset.active = "true";
     this.popoverFade(true);
@@ -191,6 +197,7 @@ export class SharedRoomMenu {
     this.open = false;
     this.btn.dataset.active = "false";
     this.popoverFade(false);
+    notifyClose(this.closeRef);
   }
 
   private setStatus(text: string): void {
