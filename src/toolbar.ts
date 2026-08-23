@@ -6,19 +6,23 @@ import { TEMPLATES } from "./templates";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
-export type ToolbarTool = DrawTool | "eraser" | "text" | "move";
+export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 
 const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
-/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。 */
-const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
+/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
+ *  「なぞる」は、なぞって復活させる操作がペン等の描画操作と混じりやすかったため、
+ *  専用の道具として分離したもの（ユーザー指示）——「移動」道具と同じく、既存の
+ *  メモに触れた場合だけ働き、何もない場所への新規作成はしない。 */
+const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "trace", "eraser"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
   move: "移動",
+  trace: "なぞる",
   eraser: "消しゴム",
 };
 
@@ -26,7 +30,7 @@ const FONT_SIZE_ORDER: FontSizeStep[] = ["small", "medium", "large"];
 const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "中", large: "大" };
 
 /**
- * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／消しゴムの切り替え、
+ * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
  * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
  * 機能だったため1つに統合した——ユーザー指示）。
  * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸・別ブロックで担当）。
@@ -86,9 +90,9 @@ export class Toolbar {
     this.onInsertTemplate = onInsertTemplate;
 
     this.el = document.createElement("div");
-    // bottom-bar-fade: 画面切り替え時にこのバー全体がふわっとクロスフェードする
+    // fade-visible: 画面切り替え時にこのバー全体がふわっとクロスフェードする
     // ためのクラス（main.tsが表示・非表示を切り替える。ユーザー指示）。
-    this.el.className = "toolbar bottom-bar-fade";
+    this.el.className = "toolbar fade-visible";
     this.container.appendChild(this.el);
 
     this.buildTools();

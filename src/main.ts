@@ -26,14 +26,14 @@ app.innerHTML = `
     </div>
   </header>
   <main class="app-main">
-    <div id="canvas-panel" class="view-panel"></div>
-    <div id="archive-panel" class="view-panel" hidden></div>
-    <div id="shared-panel" class="view-panel" hidden></div>
+    <div id="canvas-panel" class="view-panel fade-visible"></div>
+    <div id="archive-panel" class="view-panel fade-visible" hidden></div>
+    <div id="shared-panel" class="view-panel fade-visible" hidden></div>
   </main>
   <footer class="app-footer">
     <div class="control-panel">
       <div id="primary-slot"></div>
-      <div id="duration-slot" class="bottom-bar-fade"></div>
+      <div id="duration-slot" class="fade-visible"></div>
     </div>
   </footer>
 `;
@@ -65,6 +65,7 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
 const archivePanel = document.querySelector<HTMLDivElement>("#archive-panel")!;
 const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
+const controlPanel = document.querySelector<HTMLDivElement>(".control-panel")!;
 // 道具バー（キャンバス表示中）と、振り返り用のシークバー（振り返り表示中）は
 // 同じ場所（操作パネルの上段）を共有する。表示中の画面に応じてどちらかだけを見せる。
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
@@ -112,9 +113,37 @@ const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 // フェードアウトさせる（archiveViewのシークバーも同じ仕組み。ユーザー指示）。
 const setToolbarVisible = createFadeVisibility(toolbarEl);
 const setDurationVisible = createFadeVisibility(durationSlot);
+// キャンバス本体（#canvas-panel等）も、下部バーと同じくふわっとフェードイン／
+// フェードアウトさせる（ユーザー指示：キャンバスも下部バーと同様に滑らかに
+// 切り替えたい）。3つのパネルは#app-main内で横並びのflexアイテムのため、
+// 下部バーと同じ理由（新旧が同時に表示されるとレイアウトが崩れる）で、
+// クロスフェードではなく逐次の入れ替えにする——setView()参照。
+const setCanvasPanelVisible = createFadeVisibility(canvasPanel);
+const setArchivePanelVisible = createFadeVisibility(archivePanel);
+const setSharedPanelVisible = createFadeVisibility(sharedPanel);
 // 初期表示（キャンバス）ではフェードインさせず、最初から見えている状態にする。
 toolbarEl.classList.add("is-visible");
 durationSlot.classList.add("is-visible");
+canvasPanel.classList.add("is-visible");
+
+// 振り返りの下部バー（シークバー1ブロック）が、キャンバス表示中の下部バー
+// （道具バー＋時間選択ブロックの3ブロック）と同じ横幅になるよう、実測値で揃える
+// （ユーザー指摘：振り返りバーだけキャンバス側より長くなって見づらい）。
+// CSSの固定値ではなく実測にしているのは、道具バー・時間選択ブロックの中身が
+// 変わって横幅が変化しても追従できるようにするため。
+const syncSeekbarWidth = () => {
+  const toolbarWidth = toolbarEl.getBoundingClientRect().width;
+  const durationWidth = durationSlot.getBoundingClientRect().width;
+  // 振り返り表示中はこの2つがhidden（=display:none）になり幅が0になる
+  // ——そのタイミングでResizeObserverが発火しても更新せず、直前の正しい
+  // 実測値をそのまま使い続ける（0で上書きすると振り返りバーが潰れてしまう）。
+  if (toolbarWidth === 0 || durationWidth === 0) return;
+  const gapPx = parseFloat(getComputedStyle(controlPanel).columnGap) || 0;
+  archiveView.setSeekbarWidth(toolbarWidth + gapPx + durationWidth);
+};
+new ResizeObserver(syncSeekbarWidth).observe(toolbarEl);
+new ResizeObserver(syncSeekbarWidth).observe(durationSlot);
+syncSeekbarWidth();
 
 new AppearanceSelector(
   smuiView.getAppearanceSlot(),
@@ -157,14 +186,17 @@ function setView(view: "canvas" | "archive" | "shared"): void {
   if (view === currentView) return;
   currentView = view;
   canvasView.finishTextEditingIfOpen();
-  canvasPanel.hidden = view !== "canvas";
-  archivePanel.hidden = view !== "archive";
-  sharedPanel.hidden = view !== "shared";
   document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
     btn.style.opacity = btn.dataset.view === view ? "1" : "0.45";
   });
 
-  // まず今表示している下部バー・ヘッダーの中身を丸ごとフェードアウトさせる。
+  // まず今表示しているキャンバス本体・下部バー・ヘッダーの中身を丸ごと
+  // フェードアウトさせる（ユーザー指示：キャンバスも下部バーと同様に滑らかに
+  // 切り替えたい）。hidden属性を戻すのはフェード完了後（createFadeVisibility内の
+  // タイマー）なので、ここではまだ外していない側のパネルは見えたまま薄くなっていく。
+  setCanvasPanelVisible(false);
+  setArchivePanelVisible(false);
+  setSharedPanelVisible(false);
   setToolbarVisible(false);
   setDurationVisible(false);
   archiveView.setActive(false);
@@ -174,6 +206,9 @@ function setView(view: "canvas" | "archive" | "shared"): void {
     // フェードアウト待ちの間にさらに別の画面へ切り替えられていた場合は、
     // 古い方のフェードインは行わない（最後に呼ばれた切り替えだけを反映する）。
     if (currentView !== view) return;
+    setCanvasPanelVisible(view === "canvas");
+    setArchivePanelVisible(view === "archive");
+    setSharedPanelVisible(view === "shared");
     // 道具バーはキャンバス表示中に加え、SMUI（共有）の左右レンズでも描画に
     // 使うため表示する。時間選択ブロック（DurationSelector）は振り返り中は
     // そのシークバーが#primary-slotを占有するため両方とも表示しない。
@@ -188,11 +223,9 @@ function setView(view: "canvas" | "archive" | "shared"): void {
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => setView(btn.dataset.view as "canvas" | "archive" | "shared"));
 });
-// 初期表示（キャンバス）はフェードなしで即座に反映する。道具バー・時間選択
-// ブロックは既にis-visibleを付けてあるので、ここではパネルとナビの見た目だけ揃える。
-canvasPanel.hidden = false;
-archivePanel.hidden = true;
-sharedPanel.hidden = true;
+// 初期表示（キャンバス）はフェードなしで即座に反映する。#canvas-panel・道具バー・
+// 時間選択ブロックはテンプレート側の初期状態（hiddenなし）＋既にis-visibleを
+// 付けてあるので、ここではナビの見た目だけ揃える。
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.style.opacity = btn.dataset.view === "canvas" ? "1" : "0.45";
 });

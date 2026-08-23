@@ -12,6 +12,7 @@ export const ICONS: Record<
   | "eraser"
   | "text"
   | "move"
+  | "trace"
   | "checklist"
   | "shapeRound"
   | "shapeOval"
@@ -56,6 +57,12 @@ export const ICONS: Record<
       <path d="M9 17l3 3 3-3" />
       <path d="M7 9l-3 3 3 3" />
       <path d="M17 9l3 3-3 3" />
+    </svg>`,
+  trace: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M3.5 15c2.5-6 5-6 7-3s4.5 3 7-3" stroke-dasharray="2.2 3" opacity="0.55" />
+      <path d="M12.7 11.3c1-1.5 2.2-1.9 3.3-1.3" />
+      <circle cx="17.5" cy="8.3" r="1.6" fill="currentColor" stroke="none" />
     </svg>`,
   checklist: `
     <svg viewBox="0 0 24 24" ${common}>

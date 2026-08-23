@@ -21,8 +21,8 @@ import { getTemplateText } from "./templates";
 import type { TemplateId } from "./templates";
 import {
   fontPxForRender,
+  measureTextBoxWidthPx,
   normalizedBoxSize,
-  REFERENCE_TEXT_BOX_WIDTH_PX,
   TEXT_FONT_FAMILY,
   wrapTextAtReferenceScale,
 } from "./textLayout";
@@ -188,6 +188,7 @@ export class CircularCanvas {
       this.canvas.addEventListener("pointermove", this.onPointerMove);
       window.addEventListener("pointerup", this.onPointerUp);
       window.addEventListener("pointercancel", this.onPointerUp);
+      window.addEventListener("keydown", this.onGlobalKeyDown);
     }
   }
 
@@ -384,24 +385,32 @@ export class CircularCanvas {
       return;
     }
 
-    if (hitMemo) {
-      // テキスト道具で既存のテキストメモに触れた場合は、なぞって復活ではなく編集を開く
-      if (tool === "text" && hitMemo.kind === "text") {
-        this.openTextEditor({ x: hitMemo.x, y: hitMemo.y }, hitMemo);
-        return;
+    if (tool === "trace") {
+      // なぞる道具：既存のメモに触れた場合だけなぞって復活させる。移動道具と同じく
+      // 何もない場所をタップしても何もしない——ペン等の描画操作とジェスチャーが
+      // 混じらないよう、なぞる操作をこの専用道具に分離した（ユーザー指示）。
+      if (hitMemo) {
+        this.state.mode = "tracing";
+        this.state.tracingMemoId = hitMemo.id;
+        this.state.lastPoint = p;
+        this.store.reviveMemo(hitMemo.id);
       }
-      this.state.mode = "tracing";
-      this.state.tracingMemoId = hitMemo.id;
-      this.state.lastPoint = p;
-      this.store.reviveMemo(hitMemo.id);
       return;
     }
 
     if (tool === "text") {
-      this.openTextEditor(p);
+      // 既存のテキストメモに触れた場合はなぞって復活ではなく編集を開く
+      // （なぞって復活させたい場合は専用の「なぞる」道具を使う）。
+      if (hitMemo && hitMemo.kind === "text") {
+        this.openTextEditor({ x: hitMemo.x, y: hitMemo.y }, hitMemo);
+      } else {
+        this.openTextEditor(p);
+      }
       return;
     }
 
+    // ペン・マーカー：既存メモの上に重なっても常に新規描画のみを行う
+    // （なぞって復活はしない——なぞる操作は専用の「なぞる」道具に分離した）。
     this.state.mode = "drawing";
     if (this.state.activeMemoId) {
       this.store.startStroke(this.state.activeMemoId, p);
@@ -416,12 +425,27 @@ export class CircularCanvas {
   /**
    * タップした位置にテキスト入力用の<textarea>を重ねて表示する。円のクリップの外に
    * 出しても構わないよう画面固定(position:fixed)で配置し、blurした時点で内容を
-   * 確定する（Enterでは確定しない — IMEでの日本語変換の確定Enterと衝突しないように）。
+   * 確定する。Enterは確定（≒blur）、Shift+Enterは改行（ユーザー指示）。
    * editingMemoを渡すと既存のテキストメモの編集になる：元の位置・見た目（フォントサイズ・色）を
    * そのまま使い、内容だけ書き換えて更新する。空にして確定した場合はメモごと削除する。
-   * Escapeで閉じた場合はキャンセル（新規なら何も作らず、編集なら元の内容のまま変更を破棄する）。
+   * Escapeで閉じた場合はキャンセル（新規なら何も作らず、編集なら元の内容のまま）。
+   * initialTextは、何も選択していない状態でキーボード入力を始めたときに、その最初の
+   * 1文字を最初から入った状態で開くために使う（onGlobalKeyDown参照。editingMemoと
+   * 同時には使わない）。
+   * fromBlindTypingは既定false。キーボードから始めた場合（onGlobalKeyDown）は
+   * trueを渡し、その場で同期的にfocusする——次のフレームまで待つと、その間に
+   * 発生した後続のキー入力（特に日本語IME変換中の2文字目以降）がこのtextarea
+   * ではなく元のフォーカス先（たいていdocument.body）に向かってしまい、変換
+   * 途中の文章が複数のマスに分裂して書き込まれてしまう不具合があった
+   * （ユーザー報告・実機で再現確認）。タップ開始（onPointerDown）の場合は
+   * ポインタ操作自体がフォーカスを動かし得るため、従来どおり次のフレームまで待つ。
    */
-  private openTextEditor(anchor: Point, editingMemo: TextMemo | null = null): void {
+  private openTextEditor(
+    anchor: Point,
+    editingMemo: TextMemo | null = null,
+    initialText?: string,
+    fromBlindTyping = false
+  ): void {
     if (this.textEditor) return;
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
     const color = editingMemo?.color ?? toolColor;
@@ -429,7 +453,10 @@ export class CircularCanvas {
     const align = editingMemo?.align ?? "center";
     const canvasRect = this.canvas.getBoundingClientRect();
     const fontPx = fontPxForRender(fontSize, this.scale);
-    const boxWidthPx = (REFERENCE_TEXT_BOX_WIDTH_PX / REFERENCE_RADIUS) * this.scale;
+    // 画面px⇄基準px（半径REFERENCE_RADIUS基準）の変換比率。可変幅ボックスの実際の
+    // 幅は基準pxで測る（measureTextBoxWidthPx）ため、textareaに反映する際はこれで
+    // 画面pxへ変換する。
+    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * this.scale;
     const screenX = canvasRect.left + this.centerPx.x + anchor.x * this.scale;
     const screenY = canvasRect.top + this.centerPx.y + anchor.y * this.scale;
 
@@ -437,31 +464,60 @@ export class CircularCanvas {
     el.className = "text-editor-overlay";
     el.rows = 1;
     el.placeholder = "書き込む...";
-    el.value = editingMemo?.text ?? "";
+    el.value = editingMemo?.text ?? initialText ?? "";
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
     el.style.fontSize = `${fontPx}px`;
     el.style.lineHeight = "1.4";
     el.style.textAlign = align;
-    el.style.width = `${boxWidthPx}px`;
-    // 完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目が一致するよう、
-    // 編集中も同じくアンカー点を中心に配置し、行が増えるたびに縦位置も再センタリングする。
-    el.style.left = `${screenX - boxWidthPx / 2}px`;
     document.body.appendChild(el);
     this.textEditor = el;
 
-    const recenterVertically = () => {
+    // 内容の実際の幅・高さに合わせてtextareaのサイズと位置を更新する（可変幅——
+    // ユーザー指示：短い一言でも余白だらけの箱にならないよう、逆に長めの文でも
+    // すぐ折り返さないよう、打った内容に応じて幅を変える）。アンカー点
+    // (screenX, screenY)を中心に据えたまま、幅・高さが変わるたびに
+    // left/topを再計算して中心がずれないようにする。
+    const resizeToContent = () => {
+      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, fontSize));
+      el.style.width = `${boxWidthPx}px`;
+      el.style.left = `${screenX - boxWidthPx / 2}px`;
       el.style.height = "auto";
       const h = el.scrollHeight;
       el.style.height = `${h}px`;
       el.style.top = `${screenY - h / 2}px`;
     };
-    recenterVertically();
-    el.addEventListener("input", recenterVertically);
-    // フォーカスがずれるとblurが即座に発火し得るため、appendの次のフレームでfocusする
-    requestAnimationFrame(() => {
+    resizeToContent();
+    el.addEventListener("input", resizeToContent);
+
+    const focusEl = () => {
       el.focus();
-      el.setSelectionRange(el.value.length, el.value.length); // 編集時はカーソルを末尾に
+      el.setSelectionRange(el.value.length, el.value.length); // 編集時・初期文字入り時はカーソルを末尾に
+    };
+    if (fromBlindTyping) {
+      focusEl();
+    } else {
+      // フォーカスがずれるとblurが即座に発火し得るため、appendの次のフレームでfocusする
+      requestAnimationFrame(focusEl);
+    }
+
+    // 日本語IMEの変換候補確定は、キー入力としてはEnterだが、テキスト全体の確定
+    // ではない——kev.isComposingで判定するのが基本だが、変換確定のEnterで
+    // ブラウザによってはisComposingが既にfalseに戻っている場合がある
+    // （実機で再現確認：かな確定のEnterが「テキスト全体を確定するEnter」と
+    // 区別できず、文章の途中でボックスが閉じてしまい、続きが新しいマスに分裂して
+    // しまっていた）。compositionstart/endを自前で追跡し、「compositionendの
+    // 直後（数十ms以内）のEnter」も変換確定の一部とみなして無視することで、
+    // isComposingの値だけに頼るより確実に区別する。
+    let composing = false;
+    let lastCompositionEndAt = 0;
+    const COMPOSITION_GRACE_MS = 50;
+    el.addEventListener("compositionstart", () => {
+      composing = true;
+    });
+    el.addEventListener("compositionend", () => {
+      composing = false;
+      lastCompositionEndAt = performance.now();
     });
 
     let cancelled = false;
@@ -477,15 +533,17 @@ export class CircularCanvas {
           this.store.deleteMemo(editingMemo.id);
           return;
         }
-        const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize);
-        const { width, height } = normalizedBoxSize(fontSize, lines.length);
+        const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
+        const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
+        const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
         this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
         return;
       }
 
       if (!value) return;
-      const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize);
-      const { width, height } = normalizedBoxSize(fontSize, lines.length);
+      const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
+      const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
+      const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
       this.store.createTextMemo(anchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
     };
     el.addEventListener("blur", commit);
@@ -493,9 +551,20 @@ export class CircularCanvas {
       // 日本語IMEで変換候補を選んでいる最中のEscapeは「変換候補を閉じる」ためのキー入力であり、
       // 入力全体の取り消しではない。isComposingを見ずに反応すると、変換候補を1つ閉じたいだけ
       // なのに入力していた文字ごと消えてしまうバグになるため、IME変換中は無視する。
-      if (kev.key === "Escape" && !kev.isComposing) {
+      if (kev.key === "Escape" && !kev.isComposing && !composing) {
         cancelled = true;
         el.blur();
+        return;
+      }
+      // Enterは確定、Shift+Enterは改行（ユーザー指示）。IME変換中・変換確定
+      // 直後のEnterはテキスト全体の確定ではないため無視する（上記コメント参照）。
+      const justFinishedComposing = performance.now() - lastCompositionEndAt < COMPOSITION_GRACE_MS;
+      if (kev.key === "Enter" && !kev.isComposing && !composing && kev.keyCode !== 229 && !justFinishedComposing) {
+        if (!kev.shiftKey) {
+          kev.preventDefault();
+          el.blur(); // blurのcommitハンドラで確定させる
+        }
+        // Shift+EnterはpreventDefaultしない＝<textarea>既定の改行挿入に任せる
       }
     });
   }
@@ -594,6 +663,29 @@ export class CircularCanvas {
     this.state.lastPoint = null;
   };
 
+  /**
+   * 何も選択していない状態（テキスト編集中でも、道具でのドラッグ中でもない）で
+   * 印字可能な文字キーが押されたら、その場でテキスト入力を始める（ユーザー指示）。
+   * 書き始める位置は常に円そのものの中心(0,0)——空いているマスを探す方式は、
+   * 狙いどおりの見た目に細かく調整するのが難しくユーザー自身が調整を諦めたため
+   * 単純化した。罫線の上に乗るかどうかも気にしない（ユーザー指示）。既存の文字と
+   * 重なってもよい。ショートカット（Ctrl/Cmd/Alt併用）や、他の入力欄
+   * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
+   */
+  private onGlobalKeyDown = (ev: KeyboardEvent): void => {
+    if (this.textEditor || this.pendingTemplate || this.state.mode !== "idle") return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active as HTMLElement | null)?.isContentEditable) {
+      return;
+    }
+    if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
+    ev.preventDefault();
+    // fromBlindTyping=true: 同期的にfocusする（詳しくはopenTextEditorのコメント参照）。
+    this.openTextEditor({ x: 0, y: 0 }, null, ev.key, true);
+  };
+
   render(now: number): void {
     const { ctx } = this;
     const w = this.canvas.width;
@@ -605,8 +697,8 @@ export class CircularCanvas {
       const tool = this.getToolState().tool;
       this.canvas.style.cursor = this.pendingTemplate
         ? "copy"
-        : tool === "move"
-          ? this.state.mode === "moving"
+        : tool === "move" || tool === "trace"
+          ? this.state.mode === "moving" || this.state.mode === "tracing"
             ? "grabbing"
             : "grab"
           : "crosshair";
@@ -794,6 +886,7 @@ export class CircularCanvas {
       this.canvas.removeEventListener("pointermove", this.onPointerMove);
       window.removeEventListener("pointerup", this.onPointerUp);
       window.removeEventListener("pointercancel", this.onPointerUp);
+      window.removeEventListener("keydown", this.onGlobalKeyDown);
     }
     this.textEditor?.remove();
     this.canvas.remove();
