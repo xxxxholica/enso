@@ -54,6 +54,9 @@ function migrate(raw: Record<string, unknown>): Memo {
     createdAt,
     lastTracedAt,
     traceHistory,
+    // 古いデータ（なぞって回復できる合計時間に上限を設ける前のもの）には
+    // この項目が無いため、まだ何も回復に使っていない扱い(0)で補う。
+    recoveredMs: typeof raw.recoveredMs === "number" ? raw.recoveredMs : 0,
     lifespanDays: raw.lifespanDays as Memo["lifespanDays"],
     status: raw.status as Memo["status"],
     color: typeof raw.color === "string" ? raw.color : DEFAULT_COLOR,

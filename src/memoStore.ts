@@ -1,4 +1,4 @@
-import { computeOpacity } from "./fade";
+import { computeOpacity, MS_PER_DAY, remainingMs, STANDARD_LIFESPAN_DAYS } from "./fade";
 import { circleIntersectsBox, clampToCircle, eraseFromStroke } from "./geometry";
 import { loadMemos, saveMemos } from "./storage";
 import type { LifespanDays, Memo, MemoStyle, Point, Stroke, TextMemo } from "./types";
@@ -72,6 +72,7 @@ export class MemoStore {
       createdAt: now,
       lastTracedAt: now,
       traceHistory: [now],
+      recoveredMs: 0,
       lifespanDays: style.lifespanDays,
       status: "active",
       tool: style.tool,
@@ -111,6 +112,7 @@ export class MemoStore {
       createdAt: now,
       lastTracedAt: now,
       traceHistory: [now],
+      recoveredMs: 0,
       lifespanDays: style.lifespanDays,
       status: "active",
       color: style.color,
@@ -138,13 +140,50 @@ export class MemoStore {
     this.persist();
   }
 
-  /** なぞって復活: 不透明度を100%に戻し、猶予期間の起点をリセットする。 */
+  /**
+   * なぞって復活: 以前は不透明度を無条件で100%に戻し猶予期間の起点を
+   * まるごとリセットしていたが、なぞればいつまでも際限なく復活できてしまう
+   * のは適切かという議論から（Issue #11）、1回のなぞりで戻せる量を
+   * 「寿命(lifespanDays)の15%ぶん」に制限し、かつメモが生涯に回復できる
+   * 合計時間も「自分自身の寿命ぶん」を上限にした——寿命を使い切ったメモは
+   * それ以上なぞっても何も起きず、自然に消えていくだけになる。
+   * 1回のなぞりで戻す量は、寿命の15%・「残っている回復可能時間」・
+   * 「今との差（経過時間）」の3つのうち一番小さいものになる。3つ目が
+   * 必要なのは、既にほぼ100%近い状態でなぞった場合に、経過時間が0未満に
+   * （＝まだ来ていない時刻を経過済み扱いに）ならないようにするためだが、
+   * その頭打ち分をrecoveredMsに丸ごと計上してしまうと、実際には
+   * lastTracedAtをほとんど動かせなかったのに生涯の回復可能時間だけ
+   * 消費してしまう（実際に戻せた分だけを消費したことにする必要がある）。
+   */
   reviveMemo(memoId: string, now: number = Date.now()): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.status !== "active") return;
-    memo.lastTracedAt = now;
-    memo.traceHistory.push(now);
+    const lifespanMs = (memo.lifespanDays ?? STANDARD_LIFESPAN_DAYS) * MS_PER_DAY;
+    const budgetLeftMs = Math.max(0, lifespanMs - memo.recoveredMs);
+    if (budgetLeftMs <= 0) return; // 生涯の回復可能時間を使い切った：これ以上は回復しない
+    const wantMs = Math.min(lifespanMs * 0.15, budgetLeftMs);
+    const grantMs = Math.min(wantMs, Math.max(0, now - memo.lastTracedAt));
+    if (grantMs <= 0) return; // 既に「今」に追いついている（これ以上経過時間を削れない）
+    memo.lastTracedAt += grantMs;
+    memo.recoveredMs += grantMs;
+    memo.traceHistory.push(memo.lastTracedAt);
     this.persist();
+  }
+
+  /** なぞって復活の残り体力（View用）。指定メモがまだ回復に使える時間(ms)と、
+   *  現時点で消滅までにかかる残り時間(ms)、比率表示（バー）用の基準となる
+   *  寿命そのもの(ms)を返す——「なぞる」「移動」道具でメモに触れている間・
+   *  （PCでは）ホバーしている間の案内表示（canvasView.ts）に使う。
+   *  存在しない/非活性なメモの場合はnull。 */
+  reviveBudgetOf(
+    memoId: string,
+    now: number = Date.now()
+  ): { remainingMs: number; extendableMs: number; lifespanMs: number } | null {
+    const memo = this.memos.find((m) => m.id === memoId);
+    if (!memo || memo.status !== "active") return null;
+    const lifespanMs = (memo.lifespanDays ?? STANDARD_LIFESPAN_DAYS) * MS_PER_DAY;
+    const extendableMs = Math.max(0, lifespanMs - memo.recoveredMs);
+    return { remainingMs: remainingMs(now - memo.lastTracedAt, memo.lifespanDays), extendableMs, lifespanMs };
   }
 
   /**

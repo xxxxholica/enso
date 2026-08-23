@@ -3,6 +3,7 @@ import { CircularCanvas } from "./canvasView";
 import { ArchiveView } from "./archiveView";
 import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
+import type { ToolbarTool } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
 import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
@@ -71,11 +72,18 @@ const controlPanel = document.querySelector<HTMLDivElement>(".control-panel")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
 
+// 「消えるまでの期間」は、新しくメモを作る道具（ペン・マーカー・テキスト）を
+// 選んでいる間だけ意味を持つ。それ以外（移動・消しゴム・なぞる）の間はスライダーを
+// 触れなくする（ユーザー指示：無効か有効かを分かりやすくしたい。なぞる道具の
+// 回復量は寿命の15%固定・生涯の上限つきの自動計算になったため、こちらも
+// スライダーで選ぶものが無くなっている——durationSelector.tsのsetEnabled参照）。
+const TOOLS_USING_DURATION: ReadonlySet<ToolbarTool> = new Set(["pen", "marker", "text"]);
 const onToolOrDurationChange = () => {
   canvasView.closeWritingSession();
   canvasView.finishTextEditingIfOpen();
   smuiView.closeWritingSessions();
   smuiView.finishTextEditingIfOpen();
+  durationSelector.setEnabled(TOOLS_USING_DURATION.has(toolbar.getTool()));
 };
 // テンプレート挿入は「今表示中の画面」の共有キャンバス／通常キャンバスに置く
 // （道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回すため）。
@@ -84,6 +92,8 @@ const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => {
   else canvasView.beginPlacingTemplate(id);
 });
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
+// 初期道具（ペン）は使うので、最初から有効な見た目にしておく。
+durationSelector.setEnabled(TOOLS_USING_DURATION.has(toolbar.getTool()));
 
 const getToolState = () => ({
   tool: toolbar.getTool(),

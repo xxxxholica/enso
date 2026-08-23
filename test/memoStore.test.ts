@@ -73,7 +73,7 @@ describe("MemoStore", () => {
     expect(store.getFaded()[0].id).toBe(memo.id);
   });
 
-  it("なぞって復活させるとlastTracedAtが更新され猶予がリセットされる", () => {
+  it("なぞって復活させても寿命の15%ぶんしか猶予が戻らない（無条件のフル回復ではない）", () => {
     const store = new MemoStore();
     const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
 
@@ -81,13 +81,24 @@ describe("MemoStore", () => {
     store.tick(threeDays);
     expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.2);
 
+    // 1回のなぞりでは寿命(7日)の15%ぶん(=1.05日)しか経過時計を戻さないため、
+    // 一段階(0.6)までしか回復しない。
     store.reviveMemo(memo.id, threeDays);
+    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.6);
+
+    // 生涯で回復できる合計時間は寿命ぶんまで。同じ時刻で繰り返しなぞれば
+    // やがて100%まで戻るが、それ以上はもうなぞっても変化しない
+    // （Issue #11: 際限のない復活を防ぐ）。
+    for (let i = 0; i < 10; i++) store.reviveMemo(memo.id, threeDays);
     expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(1);
+    const usedUpLastTracedAt = store.getActive()[0].lastTracedAt;
+    store.reviveMemo(memo.id, threeDays);
+    expect(store.getActive()[0].lastTracedAt).toBe(usedUpLastTracedAt);
 
     // 復活後はそこから新たに7日でまた消える
-    store.tick(threeDays + 7 * 24 * 60 * 60 * 1000 - 1);
+    store.tick(usedUpLastTracedAt + 7 * 24 * 60 * 60 * 1000 - 1);
     expect(store.getActive()).toHaveLength(1);
-    store.tick(threeDays + 7 * 24 * 60 * 60 * 1000);
+    store.tick(usedUpLastTracedAt + 7 * 24 * 60 * 60 * 1000);
     expect(store.getActive()).toHaveLength(0);
   });
 
@@ -112,6 +123,57 @@ describe("MemoStore", () => {
 
     const reloaded = new MemoStore();
     expect(reloaded.getAll()).toHaveLength(0);
+  });
+
+  it("なぞる1回ぶんの回復量は寿命の15%まで、かつ今を超えて未来にはしない", () => {
+    const store = new MemoStore();
+    // TODAY: lifespanDays=1（24時間）。15%=3.6時間
+    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const fifteenPercentMs = oneDayMs * 0.15;
+
+    // 半日経過した時点でなぞる：経過時間(12h)は15%ぶん(3.6h)より大きいので、
+    // 15%ぶんそのものが1回の回復量になる。
+    const halfDay = oneDayMs / 2;
+    store.reviveMemo(memo.id, halfDay);
+    expect(store.getActive()[0].lastTracedAt).toBe(fifteenPercentMs);
+    expect(store.getActive()[0].recoveredMs).toBe(fifteenPercentMs);
+
+    const budget = store.reviveBudgetOf(memo.id, halfDay)!;
+    expect(budget.extendableMs).toBe(oneDayMs - fifteenPercentMs);
+    expect(budget.remainingMs).toBe(oneDayMs - (halfDay - fifteenPercentMs));
+
+    // 経過時間(=今との差)がほとんど無い状態でなぞっても、それ以上は戻せない
+    // （未来の時刻を経過済み扱いにはできない）ので、その場で繰り返しても
+    // 変化しなくなる時点が来る。
+    for (let i = 0; i < 5; i++) store.reviveMemo(memo.id, halfDay);
+    const settledLastTracedAt = store.getActive()[0].lastTracedAt;
+    expect(settledLastTracedAt).toBe(halfDay); // なぞり続ければ最終的に「今」に追いつく
+    store.reviveMemo(memo.id, halfDay);
+    expect(store.getActive()[0].lastTracedAt).toBe(settledLastTracedAt);
+  });
+
+  it("生涯で回復できる合計時間は寿命ぶんが上限（Issue #11: 際限のない復活を防ぐ）", () => {
+    const store = new MemoStore();
+    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    // 十分に間隔を空けてなぞり直すことを繰り返す（毎回、経過時間が15%ぶんより
+    // 大きい状態でなぞるので、上限に達するまでは常に15%ぶんずつ回復する）。
+    let now = 0;
+    for (let i = 0; i < 10; i++) {
+      now += oneDayMs; // 前回のなぞりから丸1日分の余裕を空ける
+      store.reviveMemo(memo.id, now);
+    }
+
+    const budget = store.reviveBudgetOf(memo.id, now)!;
+    expect(budget.extendableMs).toBe(0); // 寿命ぶん(24時間)をちょうど使い切っている
+    expect(store.getActive()[0].recoveredMs).toBe(oneDayMs);
+
+    // 使い切った後は、さらに時間を置いてなぞっても一切回復しない。
+    const lastTracedAtWhenUsedUp = store.getActive()[0].lastTracedAt;
+    store.reviveMemo(memo.id, now + oneDayMs);
+    expect(store.getActive()[0].lastTracedAt).toBe(lastTracedAtWhenUsedUp);
   });
 
   it("faded済みメモをreviveMemoしても復活しない（アーカイブは非対話）", () => {

@@ -29,6 +29,14 @@ interface MemoBase {
    * 再現するために使う。lastTracedAtはこの配列の末尾と常に一致する。
    */
   traceHistory: number[];
+  /**
+   * なぞって回復させた累計時間(ms)。なぞるたびに寿命(lifespanDays)の15%ぶんを
+   * 上限としてlastTracedAtを現在時刻に近づけるが、この累計が寿命ぶんに達したら
+   * それ以上は回復しない（Issue #11: なぞれば際限なく復活できてしまう問題への
+   * 対応。生涯で回復できる合計時間を、自分自身の寿命ぶんに制限する）。
+   * memoStore.tsのreviveMemo参照。
+   */
+  recoveredMs: number;
   lifespanDays: LifespanDays;
   status: MemoStatus;
   /** CSS色文字列（既定は本体のインク色と同じoklch文字列、ユーザーが選べば任意の色になる） */

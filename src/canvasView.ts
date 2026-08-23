@@ -13,6 +13,7 @@ import {
 import type { FrameShape, FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID, getFramePattern } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
+import { formatDurationJa } from "./fade";
 import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
@@ -40,6 +41,15 @@ const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** テンプレートの配置ガイド（指を離すまでの位置プレビュー）の不透明度。 */
 const TEMPLATE_GUIDE_ALPHA = 0.4;
+
+/** なぞる/移動している（またはPCでホバーしている）メモの「残り時間・回復できる
+ *  時間」を表示する案内ボックス（renderReviveInfoBox参照）の配色。text-editor-
+ *  overlay（DOM側のテキスト編集欄）と同じ紙色・線色に揃えている。 */
+const INFO_BOX_BG = "oklch(98% 0.005 75 / 0.96)";
+const INFO_BOX_BORDER = "oklch(22% 0.012 55 / 0.18)";
+const INFO_BAR_TRACK = "oklch(22% 0.012 55 / 0.12)";
+const INFO_BAR_FILL_REMAINING = "oklch(22% 0.012 55 / 0.55)";
+const INFO_BAR_FILL_EXTENDABLE = "oklch(22% 0.012 55 / 0.32)";
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -152,6 +162,18 @@ export class CircularCanvas {
   private pendingTemplate: string | null = null;
   /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
   private templateHoverPoint: Point | null = null;
+  /** 今の「なぞる」ジェスチャー（pointerdownからpointerupまで）で、既に回復させた
+   *  メモのID。なぞるたびに回復量には上限があるため（memoStore.tsのreviveMemo参照）、
+   *  1回連続でなぞっている間にpointermoveが何度も発火しても、同じメモを何度も
+   *  回復させて上限をすぐ食いつぶしてしまわないよう、メモ単位で1ジェスチャーにつき
+   *  1回だけ呼ぶ。pointerdown/pointerupで作り直す・空にする。 */
+  private tracedMemoIdsThisGesture = new Set<string>();
+  /** PCでのマウスホバー用（ユーザー指示：タップ/ドラッグしなくてもホバーで見られる
+   *  ようにしたい。タッチには「ホバー」に相当する状態が無いため、pointerType==="mouse"
+   *  の間だけ更新する）。「なぞる」「移動」道具を選んでいる間、実際に触れて操作中
+   *  でない（mode==="idle"）ときにポインタの下のメモを追いかける。 */
+  private hoverInfoMemoId: string | null = null;
+  private hoverInfoPoint: Point | null = null;
 
   constructor(
     container: HTMLElement,
@@ -186,6 +208,7 @@ export class CircularCanvas {
       this.canvas.style.touchAction = "none";
       this.canvas.addEventListener("pointerdown", this.onPointerDown);
       this.canvas.addEventListener("pointermove", this.onPointerMove);
+      this.canvas.addEventListener("pointerleave", this.onPointerLeave);
       window.addEventListener("pointerup", this.onPointerUp);
       window.addEventListener("pointercancel", this.onPointerUp);
       window.addEventListener("keydown", this.onGlobalKeyDown);
@@ -389,11 +412,13 @@ export class CircularCanvas {
       // なぞる道具：既存のメモに触れた場合だけなぞって復活させる。移動道具と同じく
       // 何もない場所をタップしても何もしない——ペン等の描画操作とジェスチャーが
       // 混じらないよう、なぞる操作をこの専用道具に分離した（ユーザー指示）。
+      this.tracedMemoIdsThisGesture.clear();
       if (hitMemo) {
         this.state.mode = "tracing";
         this.state.tracingMemoId = hitMemo.id;
         this.state.lastPoint = p;
         this.store.reviveMemo(hitMemo.id);
+        this.tracedMemoIdsThisGesture.add(hitMemo.id);
       }
       return;
     }
@@ -620,11 +645,138 @@ export class CircularCanvas {
       createdAt: 0,
       lastTracedAt: 0,
       traceHistory: [0],
+      recoveredMs: 0,
       lifespanDays: null,
       status: "active",
       color,
     };
     renderMemoAt(ctx, preview, radius, TEMPLATE_GUIDE_ALPHA);
+  }
+
+  /** 「残り時間・回復できる時間」の案内を今どのメモ・どの画面位置に出すべきかを
+   *  1つにまとめる（優先順位：実際になぞっている＞実際に移動している＞PCでの
+   *  ホバー）。表示条件を満たさなければnull。 */
+  private currentReviveInfoTarget(): { memoId: string; point: Point } | null {
+    if (this.state.mode === "tracing" && this.state.tracingMemoId && this.state.lastPoint) {
+      return { memoId: this.state.tracingMemoId, point: this.state.lastPoint };
+    }
+    if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
+      return { memoId: this.state.movingMemoId, point: this.state.lastPoint };
+    }
+    if (this.hoverInfoMemoId && this.hoverInfoPoint) {
+      return { memoId: this.hoverInfoMemoId, point: this.hoverInfoPoint };
+    }
+    return null;
+  }
+
+  /** 「残り時間」「回復できる時間」を、背景つきのボックスの中に2本のバーで
+   *  表示する（ユーザー指示：具体的な量はバーの中に出す。詰めすぎず、ゆったり
+   *  とした余白を取る）。触れている/ホバーしている点(point、正規化座標)の
+   *  すぐ下にボックスを置く。レイアウトは上から順に、余白→見出し→隙間→バー→
+   *  グループ間の余白→見出し→隙間→バー→余白、という積み上げで決める
+   *  （固定の高さを先に決めて後から詰め込むと窮屈になりやすいため）。 */
+  private renderReviveInfoBox(ctx: CanvasRenderingContext2D, memoId: string, point: Point, r: number): void {
+    const budget = this.store.reviveBudgetOf(memoId);
+    if (!budget) return;
+    const p = { x: point.x * r, y: point.y * r };
+
+    const boxW = 220;
+    const padding = 18;
+    const labelHeight = 14;
+    const labelToBarGap = 8;
+    const barH = 22;
+    const groupGap = 20;
+    const groupHeight = labelHeight + labelToBarGap + barH;
+    const boxH = padding * 2 + groupHeight * 2 + groupGap;
+
+    const boxX = p.x - boxW / 2;
+    const boxY = p.y + 22;
+    const barX = boxX + padding;
+    const barW = boxW - padding * 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 16);
+    ctx.fillStyle = INFO_BOX_BG;
+    ctx.fill();
+    ctx.strokeStyle = INFO_BOX_BORDER;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const remainingRatio = budget.lifespanMs > 0 ? budget.remainingMs / budget.lifespanMs : 0;
+    const extendableRatio = budget.lifespanMs > 0 ? budget.extendableMs / budget.lifespanMs : 0;
+
+    const firstBarY = boxY + padding + labelHeight + labelToBarGap;
+    const secondBarY = firstBarY + barH + groupGap + labelHeight + labelToBarGap;
+
+    this.drawReviveInfoBar(
+      ctx,
+      barX,
+      firstBarY,
+      barW,
+      barH,
+      labelToBarGap,
+      "残り時間",
+      formatDurationJa(budget.remainingMs),
+      remainingRatio,
+      INFO_BAR_FILL_REMAINING
+    );
+    this.drawReviveInfoBar(
+      ctx,
+      barX,
+      secondBarY,
+      barW,
+      barH,
+      labelToBarGap,
+      "回復できる時間",
+      budget.extendableMs > 0 ? formatDurationJa(budget.extendableMs) : "なし",
+      extendableRatio,
+      INFO_BAR_FILL_EXTENDABLE
+    );
+    ctx.restore();
+  }
+
+  /** 見出し（バーの少し上、薄い文字）＋バー（比率ぶん塗りつぶし、中央に具体的な
+   *  量を白フチ文字で重ねて背景の濃さに関わらず読めるようにする）を1組描く。 */
+  private drawReviveInfoBar(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    barY: number,
+    width: number,
+    barH: number,
+    labelToBarGap: number,
+    label: string,
+    valueText: string,
+    ratio: number,
+    fillColor: string
+  ): void {
+    // 見出しと具体的な量は、バーの左上に横並びで置く（ユーザー指摘：バーの中に
+    // 白フチ文字で重ねる見せ方は、フチが目立ってしまいデザインに合わなかった）。
+    // バー自体には何も重ねず、塗り具合だけで見せる。
+    const textY = barY - labelToBarGap;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = "11px 'Noto Sans JP', sans-serif";
+    ctx.fillStyle = HINT_TEXT;
+    ctx.fillText(label, x, textY);
+    const labelWidth = ctx.measureText(label).width;
+
+    ctx.font = "600 12.5px 'Noto Sans JP', sans-serif";
+    ctx.fillStyle = "oklch(22% 0.012 55)";
+    ctx.fillText(valueText, x + labelWidth + 6, textY);
+
+    ctx.beginPath();
+    ctx.roundRect(x, barY, width, barH, barH / 2);
+    ctx.fillStyle = INFO_BAR_TRACK;
+    ctx.fill();
+
+    const fillW = Math.max(0, Math.min(width, width * ratio));
+    if (fillW > 0) {
+      ctx.beginPath();
+      ctx.roundRect(x, barY, fillW, barH, Math.min(barH / 2, fillW / 2));
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+    }
   }
 
   private onPointerMove = (ev: PointerEvent): void => {
@@ -633,7 +785,13 @@ export class CircularCanvas {
       this.templateHoverPoint = this.toNormalized(ev.clientX, ev.clientY);
       return;
     }
-    if (this.state.mode === "idle") return;
+    if (this.state.mode === "idle") {
+      this.updateHoverInfo(ev);
+      return;
+    }
+    // 実際になぞる/移動を始めたら、ホバー表示はそちら（lastPoint基準）に譲る。
+    this.hoverInfoMemoId = null;
+    this.hoverInfoPoint = null;
     const p = this.toNormalized(ev.clientX, ev.clientY);
 
     if (this.state.mode === "drawing" && this.state.activeMemoId) {
@@ -641,7 +799,13 @@ export class CircularCanvas {
     } else if (this.state.mode === "tracing") {
       this.state.lastPoint = p;
       const hitMemo = this.hitTestMemo(p);
-      if (hitMemo) this.store.reviveMemo(hitMemo.id);
+      if (hitMemo) {
+        this.state.tracingMemoId = hitMemo.id;
+        if (!this.tracedMemoIdsThisGesture.has(hitMemo.id)) {
+          this.store.reviveMemo(hitMemo.id);
+          this.tracedMemoIdsThisGesture.add(hitMemo.id);
+        }
+      }
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
@@ -653,6 +817,30 @@ export class CircularCanvas {
     }
   };
 
+  /** 何も操作していない間（mode==="idle"）だけ呼ばれる。マウスが「なぞる」「移動」
+   *  道具でメモの上に来たら、実際に触れなくても残り時間・回復できる時間の案内を
+   *  出せるようにする（ユーザー指示：PCに限りホバーでも見られるように）。
+   *  タッチには「押さずに触れる」状態が無いため、pointerType==="mouse"の
+   *  ときだけ働く——タッチ側は従来どおりなぞる/移動を実際に始めたときに表示する。 */
+  private updateHoverInfo(ev: PointerEvent): void {
+    const tool = this.getToolState().tool;
+    if (ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
+      this.hoverInfoMemoId = null;
+      this.hoverInfoPoint = null;
+      return;
+    }
+    const p = this.toNormalized(ev.clientX, ev.clientY);
+    const hitMemo = this.hitTestMemo(p);
+    this.hoverInfoMemoId = hitMemo?.id ?? null;
+    this.hoverInfoPoint = hitMemo ? p : null;
+  }
+
+  /** マウスがキャンバスの外に出たら、ホバー案内も消す（出しっぱなしにならないように）。 */
+  private onPointerLeave = (): void => {
+    this.hoverInfoMemoId = null;
+    this.hoverInfoPoint = null;
+  };
+
   private onPointerUp = (): void => {
     if (this.state.mode === "drawing") {
       this.scheduleSessionClose();
@@ -661,6 +849,7 @@ export class CircularCanvas {
     this.state.tracingMemoId = null;
     this.state.movingMemoId = null;
     this.state.lastPoint = null;
+    this.tracedMemoIdsThisGesture.clear();
   };
 
   /**
@@ -766,6 +955,16 @@ export class CircularCanvas {
       ctx.beginPath();
       ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // なぞる/移動で実際に触れている間、またはPCでその道具にホバーしている間、
+    // 残り時間・回復できる時間を背景つきのボックスとバーで表示する
+    // （ユーザー指示）。回復量に生涯の上限を設けた（Issue #11、memoStore.tsの
+    // reviveMemo参照）ので、「あとどれだけ回復させられるか」が見えないと
+    // 利用者が分からないため。
+    const infoTarget = this.currentReviveInfoTarget();
+    if (infoTarget) {
+      this.renderReviveInfoBox(ctx, infoTarget.memoId, infoTarget.point, r);
     }
 
     // 消しゴムの当たり範囲を示すカーソル
@@ -884,6 +1083,7 @@ export class CircularCanvas {
     if (this.interactive) {
       this.canvas.removeEventListener("pointerdown", this.onPointerDown);
       this.canvas.removeEventListener("pointermove", this.onPointerMove);
+      this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
       window.removeEventListener("pointerup", this.onPointerUp);
       window.removeEventListener("pointercancel", this.onPointerUp);
       window.removeEventListener("keydown", this.onGlobalKeyDown);
