@@ -1,23 +1,13 @@
-import { computeAutoScale, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
-import {
-  DEFAULT_FRAME_SHAPE_ID,
-  getFrameShape,
-  getGlassesFrameShape,
-  glassesBridgeHalfWidth,
-  GLASSES_HINGE_TAB_HALF_HEIGHT,
-  GLASSES_HINGE_TAB_LENGTH,
-  GLASSES_HINGE_TAB_RADIUS,
-  GLASSES_HORIZONTAL_REACH_WITH_HINGE,
-  GLASSES_VERTICAL_REACH,
-} from "./frameShape";
-import type { FrameShape, FrameShapeId } from "./frameShape";
-import { DEFAULT_FRAME_PATTERN_ID, getFramePattern } from "./framePattern";
+import { FrameGeometry } from "./frameGeometry";
+import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
+import type { FrameShapeId } from "./frameShape";
+import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
-import { formatDurationJa } from "./fade";
 import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
+import { renderReviveInfoBox } from "./reviveInfoBox";
 import { getTemplateText } from "./templates";
 import type { TemplateId } from "./templates";
 import {
@@ -41,12 +31,6 @@ const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** テンプレートの配置ガイド（指を離すまでの位置プレビュー）の不透明度。 */
 const TEMPLATE_GUIDE_ALPHA = 0.4;
-
-/** なぞる/移動している（またはPCでホバーしている）メモの「残り時間・回復できる
- *  時間」を表示する案内ボックス（renderReviveInfoBox参照）の配色。text-editor-
- *  overlay（DOM側のテキスト編集欄）と同じ紙色・線色に揃えている。 */
-const INFO_BOX_BG = "oklch(98% 0.005 75 / 0.96)";
-const INFO_BOX_BORDER = "oklch(22% 0.012 55 / 0.18)";
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -114,34 +98,12 @@ export interface CircularCanvasOptions {
 export class CircularCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private scale = 0;
-  private centerPx: Point = { x: 0, y: 0 };
   private dpr = Math.max(1, window.devicePixelRatio || 1);
   private resizeObserver: ResizeObserver;
-  private contentScaleFactor: number | ((size: number) => number) | undefined;
-  private frameShapeId: FrameShapeId;
-  private frameStrokeColor: string;
-  private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
-  /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
-   *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
-  private frameStrokeWidth = 1;
+  /** フレーム形状・サイズ計算・縁取りの描画をまとめて持つ（canvasView.tsが
+   *  肥大化したための整理、Refactor。src/frameGeometry.ts参照）。 */
+  private frame: FrameGeometry;
   private interactive: boolean;
-  private frameKind: "single" | "glasses";
-  private framePatternId: FramePatternId;
-  /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
-   *  resize()/setFrameShape()のタイミングでだけ組み立て直し、render()（毎フレーム）
-   *  では使い回す——Path2Dの構築自体は軽くないため。 */
-  private framePath: Path2D = new Path2D();
-  private strokePath: Path2D = new Path2D();
-  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKind==="glasses"の時だけ
-   *  framePatternIdから組み立てる（"single"はframeStrokeColorそのまま）。
-   *  rebuildFramePaths()と同じタイミングで組み立て直す。 */
-  private frameStyle: CanvasPattern | CanvasGradient | string = "";
-  /** ブリッジ（接合部）の半分の高さ（scale基準、正規化単位）。frameKind==="glasses"
-   *  の時だけ意味を持つ——「接合部をフレームと同じ太さにする」（ユーザー指示）ため、
-   *  frameStrokeWidth（px）をその時のscaleで正規化単位に変換した値。
-   *  rebuildFramePaths()で組み立て直す。 */
-  private glassesBridgeHalfHeight = 0;
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -181,13 +143,7 @@ export class CircularCanvas {
     this.container = container;
     this.store = store;
     this.getToolState = getToolState;
-    this.frameShapeId = options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID;
-    this.frameStrokeColor = options.frameStrokeColor ?? CIRCLE_BORDER;
-    this.frameStrokeWidthOption = options.frameStrokeWidth ?? 1;
     this.interactive = options.interactive ?? true;
-    this.frameKind = options.frameKind ?? "single";
-    this.framePatternId = options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID;
-    this.contentScaleFactor = options.contentScaleFactor;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -195,10 +151,17 @@ export class CircularCanvas {
     if (!ctx) throw new Error("2D canvas context is not available");
     this.ctx = ctx;
 
-    this.resize();
+    this.frame = new FrameGeometry(this.canvas, this.ctx, this.container, this.dpr, {
+      frameShapeId: options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID,
+      frameStrokeColor: options.frameStrokeColor ?? CIRCLE_BORDER,
+      frameStrokeWidth: options.frameStrokeWidth ?? 1,
+      frameKind: options.frameKind ?? "single",
+      framePatternId: options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID,
+      contentScaleFactor: options.contentScaleFactor,
+    });
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(() => this.frame.resize());
     this.resizeObserver.observe(this.container);
 
     if (this.interactive) {
@@ -211,124 +174,24 @@ export class CircularCanvas {
       window.addEventListener("keydown", this.onGlobalKeyDown);
     }
   }
-
-  /** 今のframeKindに応じたフレーム形状を返す（"glasses"なら眼鏡形状ファミリー、
-   *  "single"なら従来通りの単一形状）。 */
-  private currentShape(): FrameShape {
-    return this.frameKind === "glasses" ? getGlassesFrameShape(this.frameShapeId) : getFrameShape(this.frameShapeId);
-  }
-
-  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける
-   *  （frameKind==="single"）。frameKind==="glasses"の場合は、正方形ではなく
-   *  GLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の横長矩形として
-   *  広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
-   *  computeAutoScaleした小さい方をscaleとして採用する。 */
-  private resize(): void {
-    if (this.frameKind === "glasses") {
-      // ヒンジの鋲がキャンバス要素の外にクリップされないよう、横方向の余白は
-      // GLASSES_HORIZONTAL_REACH_WITH_HINGE（鋲ぶんを含む）を基準にする。
-      const aspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
-      const { width, height } = computeRectSize(this.container, aspectRatio);
-      // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
-      // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
-      // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
-      // 「確定済みの実寸」を基準にする。
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(height);
-      const scale = Math.min(
-        computeAutoScale(width, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
-        computeAutoScale(height, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
-      );
-      this.canvas.style.width = `${width}px`;
-      this.canvas.style.height = `${height}px`;
-      this.canvas.width = Math.round(width * this.dpr);
-      this.canvas.height = Math.round(height * this.dpr);
-      this.scale = scale;
-      this.centerPx = { x: width / 2, y: height / 2 };
-    } else {
-      const size = computeSquareSize(this.container);
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(size);
-      const { scale, centerPx } = fitCanvasToContainer(
-        this.canvas,
-        this.container,
-        this.dpr,
-        this.contentScaleFactor,
-        size
-      );
-      this.scale = scale;
-      this.centerPx = centerPx;
-    }
-    this.rebuildFramePaths();
-  }
-
-  private resolveFrameStrokeWidth(canvasSizePx: number): number {
-    return typeof this.frameStrokeWidthOption === "function"
-      ? this.frameStrokeWidthOption(canvasSizePx)
-      : this.frameStrokeWidthOption;
-  }
-
-  /** クリップ境界と外枠線のPath2Dを、今のscale/フレーム形状/縁の太さから組み立て直す。
-   *  resize()（コンテナサイズ変化時）とsetFrameShape()（resize()経由）でだけ呼ばれる。 */
-  private rebuildFramePaths(): void {
-    const shape = this.currentShape();
-    // strokePathはframePathを「一定距離（frameStrokeWidth）だけ外側に
-    // オフセットした」輪郭として組み立てる——以前はscale自体をscale+
-    // frameStrokeWidth/2に置き換える「一様スケール」で近似していたが、直線から
-    // 曲線へ切り替わる場所（squareの角、glassesの接合部の付け根）では一様スケール
-    // が実際の一定距離オフセットと一致せず、縁取りと内側の紙の間に隙間ができて
-    // しまっていた（ユーザー指摘・実測確認済み）。buildPathのoffset引数（scaleは
-    // 据え置き、各パーツの大きさにoffsetを足す）を使うことで、この隙間が生まれない。
-    //
-    // offsetの大きさはframeStrokeWidthそのもの（半分ではない）にする——
-    // 塗りつぶし(fill)後に紙でframePathぶんを隠すことで縁取りを表現する今の
-    // 方式では、見た目の縁取りの太さ＝strokePathとframePathの差分＝offset
-    // そのものになる（以前のctx.stroke()方式は、centerlineをframeStrokeWidth/2
-    // だけオフセットしたpathを、さらにlineWidth=frameStrokeWidthでストローク
-    // することで両側にframeStrokeWidth/2ずつ広がっていたため、offsetは半分で
-    // 良かった——fill方式に変えた際にこの半分だけ残ってしまっており、縁取りが
-    // 本来の半分の太さしかなくなっていた。ユーザー指摘）。
-    const offset = this.frameStrokeWidth;
-    if (this.frameKind === "glasses") {
-      // 「接合部をフレームと同じ太さに」（ユーザー指示）: ブリッジの半分の高さを
-      // frameStrokeWidth（px）から今のscaleで正規化単位に逆算し、buildPathに
-      // 渡す——buildPath自体は固定のデフォルト値ではなく、この値でブリッジの
-      // 切り欠き位置を決める。
-      this.glassesBridgeHalfHeight = this.frameStrokeWidth / 2 / this.scale;
-      this.framePath = shape.buildPath(this.scale, this.glassesBridgeHalfHeight, 0);
-      this.strokePath = shape.buildPath(this.scale, this.glassesBridgeHalfHeight, offset);
-    } else {
-      this.framePath = shape.buildPath(this.scale);
-      this.strokePath = shape.buildPath(this.scale, undefined, offset);
-    }
-    this.frameStyle =
-      this.frameKind === "glasses"
-        ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scale * shape.horizontalReach)
-        : this.frameStrokeColor;
-  }
-
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
   setFrameShape(id: FrameShapeId): void {
-    this.frameShapeId = id;
-    // 動的計算時のscale自体はMAX_SHAPE_REACH基準で形状に関わらず一定だが、
-    // クリップ境界・紙の塗り範囲（drawRuledPaperのfillHalfExtent）は形状ごとに
-    // 異なるため、次のrender()で正しく反映されるようここでresize()して
-    // centerPx等を確定させておく。
-    this.resize();
+    this.frame.setFrameShape(id);
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
    *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
   setFramePattern(id: FramePatternId): void {
-    this.framePatternId = id;
-    this.resize();
+    this.frame.setFramePattern(id);
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
    *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
-    const x = (clientX - rect.left - this.centerPx.x) / this.scale;
-    const y = (clientY - rect.top - this.centerPx.y) / this.scale;
-    return this.currentShape().clamp({ x, y });
+    const x = (clientX - rect.left - this.frame.centerPx.x) / this.frame.scale;
+    const y = (clientY - rect.top - this.frame.centerPx.y) / this.frame.scale;
+    return this.frame.currentShape().clamp({ x, y });
   }
 
   private scheduleSessionClose(): void {
@@ -352,7 +215,7 @@ export class CircularCanvas {
   }
 
   private hitTestMemo(p: Point): Memo | null {
-    const threshold = HIT_THRESHOLD_PX / this.scale;
+    const threshold = HIT_THRESHOLD_PX / this.frame.scale;
     for (const memo of this.store.getActive()) {
       if (memo.kind === "stroke") {
         if (pointNearStrokes(p, memo.strokes, threshold)) return memo;
@@ -388,7 +251,7 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.scale);
+      this.store.eraseAt(p, ERASER_RADIUS_PX / this.frame.scale);
       return;
     }
 
@@ -474,13 +337,13 @@ export class CircularCanvas {
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
     const align = editingMemo?.align ?? "center";
     const canvasRect = this.canvas.getBoundingClientRect();
-    const fontPx = fontPxForRender(fontSize, this.scale);
+    const fontPx = fontPxForRender(fontSize, this.frame.scale);
     // 画面px⇄基準px（半径REFERENCE_RADIUS基準）の変換比率。可変幅ボックスの実際の
     // 幅は基準pxで測る（measureTextBoxWidthPx）ため、textareaに反映する際はこれで
     // 画面pxへ変換する。
-    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * this.scale;
-    const screenX = canvasRect.left + this.centerPx.x + anchor.x * this.scale;
-    const screenY = canvasRect.top + this.centerPx.y + anchor.y * this.scale;
+    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * this.frame.scale;
+    const screenX = canvasRect.left + this.frame.centerPx.x + anchor.x * this.frame.scale;
+    const screenY = canvasRect.top + this.frame.centerPx.y + anchor.y * this.frame.scale;
 
     const el = document.createElement("textarea");
     el.className = "text-editor-overlay";
@@ -650,79 +513,6 @@ export class CircularCanvas {
     renderMemoAt(ctx, preview, radius, TEMPLATE_GUIDE_ALPHA);
   }
 
-  /** 「残り時間・回復できる時間」の案内を今どのメモ・どの画面位置に出すべきかを
-   *  1つにまとめる（優先順位：実際になぞっている＞実際に移動している＞PCでの
-   *  ホバー）。表示条件を満たさなければnull。 */
-  private currentReviveInfoTarget(): { memoId: string; point: Point } | null {
-    if (this.state.mode === "tracing" && this.state.tracingMemoId && this.state.lastPoint) {
-      return { memoId: this.state.tracingMemoId, point: this.state.lastPoint };
-    }
-    if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
-      return { memoId: this.state.movingMemoId, point: this.state.lastPoint };
-    }
-    if (this.hoverInfoMemoId && this.hoverInfoPoint) {
-      return { memoId: this.hoverInfoMemoId, point: this.hoverInfoPoint };
-    }
-    return null;
-  }
-
-  /** 「残り時間」「回復できる時間」を、背景つきのボックスの中に文字だけで
-   *  表示する（ユーザー指示：バーは無くし、文字だけでよい）。触れている/
-   *  ホバーしている点(point、正規化座標)のすぐ下にボックスを置く。 */
-  private renderReviveInfoBox(ctx: CanvasRenderingContext2D, memoId: string, point: Point, r: number): void {
-    const budget = this.store.reviveBudgetOf(memoId);
-    if (!budget) return;
-    const p = { x: point.x * r, y: point.y * r };
-
-    const boxW = 220;
-    const padding = 18;
-    const lineHeight = 22;
-    const boxH = padding * 2 + lineHeight * 2;
-
-    const boxX = p.x - boxW / 2;
-    const boxY = p.y + 22;
-    const textX = boxX + padding;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxW, boxH, 16);
-    ctx.fillStyle = INFO_BOX_BG;
-    ctx.fill();
-    ctx.strokeStyle = INFO_BOX_BORDER;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    this.drawReviveInfoLine(ctx, textX, boxY + padding + lineHeight * 0.7, "残り時間", formatDurationJa(budget.remainingMs));
-    this.drawReviveInfoLine(
-      ctx,
-      textX,
-      boxY + padding + lineHeight * 1.7,
-      "回復できる時間",
-      budget.extendableMs > 0 ? formatDurationJa(budget.extendableMs) : "なし"
-    );
-    ctx.restore();
-  }
-
-  /** 見出し（薄い文字）＋具体的な量（濃い文字）を1行に横並びで描く。 */
-  private drawReviveInfoLine(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    baselineY: number,
-    label: string,
-    valueText: string
-  ): void {
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
-    ctx.font = "12px 'Noto Sans JP', sans-serif";
-    ctx.fillStyle = HINT_TEXT;
-    ctx.fillText(label, x, baselineY);
-    const labelWidth = ctx.measureText(label).width;
-
-    ctx.font = "600 13px 'Noto Sans JP', sans-serif";
-    ctx.fillStyle = "oklch(22% 0.012 55)";
-    ctx.fillText(valueText, x + labelWidth + 8, baselineY);
-  }
-
   private onPointerMove = (ev: PointerEvent): void => {
     if (this.pendingTemplate) {
       // 配置待ちの間はポインタを追いかけてガイドを表示するだけ（実際に置くのはタップ時）
@@ -753,11 +543,11 @@ export class CircularCanvas {
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.currentShape().clamp);
+      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.scale);
+      this.store.eraseAt(p, ERASER_RADIUS_PX / this.frame.scale);
     }
   };
 
@@ -839,9 +629,9 @@ export class CircularCanvas {
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
-    ctx.translate(this.centerPx.x, this.centerPx.y);
+    ctx.translate(this.frame.centerPx.x, this.frame.centerPx.y);
 
-    const shape = this.currentShape();
+    const shape = this.frame.currentShape();
 
     // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
     // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
@@ -853,18 +643,18 @@ export class CircularCanvas {
     // ものなので、原点を含むstar-shapedな形状であるframePath/strokePathの性質上
     // strokePathは常にframePathを包含する——大小2つの塗りつぶしの差分として
     // 縁取りを表現すれば、このズレの影響を受けず隙間が生まれない。
-    ctx.fillStyle = this.frameStyle;
-    ctx.fill(this.strokePath);
+    ctx.fillStyle = this.frame.frameStyle;
+    ctx.fill(this.frame.strokePath);
 
     // 枠の外にはみ出さないようクリップ。
     ctx.save();
-    ctx.clip(this.framePath);
+    ctx.clip(this.frame.framePath);
 
-    const r = this.scale;
+    const r = this.frame.scale;
 
-    if (this.frameKind === "glasses" && !this.interactive) {
+    if (this.frame.frameKind === "glasses" && !this.interactive) {
       // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
-      const half = this.scale * shape.maxReach;
+      const half = r * shape.maxReach;
       ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
       ctx.fillRect(-half, -half, half * 2, half * 2);
     } else {
@@ -872,7 +662,7 @@ export class CircularCanvas {
       // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
       // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
       // 透けて見える帯ができてしまう（ユーザー指摘）。
-      drawRuledPaper(ctx, this.scale, this.scale * shape.maxReach);
+      drawRuledPaper(ctx, r, r * shape.maxReach);
     }
 
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
@@ -902,14 +692,11 @@ export class CircularCanvas {
     }
 
     // なぞる/移動で実際に触れている間、またはPCでその道具にホバーしている間、
-    // 残り時間・回復できる時間を背景つきのボックスとバーで表示する
-    // （ユーザー指示）。回復量に生涯の上限を設けた（Issue #11、memoStore.tsの
-    // reviveMemo参照）ので、「あとどれだけ回復させられるか」が見えないと
-    // 利用者が分からないため。
-    const infoTarget = this.currentReviveInfoTarget();
-    if (infoTarget) {
-      this.renderReviveInfoBox(ctx, infoTarget.memoId, infoTarget.point, r);
-    }
+    // 残り時間・回復できる時間を背景つきのボックスで表示する（ユーザー指示）。
+    // 回復量に生涯の上限を設けた（Issue #11、memoStore.tsのreviveMemo参照）
+    // ので、「あとどれだけ回復させられるか」が見えないと利用者が分からない
+    // ため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
+    renderReviveInfoBox(ctx, this.store, r, this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
 
     // 消しゴムの当たり範囲を示すカーソル
     if (this.state.mode === "erasing" && this.state.lastPoint) {
@@ -937,14 +724,14 @@ export class CircularCanvas {
     // しまっていた（ユーザー指摘・実測確認済み）。クリップの外で、strokePath
     // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
     // 出なくなる。
-    if (this.frameKind === "glasses") {
-      this.drawGlassesBridgeBar(ctx);
+    if (this.frame.frameKind === "glasses") {
+      this.frame.drawGlassesBridgeBar(ctx);
     }
 
     // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
     // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
-    if (this.frameKind === "glasses") {
-      this.drawGlassesHinges(ctx, shape);
+    if (this.frame.frameKind === "glasses") {
+      this.frame.drawGlassesHinges(ctx, shape);
     }
 
     if (this.interactive && activeMemos.length === 0) {
@@ -957,64 +744,10 @@ export class CircularCanvas {
       ctx.fillStyle = HINT_TEXT;
       ctx.font = "13px 'Noto Sans JP', sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("ドラッグで書き始める", 0, this.scale * 0.32);
+      ctx.fillText("ドラッグで書き始める", 0, this.frame.scale * 0.32);
     }
 
     ctx.restore(); // translate + setTransform
-  }
-
-  /** ヒンジ（フレームの縁から外側に飛び出す小さな角丸タブ）を描く。正面から
-   *  見た実物の眼鏡はつる（テンプル）が奥に折れてほぼ見えないため、つるの線は
-   *  描かず、縁に付く小さな出っ張りだけを残す（ユーザー指摘・参考イラスト）。
-   *  内側の端は縁取りの外側の端（strokePathの実際の見た目の縁）にぴったり付け、
-   *  そこから外側にタブを伸ばす——単に外側の水平先端（scale*horizontalReach）
-   *  を中心に置くと、縁取りの内側に埋もれて見えてしまうため（ユーザー指摘）。
-   *  strokePathはframePathをframeStrokeWidthぶん外側にオフセットした輪郭
-   *  （rebuildFramePaths参照）なので、水平方向の実際の外側の縁は
-   *  scale*horizontalReach + frameStrokeWidthになる——以前はcomputeOuterReach
-   *  （ctx.stroke()でframeStrokeWidth/2ずつ両側に広がっていた旧方式向けの式）を
-   *  流用していたが、fillベースの新方式では値が合わずヒンジが縁から離れて
-   *  見えてしまっていた（ユーザー指摘）。
-   *
-   *  タブの大きさはthis.frameStrokeWidth（ウィンドウサイズに応じて動的に
-   *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
-   *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
-   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
-  private drawGlassesHinges(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
-    const frameOuterEdge = this.scale * shape.horizontalReach + this.frameStrokeWidth;
-    const tabLength = this.scale * GLASSES_HINGE_TAB_LENGTH;
-    const tabHalfHeight = this.scale * GLASSES_HINGE_TAB_HALF_HEIGHT;
-    const tabRadius = this.scale * GLASSES_HINGE_TAB_RADIUS;
-
-    for (const direction of [1, -1] as const) {
-      const innerX = direction * frameOuterEdge;
-      const outerX = innerX + direction * tabLength;
-      const left = Math.min(innerX, outerX);
-
-      ctx.beginPath();
-      ctx.roundRect(left, -tabHalfHeight, tabLength, tabHalfHeight * 2, tabRadius);
-      ctx.fillStyle = this.frameStyle;
-      ctx.fill();
-    }
-  }
-
-  /** ブリッジ（接合部）を、フレームと同じ柄・質感で塗りつぶす。書き込める領域は
-   *  レンズの内側だけ（clampToGlasses参照）なので、ここは常にフレーム素材で覆い、
-   *  紙の罫線を透けさせない——クリップ(framePath)の外側（render()参照）で、
-   *  strokePath自身のブリッジの高さ（frameStrokeWidthぶんオフセットした後の高さ、
-   *  glassesBridgeHalfHeight*scale + frameStrokeWidth）ぴったりに塗る。
-   *
-   *  framePath基準の高さ（オフセット前）ぴったりに塗っていた以前の版は、
-   *  strokePathの方がブリッジでもoffsetぶん背が高く、framePathの外側
-   *  （紙で隠れない）にフレーム色の帯がすでに描かれていた——それをclampToGlasses
-   *  でクリップしたbridge-barが覆いきれず、紙とその帯の境目が細い筋として
-   *  見えてしまっていた（ユーザー指摘・実測確認済み）。strokePath自身の高さに
-   *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
-  private drawGlassesBridgeBar(ctx: CanvasRenderingContext2D): void {
-    const halfWidth = this.scale * glassesBridgeHalfWidth(this.frameShapeId, this.glassesBridgeHalfHeight);
-    const halfHeight = this.scale * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
-    ctx.fillStyle = this.frameStyle;
-    ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
   }
 
   /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した
