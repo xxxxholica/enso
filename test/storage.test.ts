@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadMemos, saveMemos } from "../src/storage";
+import { LINE_HEIGHT_MULTIPLIER } from "../src/textLayout";
 import type { Memo } from "../src/types";
 
 class MemoryStorage implements Storage {
@@ -134,6 +135,7 @@ describe("storage migration（道具・色・なぞり履歴を持たない古�
       status: "active",
       color: "#2f2a26",
       align: "center",
+      lineHeight: LINE_HEIGHT_MULTIPLIER,
     };
     saveMemos([memo]);
     expect(loadMemos()).toEqual([memo]);

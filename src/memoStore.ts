@@ -1,6 +1,7 @@
 import { computeOpacity, MS_PER_DAY, remainingMs, STANDARD_LIFESPAN_DAYS } from "./fade";
 import { circleIntersectsBox, clampToCircle, eraseFromStroke } from "./geometry";
 import { loadMemos, saveMemos } from "./storage";
+import { LINE_HEIGHT_MULTIPLIER } from "./textLayout";
 import type { LifespanDays, Memo, MemoStyle, Point, Stroke, TextMemo } from "./types";
 
 function makeId(): string {
@@ -96,7 +97,7 @@ export class MemoStore {
     fontSize: number,
     boxWidth: number,
     boxHeight: number,
-    style: { color: string; lifespanDays: LifespanDays; align?: "center" | "left" },
+    style: { color: string; lifespanDays: LifespanDays; align?: "center" | "left"; lineHeight?: number },
     now: number = Date.now()
   ): TextMemo {
     const memo: TextMemo = {
@@ -117,6 +118,7 @@ export class MemoStore {
       status: "active",
       color: style.color,
       align: style.align ?? "center",
+      lineHeight: style.lineHeight ?? LINE_HEIGHT_MULTIPLIER,
     };
     this.memos.push(memo);
     this.persist();

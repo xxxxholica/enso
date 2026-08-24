@@ -22,7 +22,8 @@ export const ICONS: Record<
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
-  | "patternWood",
+  | "patternWood"
+  | "trash",
   string
 > = {
   pen: `
@@ -132,5 +133,13 @@ export const ICONS: Record<
       <path d="M3 8c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(32% 0.06 50)" stroke-width="1.1" opacity="0.55" />
       <path d="M3 13c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(38% 0.07 55)" stroke-width="1.3" opacity="0.5" />
       <path d="M3 18c3-2 6 2 9 0s6-2 9 0" fill="none" stroke="oklch(30% 0.05 45)" stroke-width="1" opacity="0.5" />
+    </svg>`,
+  trash: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M5 7h14" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      <path d="M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
     </svg>`,
 };

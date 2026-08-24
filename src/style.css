@@ -141,6 +141,57 @@ body {
   color: oklch(22% 0.012 55 / 0.35);
 }
 
+/* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「ドラッグで書き始める」と
+   「＋テンプレートを使用」の2つの選択肢を縦に並べる（ユーザー指示：テンプレートを
+   キャンバスを使い始める最初の選択肢へ格上げする）。以前はcanvasView.tsが
+   ctx.fillTextでcanvasに直接描いていたが、ボタンとして押せる・読み上げられる
+   必要があるため本物のDOMにした。位置はcanvasView.tsのsyncEmptyStatePosition()が
+   canvas要素の実際の位置＋フレーム中心からpxで設定する——CircularCanvasが
+   containerに.canvas-hostを付けてこの絶対配置の基準にする（キャンバスのタブ
+   切り替え時にパネルごとhiddenで消えてくれるよう、.text-editor-overlayのような
+   body直下のposition:fixedにはしていない）。 --- */
+.canvas-host {
+  position: relative;
+}
+
+.canvas-empty-state {
+  position: absolute;
+  z-index: 1; /* 罫線の紙の上、.icon-popover(5)・.text-editor-overlay(20)より下 */
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  white-space: nowrap;
+  /* ボタン以外の場所（案内の文字・すき間）はそのままcanvasへのドラッグを通す。 */
+  pointer-events: none;
+}
+
+/* 色は旧HINT_TEXT（canvasにfillTextしていた頃）と同じ値。canvas側の描画色と
+   CSSとで値が二重管理になるが、reviveInfoBox.tsが同じ値を複製しているのと
+   同じ流儀（葉のモジュール同士を結合させない）に合わせている。 */
+.canvas-empty-hint {
+  margin: 0;
+  font-size: 13px;
+  color: oklch(22% 0.012 55 / 0.4);
+}
+
+/* 白い罫線の紙の上に直接置かれるボタンなので、.pill-btnの既定色（地色に近い
+   oklch(93%)）では紙に溶けてしまう——.shared-room-trigger等と同じ理由で
+   明るいトーン＋影で浮かせる。 */
+.canvas-empty-template-btn {
+  pointer-events: auto;
+  font-size: 12.5px;
+  padding: 7px 14px;
+  background: oklch(98% 0.005 75);
+  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+}
+
+.canvas-empty-template-btn:hover {
+  background: oklch(93% 0.008 75);
+}
+
 /* --- 振り返りビューのパネル。通常キャンバスと同じ大きさの円を出すため、
    view-panelの既定(align-items:center)を上書きしてstretchにし、
    .archive-viewが#archive-panelいっぱいの高さを持てるようにする
@@ -350,34 +401,6 @@ body {
 
 .icon-popover--below.is-visible {
   transform: translateX(-50%) translateY(0);
-}
-
-/* --- テンプレートのメニューは縦積みの一覧。タップ領域・文字を大きめにして
-   メニューらしく読みやすくした。 --- */
-.template-popover {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  min-width: 140px;
-}
-
-.template-popover-item {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  color: oklch(22% 0.012 55 / 0.85);
-  padding: 8px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.template-popover-item:hover {
-  background: oklch(93% 0.006 75);
 }
 
 .toolbar-btn {
@@ -932,4 +955,313 @@ body {
   font-size: 12.5px;
   color: oklch(22% 0.012 55 / 0.45);
   pointer-events: none;
+}
+
+/* --- 全画面のテンプレート選択（templatePicker.ts）。道具バーの小さなポップアップ
+   から、空のキャンバスから開く1画面へ格上げしたもの（ユーザー指示）——「このアプリで
+   何ができるか」を最初に見せる場でもあるため、余白を広く取り、各カードに実際に
+   置かれる文面（罫線の紙・Klee One）をそのまま載せる。
+   z-indexは.text-editor-overlay(20)より上、.icon-popover(5)より当然上。 --- */
+.template-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: oklch(93% 0.006 75 / 0.82);
+  overflow-y: auto;
+}
+
+.template-picker-sheet {
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 22px 24px 24px;
+  border-radius: 24px;
+  border: 1px solid oklch(22% 0.012 55 / 0.12);
+  background: oklch(98% 0.005 75);
+  box-shadow: 0 2px 6px oklch(22% 0.012 55 / 0.08), 0 18px 48px oklch(22% 0.012 55 / 0.12);
+  transform: translateY(8px) scale(0.985);
+  transition: transform 180ms ease;
+  outline: none;
+}
+
+.template-picker.is-visible .template-picker-sheet {
+  transform: none;
+}
+
+.template-picker-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.template-picker-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.template-picker-title svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.template-picker-lead {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: oklch(22% 0.012 55 / 0.55);
+}
+
+.template-picker-close {
+  appearance: none;
+  border: none;
+  background: none;
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  font-size: 15px;
+  color: oklch(22% 0.012 55 / 0.6);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.template-picker-close:hover {
+  background: oklch(93% 0.006 75);
+}
+
+.template-picker-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.template-card {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid oklch(22% 0.012 55 / 0.12);
+  border-radius: 18px;
+  background: oklch(93% 0.006 75 / 0.5);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.template-card:hover {
+  background: oklch(98% 0.005 75);
+  border-color: oklch(22% 0.012 55 / 0.22);
+  transform: translateY(-1px);
+}
+
+.template-card-label {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.template-card-desc {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: oklch(22% 0.012 55 / 0.55);
+}
+
+/* 置かれたときの見た目そのままを見せる：canvasのテキストと同じKlee One、
+   paper.tsの罫線を模した背景。 */
+.template-card-preview {
+  margin: 0;
+  white-space: pre-line;
+  font-size: 12px;
+  line-height: 24px;
+  color: oklch(22% 0.012 55 / 0.8);
+  padding: 4px 10px 6px;
+  border-radius: 10px;
+  background: repeating-linear-gradient(to bottom, transparent 0 23px, oklch(78% 0.07 240 / 0.4) 23px 24px) #ffffff;
+}
+
+.template-picker-foot {
+  margin: 16px 0 0;
+  font-size: 11.5px;
+  color: oklch(22% 0.012 55 / 0.5);
+}
+
+/* --- ユーザー作成テンプレートのカード。削除ボタンをカード本体のボタンに
+   ネストできないため、.template-card自体はdivにし、本文を選ぶボタン
+   （.template-card-choose）とゴミ箱ボタンを兄弟として並べる。 --- */
+.template-card--custom {
+  position: relative;
+  cursor: default;
+}
+
+.template-card-choose {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  padding-right: 22px;
+}
+
+.template-card-delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  color: oklch(22% 0.012 55 / 0.4);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.template-card-delete svg {
+  width: 15px;
+  height: 15px;
+}
+
+.template-card-delete:hover {
+  background: oklch(93% 0.006 75);
+  color: oklch(55% 0.16 25 / 0.9);
+}
+
+/* --- 削除ボタンを押した直後、カードの中身をこの確認表示に置き換える
+   （ユーザー指示：削除する際は確認画面をはさむ）。 --- */
+.template-card-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.template-card-confirm-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: oklch(22% 0.012 55 / 0.8);
+}
+
+.template-card-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.template-card-confirm-delete {
+  background: oklch(55% 0.16 25 / 0.15);
+  color: oklch(45% 0.18 25);
+}
+
+.template-card-confirm-delete:hover {
+  background: oklch(55% 0.16 25 / 0.25);
+}
+
+/* --- 「＋ 新規テンプレートを作成」タイル。他のカードと同じ大きさ・角丸で
+   並ぶが、実際のテンプレートではないため破線にして見分けられるようにする。 --- */
+.template-card--create {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-style: dashed;
+  background: transparent;
+}
+
+.template-card-create-plus {
+  font-size: 22px;
+  line-height: 1;
+  color: oklch(22% 0.012 55 / 0.45);
+}
+
+/* --- 新規テンプレート作成フォーム。カード一覧（.template-picker-grid）と
+   同じシートの中で、hiddenの出し入れだけで切り替える（別の全画面を重ねない）。 --- */
+.template-picker-create {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.template-create-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+.template-theme-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.template-theme-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.template-theme-row .template-create-input {
+  margin-top: 0;
+}
+
+/* --- テーマ欄の削除ボタン。.template-picker-closeと同じ見た目だが、行の中に
+   収まるよう一段小さくする。 --- */
+.template-theme-remove {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.template-picker-create .pill-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.template-create-status {
+  min-height: 1em;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: oklch(55% 0.16 25 / 0.9);
+}
+
+.template-create-status:empty {
+  margin: 0;
+}
+
+.template-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+@media (max-width: 480px) {
+  .template-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-picker-sheet {
+    padding: 18px 16px 20px;
+    border-radius: 20px;
+  }
 }

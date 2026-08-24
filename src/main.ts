@@ -13,6 +13,7 @@ import { connectRealtimeSync } from "./realtimeSync";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
 import { loadFramePattern, loadFrameShape, saveFramePattern, saveFrameShape } from "./storage";
+import { TemplatePicker } from "./templatePicker";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -95,6 +96,16 @@ const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChan
 // 初期道具（ペン）は使うので、最初から有効な見た目にしておく。
 durationSelector.setEnabled(TOOLS_USING_DURATION.has(toolbar.getTool()));
 
+// 空のキャンバスの「＋テンプレートを使用」から開く全画面のテンプレート選択。
+// 選ばれたテンプレートは道具バー経由でそのまま盤面に置く（道具をテキストに切り替える
+// 副作用も含めて、以前の道具バーのテンプレートボタンとまったく同じ流れ）。
+// キャンバス／共有のどちらのタブから開いても、行き先の振り分けは上のToolbarの
+// onInsertTemplateがcurrentViewを見て行うため、選択画面自体は1つで足りる
+// ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
+// 変わることもない。
+const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
+const openTemplatePicker = () => templatePicker.open();
+
 const getToolState = () => ({
   tool: toolbar.getTool(),
   color: toolbar.getColor(),
@@ -103,7 +114,9 @@ const getToolState = () => ({
   lineWidth: toolbar.getLineWidth(),
 });
 
-const canvasView = new CircularCanvas(canvasPanel, store, getToolState);
+const canvasView = new CircularCanvas(canvasPanel, store, getToolState, {
+  onRequestTemplatePicker: openTemplatePicker,
+});
 const archiveView = new ArchiveView(archivePanel, primarySlot, store);
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
 // （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
@@ -116,7 +129,7 @@ const archiveView = new ArchiveView(archivePanel, primarySlot, store);
 // 個別のフェード処理は不要。
 let frameShapeId = loadFrameShape();
 let framePatternId = loadFramePattern();
-const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId);
+const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, openTemplatePicker);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // 画面切り替え時、道具バー・時間選択ブロックをふわっとフェードイン／

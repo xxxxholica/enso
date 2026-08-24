@@ -80,6 +80,11 @@ export interface TextMemo extends MemoBase {
    *  持ち物チェックのテンプレートのように項目を縦に並べる文面は、行ごとに
    *  幅が違っても左端が揃って読みやすい"left"にする。 */
   align?: "center" | "left";
+  /** 行の高さ（フォントサイズに対する倍率）。省略時（既存データ含む）は
+   *  textLayout.LINE_HEIGHT_MULTIPLIERとして扱う。テンプレートを置いた
+   *  瞬間だけ、これより少し狭い専用の値（textLayout.TEMPLATE_LINE_HEIGHT_MULTIPLIER）
+   *  にする（ユーザー指示：テンプレートのみ行間を少し狭くしたい）。 */
+  lineHeight?: number;
 }
 
 export type Memo = StrokeMemo | TextMemo;
