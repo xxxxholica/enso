@@ -121,6 +121,7 @@ const getToolState = () => ({
   lifespanDays: durationSelector.getLifespanDays(),
   fontSize: toolbar.getFontSize(),
   lineWidth: toolbar.getLineWidth(),
+  eraserRadius: toolbar.getEraserRadius(),
 });
 
 const canvasView = new CircularCanvas(canvasPanel, store, getToolState, {

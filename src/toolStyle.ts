@@ -1,4 +1,3 @@
-import type { FontSizeStep } from "./textLayout";
 import type { DrawTool } from "./types";
 
 export interface ToolRenderStyle {
@@ -14,13 +13,13 @@ export interface ToolRenderStyle {
 export const REFERENCE_RADIUS = 340;
 
 /**
- * ペンの線の太さ（基準円=半径340pxでのpx値）の選択肢。文字サイズ
- * （textLayout.FONT_SIZE_STEPS）と同じ小・中・大のステッパーを共有する
- * ——以前は鉛筆／ペンで固定の太さ(2px/3px)を使い分けていたが、2つを1つの
- * ペンに統合したのに合わせて、ステッパーで太さを選べるようにした
- * （ユーザー指示）。mediumの3pxは、統合前のペンの太さと同じ値。
+ * ペンの太さ（基準円=半径340pxでのpx値）のスライダーの範囲。以前は文字サイズ
+ * （小・中・大）と同じステッパーを共有していたが、GoodNotesのようにバーで
+ * 連続的に選べるようにしたいというユーザー指示により、文字サイズとは独立した
+ * 専用のスライダーに分けた（toolbar.tsのbuildThicknessSlider参照）。
+ * defaultの3pxは、以前のステッパーの「中」と同じ値。
  */
-export const PEN_WIDTH_STEPS: Record<FontSizeStep, number> = { small: 1.5, medium: 3, large: 6 };
+export const PEN_WIDTH_RANGE = { min: 1, max: 10, step: 0.5, default: 3 } as const;
 
 function baseStyle(tool: DrawTool, penLineWidth: number): ToolRenderStyle {
   switch (tool) {
@@ -41,12 +40,12 @@ function baseStyle(tool: DrawTool, penLineWidth: number): ToolRenderStyle {
  * サイズが大きく異なる場所で、線の相対的な太さの見た目を揃えるため）。
  * penLineWidthAtReferenceは、そのペンのストロークが作られた時点で選ばれていた
  * 太さ（StrokeMemo.lineWidth）を渡す想定——省略時（旧バージョンのデータなど）は
- * 「中」相当にフォールバックする。マーカーには使わない。
+ * スライダーのdefault相当にフォールバックする。マーカーには使わない。
  */
 export function toolRenderStyle(
   tool: DrawTool,
   radius: number = REFERENCE_RADIUS,
-  penLineWidthAtReference: number = PEN_WIDTH_STEPS.medium
+  penLineWidthAtReference: number = PEN_WIDTH_RANGE.default
 ): ToolRenderStyle {
   const base = baseStyle(tool, penLineWidthAtReference);
   const scale = radius / REFERENCE_RADIUS;

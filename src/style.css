@@ -472,6 +472,39 @@ body {
   background: oklch(93% 0.006 75);
 }
 
+/* --- ペンの太さ／消しゴムの大きさを1本で共有するスライダー（GoodNotesの
+   ようにバーで変えたい、というユーザー指示）。DurationSelectorの
+   .duration-seekbarと同じ「ラベルを上、スライダーを下」の縦積みだが、
+   表示する数値が短い（xxpx）ため幅はもっと控えめにしている。 --- */
+.thickness-control {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  min-width: 72px;
+}
+
+.thickness-label {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: oklch(22% 0.012 55 / 0.7);
+}
+
+.thickness-slider {
+  width: 100%;
+  min-width: 64px;
+  accent-color: oklch(22% 0.012 55);
+  cursor: pointer;
+}
+
+/* ペン・消しゴム以外の道具を選んでいる間は、触れない・薄いことで無効だと
+   分かるようにする（.duration-seekbar-disabledと同じ考え方）。 */
+.thickness-control-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .toolbar-swatch {
   position: relative;
   width: 32px;
