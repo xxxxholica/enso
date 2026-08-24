@@ -143,6 +143,31 @@ export class MemoStore {
   }
 
   /**
+   * ドラッグせずに離した（＝直近のストロークが1点のまま）場合の後始末。
+   * その1点だけのストロークは描画側（renderMemoAt）で無視され画面には何も
+   * 残らないが、ストアには「メモがある」状態が残ってしまい、メモ0件のときだけ
+   * 出す初期案内（ドラッグで書き始める／テンプレートを使用）が誤って
+   * 出なくなってしまう（ユーザー報告）。そのストロークが唯一のストローク
+   * ならメモ自体を削除し、他に有効なストロークが既にある（＝同じ書き込み
+   * セッション中に一度書いた後、ペンを持ち上げてもう一度一瞬だけ触れた場合）
+   * ならその1点だけのストロークだけを取り除く。
+   */
+  /** 戻り値はメモ自体を削除したかどうか（呼び出し側でactiveMemoIdの後始末に使う）。 */
+  discardTrailingSinglePointStroke(memoId: string): boolean {
+    const memo = this.memos.find((m) => m.id === memoId);
+    if (!memo || memo.kind !== "stroke" || memo.strokes.length === 0) return false;
+    const lastStroke = memo.strokes[memo.strokes.length - 1];
+    if (lastStroke.length >= 2) return false;
+    if (memo.strokes.length === 1) {
+      this.deleteMemo(memoId);
+      return true;
+    }
+    memo.strokes.pop();
+    this.persist();
+    return false;
+  }
+
+  /**
    * なぞって復活: 以前は不透明度を無条件で100%に戻し猶予期間の起点を
    * まるごとリセットしていたが、なぞればいつまでも際限なく復活できてしまう
    * のは適切かという議論から（Issue #11）、1回のなぞりで戻せる量を

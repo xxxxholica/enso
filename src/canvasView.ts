@@ -637,6 +637,12 @@ export class CircularCanvas {
 
   private onPointerUp = (): void => {
     if (this.state.mode === "drawing") {
+      // ドラッグせずに離した一瞬のクリックは、線としては何も描けていない
+      // （renderMemoAtがstroke.length<2のメモを描画対象から除外する）ため、
+      // ストア側にも「見えないメモ」を残さない（詳しくはdiscardTrailingSinglePointStroke参照）。
+      if (this.state.activeMemoId && this.store.discardTrailingSinglePointStroke(this.state.activeMemoId)) {
+        this.state.activeMemoId = null;
+      }
       this.scheduleSessionClose();
     }
     this.state.mode = "idle";
