@@ -22,6 +22,13 @@ export function getNickname(id: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+/** ルーム一覧の描画のような、複数ルーム分をまとめて調べたい場面向け。
+ *  ルームごとに getNickname を呼ぶと localStorage の読み出し+JSON.parseが
+ *  ルーム数だけ繰り返されるため、一括で読みたい呼び出し元はこちらを使う。 */
+export function getAllNicknames(): Readonly<Record<string, string>> {
+  return loadAll();
+}
+
 export function setNickname(id: string, name: string): void {
   const all = loadAll();
   const trimmed = name.trim();
@@ -30,5 +37,10 @@ export function setNickname(id: string, name: string): void {
   } else {
     delete all[id];
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  } catch {
+    // Safariのプライベートブラウズ等、書き込みが例外を投げる環境でも
+    // 呼び出し元（renameのblurハンドラ）の後続処理を止めない。
+  }
 }

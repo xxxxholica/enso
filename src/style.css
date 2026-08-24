@@ -704,13 +704,6 @@ body {
   pointer-events: none;
 }
 
-.shared-room-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 120px;
-}
-
 .shared-room-list {
   list-style: none;
   margin: 0;
@@ -730,7 +723,17 @@ body {
 .shared-room-item {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+}
+
+/* 名前が長いとポップオーバー幅（.shared-room-popover、上限340px）から
+   はみ出すため、行内で省略表示（…）にする。flexアイテムとしてellipsisが
+   効くにはmin-width:0が必須（既定のautoだと内容の実際の幅まで縮まない）。 */
+.shared-room-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shared-room-btn[aria-pressed="true"] {
@@ -740,8 +743,7 @@ body {
 }
 
 .shared-room-rename {
-  font-size: 10.5px;
-  color: oklch(22% 0.012 55 / 0.3);
+  flex: 0 0 auto;
 }
 
 .shared-room-rename-input {
