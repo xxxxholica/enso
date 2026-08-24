@@ -16,14 +16,13 @@ import { SmuiView } from "./smuiView";
 import {
   loadFramePattern,
   loadFrameShape,
-  loadTutorialSeen,
-  markTutorialSeen,
+  loadUsageGuideSeen,
+  markUsageGuideSeen,
   saveFramePattern,
   saveFrameShape,
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
-import { openTutorialOverlay } from "./tutorial/tutorialOverlay";
-import { ICONS } from "./icons";
+import { openUsageGuide } from "./usageGuide";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -36,7 +35,7 @@ app.innerHTML = `
       </nav>
     </div>
     <div class="app-header-right">
-      <button type="button" id="tutorial-replay-btn" class="tutorial-replay-btn" aria-label="円相のチュートリアルを見る"></button>
+      <button type="button" id="usage-guide-btn" class="usage-guide-btn">使い方</button>
       <div id="account-slot"></div>
     </div>
   </header>
@@ -147,13 +146,13 @@ setupControlPanelPages(
 // ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
 // 変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介するチュートリアルを
-// 挟む（仮想キャンバス上で完結し、実キャンバスのメモ・振り返り機構には触れない）。
-// 見終えた／スキップした後は、これまで通りテンプレート選択へ続く。
+// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介する使い方ページを
+// 挟む（読み物として静的に見せるだけで、実キャンバス・実storeには一切触れない。
+// usageGuide.ts参照）。見終えた／閉じた後は、これまで通りテンプレート選択へ続く。
 const openTemplatePicker = () => {
-  if (!loadTutorialSeen()) {
-    openTutorialOverlay(() => {
-      markTutorialSeen();
+  if (!loadUsageGuideSeen()) {
+    openUsageGuide(() => {
+      markUsageGuideSeen();
       templatePicker.open();
     });
     return;
@@ -161,9 +160,8 @@ const openTemplatePicker = () => {
   templatePicker.open();
 };
 
-const tutorialReplayBtn = document.querySelector<HTMLButtonElement>("#tutorial-replay-btn")!;
-tutorialReplayBtn.innerHTML = ICONS.guide;
-tutorialReplayBtn.addEventListener("click", () => openTutorialOverlay(() => {}));
+const usageGuideBtn = document.querySelector<HTMLButtonElement>("#usage-guide-btn")!;
+usageGuideBtn.addEventListener("click", () => openUsageGuide());
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
