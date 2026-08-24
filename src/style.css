@@ -103,7 +103,23 @@ body {
   justify-content: center;
 }
 
+/* --- キャンバスタブ本体。以前は円だけを中央に置く単純な箱だったが、
+   共有タブ（.smui-view）と同じく「ツールバー直上」に情報行(#canvas-info-row、
+   残り時間ピル)を置きたいため、縦積みのflexにして円側(#canvas-wrap)に
+   残りの高さを埋めさせる（align-items:stretchに切り替え、.smui-viewと
+   同じ考え方）。 --- */
 #canvas-panel {
+  width: 100%;
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+#canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   display: flex;
   align-items: center;
@@ -142,17 +158,6 @@ body {
 .circle-canvas {
   display: block;
   cursor: crosshair;
-}
-
-/* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
-   canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
-   （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
-   形をその丸に沿わせるための指定。この円は他パネルのカードより一枚の紙に
-   近いため、影はごく控えめにしてある（大きなblur/offsetは輪が太い外枠に
-   見えてしまう——ユーザー指摘）。 */
-.circle-canvas--paper {
-  border-radius: 50%;
-  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -1009,6 +1014,21 @@ body {
   background: oklch(88% 0.008 75);
 }
 
+/* --- 「残り時間」ピル（reviveInfoPill.ts）。.shared-room-trigger等と同じく
+   ポップオーバーの外・ページの地色（oklch(93%...)）に直接置かれるため
+   明るいトーンにする。押せる操作ではないため、カーソル・ホバーの見た目は
+   変化させない（ユーザー指摘：ホバー時の表示が目立ちすぎる——輪郭線を
+   消しただけでなく、ボタンらしい反応も持たせないことで「ただの表示」だと
+   伝わるようにした）。 --- */
+.revive-info-pill {
+  background: oklch(98% 0.005 75);
+  cursor: default;
+}
+
+.revive-info-pill:hover {
+  background: oklch(98% 0.005 75);
+}
+
 /* --- トリガーボタン（sharedRoomMenu.ts）だけ、ポップオーバーの外・右レンズの
    ラベル横（地色oklch(93% 0.006 75)のページの上）に直接置かれるため、
    .pill-btnの既定色だと今度はページと同化してしまう——ポップオーバーの
@@ -1090,16 +1110,16 @@ body {
   gap: 12px;
 }
 
-/* --- ルーム作成・選択（SharedRoomMenu）の置き場所。眼鏡キャンバスの下に
-   中央寄せで置く（ユーザー指示）。フレーム形状・柄のセレクタ（AppearanceSelector）
-   もルーム設定ボタンの右隣に横並びで置く（ユーザー指示）。
-   min-heightはボタンの見た目上の高さに固定しておく——
-   ボタンの中身（「+ルームを作成」⇔選択中のルームID）が変わってもこの行の
-   高さ自体は変わらないようにし、共有キャンバス（.smui-canvas-wrap、
-   flex:1 1 auto）の実際の高さがルーム選択のたびに変わってフレームの太さ
-   （frameStrokeWidthは高さに比例）まで変化して見えてしまう、という事態を
-   避ける。 --- */
-.smui-room-menu-row {
+/* --- ツールバー直上の情報行。共有タブでは眼鏡キャンバスの下にルーム作成・
+   選択（SharedRoomMenu）、見た目の設定（AppearanceSelector）、残り時間ピルを
+   中央寄せで横並びに置く（ユーザー指示）。キャンバスタブでは残り時間ピルだけを
+   同じ見た目で置く（#canvas-info-row、main.ts）。
+   min-heightは中身の見た目上の高さに固定しておく——中身（「+ルームを作成」
+   ⇔選択中のルームID、ピルの表示/非表示）が変わってもこの行の高さ自体は
+   変わらないようにし、共有キャンバス（.smui-canvas-wrap、flex:1 1 auto）の
+   実際の高さがそのたびに変わってフレームの太さ（frameStrokeWidthは高さに
+   比例）まで変化して見えてしまう、という事態を避ける。 --- */
+.info-row {
   display: flex;
   justify-content: center;
   align-items: center;

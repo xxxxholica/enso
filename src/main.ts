@@ -7,6 +7,7 @@ import { RewindSelector } from "./rewindSelector";
 import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { setupControlPanelPages } from "./controlPanelPages";
+import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
@@ -27,7 +28,10 @@ app.innerHTML = `
     </div>
   </header>
   <main class="app-main">
-    <div id="canvas-panel" class="view-panel fade-visible"></div>
+    <div id="canvas-panel" class="view-panel fade-visible">
+      <div id="canvas-wrap"></div>
+      <div id="canvas-info-row" class="info-row"></div>
+    </div>
     <div id="shared-panel" class="view-panel fade-visible" hidden></div>
   </main>
   <footer class="app-footer">
@@ -78,9 +82,14 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
 });
 
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
+const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
+// 「残り時間」ピル（キャンバスタブ）: ツールバー直上の行に、共有タブの
+// 「＋ルームを作成」等と同じ見た目で置く（ユーザー指示）。共有タブ側は
+// smuiView自身が同じ行の中で持つ（getRoomMenuSlot()の横）。
+const canvasReviveInfoPill = new ReviveInfoPill(document.querySelector<HTMLDivElement>("#canvas-info-row")!);
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
@@ -136,7 +145,7 @@ const getToolState = () => ({
   eraserRadius: toolbar.getEraserRadius(),
 });
 
-const canvasView = new CircularCanvas(canvasPanel, store, getToolState, {
+const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   onRequestTemplatePicker: openTemplatePicker,
 });
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
@@ -256,7 +265,10 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
 function frame(): void {
   const now = Date.now();
   store.tick(now);
-  if (currentView === "canvas") canvasView.render(now);
+  if (currentView === "canvas") {
+    canvasView.render(now);
+    canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
+  }
   if (currentView === "shared") smuiView.render(now);
   requestAnimationFrame(frame);
 }

@@ -30,8 +30,12 @@ const PRESET_INKS: { id: "black" | "red" | "blue"; label: string; color: string 
 /** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
  *  「なぞる」は、なぞって復活させる操作がペン等の描画操作と混じりやすかったため、
  *  専用の道具として分離したもの（ユーザー指示）——「移動」道具と同じく、既存の
- *  メモに触れた場合だけ働き、何もない場所への新規作成はしない。 */
-const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "trace", "eraser"];
+ *  メモに触れた場合だけ働き、何もない場所への新規作成はしない。
+ *  "trace"はTOOL_ORDERから外して道具バーに出さないようにしている（ユーザー指示：
+ *  選択道具の振り回し操作に統合したため。レビュー次第で復活させる可能性がある
+ *  ため、道具そのもの・canvasView.ts側のなぞる処理は削除せず残している——
+ *  再度表示したい場合はここに"trace"を戻すだけでよい）。 */
+const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
