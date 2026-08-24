@@ -147,11 +147,12 @@ body {
 /* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
    canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
    （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
-   形をその丸に沿わせるための指定——他パネルのカード(line 1000付近)と同じ
-   「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ね流儀。 */
+   形をその丸に沿わせるための指定。この円は他パネルのカードより一枚の紙に
+   近いため、影はごく控えめにしてある（大きなblur/offsetは輪が太い外枠に
+   見えてしまう——ユーザー指摘）。 */
 .circle-canvas--paper {
   border-radius: 50%;
-  box-shadow: 0 1px 3px oklch(22% 0.012 55 / 0.05), 0 14px 36px oklch(22% 0.012 55 / 0.1);
+  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -226,22 +227,11 @@ body {
   background: oklch(93% 0.008 75);
 }
 
-/* --- 振り返りビューのパネル。通常キャンバスと同じ大きさの円を出すため、
+/* --- SMUI（共有）のパネル。通常キャンバスと同じ大きさの円を出すため、
    view-panelの既定(align-items:center)を上書きしてstretchにし、
-   .archive-viewが#archive-panelいっぱいの高さを持てるようにする
-   （%指定のheightは祖先がflex-growで確定した高さだと解決に失敗することがあるため、
-   ここでもheight:100%は使わずstretchに委ねる）。
-   一覧が増えて縦に収まりきらない場合はこのパネル自身がスクロールする。 --- */
-#archive-panel {
-  align-items: stretch;
-  overflow-y: auto;
-}
-
-/* --- SMUI（共有）のパネル。#archive-panelと同じ理由で、view-panelの既定
-   (align-items:center)を上書きしてstretchにし、.smui-canvas-wrapがパネル
-   いっぱいの高さを持てるようにする——これが無いと.smui-viewは中身ぶんの
-   高さしか持たず、共有キャンバスがキャンバスタブの円のように縦方向の余白を
-   使い切れない。 --- */
+   .smui-canvas-wrapがパネルいっぱいの高さを持てるようにする——これが無いと
+   .smui-viewは中身ぶんの高さしか持たず、共有キャンバスがキャンバスタブの円の
+   ように縦方向の余白を使い切れない。 --- */
 #shared-panel {
   align-items: stretch;
 }
@@ -309,7 +299,7 @@ body {
    .toolbar-tools（左）＝道具アイコンとテンプレートを1列（.toolbar-pill）にまとめ、
    すべて同じ大きさ（.toolbar-btn）で揃えたもの。「何をするか」という操作の並びを
    1ブロックにしている（ユーザー指示）。.toolbar-details（中央）＝色・文字サイズ
-   という選んだ道具の"詳細"設定。時間選択ブロック（DurationSelector）はこの
+   という選んだ道具の"詳細"設定。振り返りスライダー（RewindSelector）はこの
    Toolbarの外、#duration-slotに別途並ぶ。画面切り替えナビをヘッダーへ移した分
    フッターの横幅に余裕ができたため、以前は道具アイコンの上にposition: absoluteで
    浮かせていた詳細ブロックを通常のフローに戻し、ブロックを横に並べるだけで1行に収まる。
@@ -595,55 +585,37 @@ body {
   white-space: nowrap;
 }
 
-/* --- 「消えるまでの期間」のホバー案内（durationSelector.ts）専用の薄字。
-   .tool-tooltipの.85は「ペン」等の1〜2語なら薄く見えるが、この案内は文章が
-   長く（漢字も多く）、同じ不透明度でも文字の並びが密になって濃く・重く見える
-   （ユーザー指摘：道具バーの案内より薄くない）。文字数に関わらず道具バーの
-   案内と同じ「薄さ」の見た目に揃うよう、この案内だけ不透明度を落としている。 --- */
-.tool-tooltip.duration-hint {
-  color: oklch(22% 0.012 55 / 0.55);
-}
-
-/* --- 表示/非表示はJS（pointerenter/leave＋タイマー）ではなくCSSの:hoverだけで
-   切り替える（durationSelector.ts参照：JSのタイマー管理だと2回目以降の
-   ホバーで出てこなくなる不具合があった）。ホバーできないデバイス（タッチのみ）
-   では意味を持たないため@media (hover: hover)で絞り、道具バーのホバー案内
-   （toolbar.ts、pointerType==="mouse"チェック）と同じ「PCに限る」制約を保つ。 --- */
-@media (hover: hover) and (pointer: fine) {
-  .duration-seekbar:hover .duration-hint {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-    pointer-events: auto;
-  }
-}
-
-/* --- 文字サイズのステッパー。道具に関わらず常に.toolbar-detailsに表示している
-   ——以前はテキスト道具の間だけ出し入れしていたが、その分中央ブロックの横幅が
-   変わり、バー全体が2行に折り返ってしまうことがあった。最初から常時表示にして
-   横幅を固定することで解決している（ユーザー指示：絶対に2行にしたくない／
-   最初から全部出す）。出し入れがなくなったのでアニメーションは持たない。 --- */
-
-.font-size-stepper {
+/* --- ペンの太さ／消しゴムの大きさを1本で共有するスライダー（GoodNotesの
+   ようにバーで変えたい、というユーザー指示）。DurationSelectorの
+   .duration-seekbarと同じ「ラベルを上、スライダーを下」の縦積みだが、
+   表示する数値が短い（xxpx）ため幅はもっと控えめにしている。 --- */
+.thickness-control {
   display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  min-width: 72px;
 }
 
-.font-size-btn {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 500;
-  color: oklch(22% 0.012 55);
+.thickness-label {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: oklch(22% 0.012 55 / 0.7);
+}
+
+.thickness-slider {
+  width: 100%;
+  min-width: 64px;
+  accent-color: oklch(22% 0.012 55);
   cursor: pointer;
-  padding: 5px 9px;
-  border-radius: 999px;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
-.font-size-btn[aria-pressed="true"] {
-  background: oklch(93% 0.006 75);
+/* ペン・消しゴム以外の道具を選んでいる間は、触れない・薄いことで無効だと
+   分かるようにする（.duration-seekbar-disabledと同じ考え方）。 */
+.thickness-control-disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* --- インクの色: 黒/赤/青の固定3スワッチ＋4つ目の「好きな色」スワッチ
@@ -715,52 +687,20 @@ body {
   padding: 2px 4px;
 }
 
-/* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
-
-.seekbar {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
-.seekbar-disabled {
+/* --- 道具バー全体のグレーアウト。振り返りスライダーで過去に遡っている間、
+   道具を使えないことを示す（ユーザー指示）。.duration-seekbar-disabled等と
+   同じ「触れない・薄い」パターン。.toolbarは.fade-visible.is-visible
+   （opacity:1、詳細度0,2,0）も同時に持つため、.toolbar-disabled単体（0,1,0）
+   では負けてしまう——.toolbarと組み合わせて詳細度を揃え、こちらを優先させる。 */
+.toolbar.toolbar-disabled {
   opacity: 0.4;
   pointer-events: none;
 }
 
-.seekbar-timestamp {
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-  color: oklch(22% 0.012 55 / 0.6);
-}
-
-.seekbar-track {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-}
-
-.seekbar-label {
-  flex: none;
-  font-size: 11px;
-  color: oklch(22% 0.012 55 / 0.4);
-}
-
-.seekbar-slider {
-  flex: 1;
-  accent-color: oklch(22% 0.012 55);
-  cursor: pointer;
-}
-
-/* --- 時間選択ブロック：消えるまでの期間を選ぶシークバー。振り返りのシークバー
-   （.seekbar）と同じく、現在値のラベルをスライダーの上に置く縦積みにしている
-   （ユーザー指示）。「最初」「現在」のような両端のラベルは持たない、振り返りほど
-   大仰にしない控えめな作り（以前からの指示）。 --- */
+/* --- 時間選択ブロック：旧「消えるまでの期間」を選ぶシークバーの枠を、
+   過去に遡って見るシークバー（rewindSelector.ts）に転用したもの。現在値の
+   ラベルをスライダーの上に置く縦積みにしている（ユーザー指示）。「最初」
+   「現在」のような両端のラベルは持たない、控えめな作り（以前からの指示）。 --- */
 
 .duration-seekbar {
   display: flex;
@@ -769,9 +709,6 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 150px;
-  /* ホバー案内(.tool-tooltip、durationSelector.ts)をこのブロック基準で
-     重ねて表示するため（.icon-popoverはposition:absolute）。 */
-  position: relative;
 }
 
 .duration-seekbar-label {
@@ -793,42 +730,6 @@ body {
 .duration-seekbar-disabled {
   opacity: 0.4;
   pointer-events: none;
-}
-
-/* --- 振り返りビュー ------------------------------------------------ */
-/* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
-   大きさを決める。消えたメモの一覧は持たない設計なので、円だけを表示すればよい
-   （メモが何もない時も専用の空状態メッセージは出さず、シークバー側の見た目
-   ——disabled・薄い表示——だけで伝える。ユーザー指示）。 */
-
-.archive-view {
-  width: 100%;
-  /* height指定はしない。#archive-panelのalign-items:stretchに高さを委ねる
-     （height:100%は祖先の高さがflex-growで確定したものだと解決に失敗することがあるため）。
-     paddingは持たせない: #canvas-panel（通常キャンバス側）にも一切paddingが
-     無く、fitCanvasToContainer()はこのラッパーのgetBoundingClientRect()を
-     そのまま「利用可能な高さ」として円のサイズを決めているため、ここだけ
-     paddingがあると通常キャンバスと振り返りとで円の大きさがずれてしまう
-     （ユーザー指摘：キャンバスと振り返りに変えた時に円のサイズが変わる）。
-     以前ここに残っていた上下のpaddingは、シークバーをまだ操作パネル側
-     （フッター）ではなくこのビュー自身の中に置いていた頃の名残り。 */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.archive-canvas-wrap {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.archive-preview {
-  display: block;
-  border-radius: 50%;
 }
 
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
@@ -1178,8 +1079,8 @@ body {
    大きな眼鏡形状1枚（左右レンズ+ブリッジが1つの連続領域、CircularCanvasの
    frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
    （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
-   (flex:1 1 auto; min-height:0)」を連鎖させることで、#archive-panel/
-   .archive-canvas-wrapと同じ仕組みでキャンバスがパネルの高さいっぱいまで育つ。 --- */
+   (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
+   高さいっぱいまで育つ。 --- */
 .smui-view {
   width: 100%;
   height: 100%;

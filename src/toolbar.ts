@@ -1,7 +1,7 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { ICONS } from "./icons";
-import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, type FontSizeStep } from "./textLayout";
-import { PEN_WIDTH_STEPS } from "./toolStyle";
+import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
+import { PEN_WIDTH_RANGE } from "./toolStyle";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
@@ -10,6 +10,12 @@ export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
+
+/** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）の
+ *  スライダー範囲。以前は固定16px（旧ERASER_RADIUS_PX）だったが、GoodNotesの
+ *  ようにバーで変えられるようにしたいというユーザー指示で調整可能にした。
+ *  defaultの16pxは、その旧固定値と同じ。 */
+const ERASER_RADIUS_RANGE = { min: 8, max: 40, step: 1, default: 16 } as const;
 
 /** すぐ選べる固定インク3色（GoodNotesの黒/赤/青のような定番色、ユーザー指示）。
  *  「黒」は既存の既定インク色（DEFAULT_INK）をそのまま使う——見た目・初期状態を
@@ -35,26 +41,28 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
   eraser: "消しゴム",
 };
 
-const FONT_SIZE_ORDER: FontSizeStep[] = ["small", "medium", "large"];
-const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "中", large: "大" };
-
 /**
  * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
  * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
  * 機能だったため1つに統合した——ユーザー指示）。
- * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸・別ブロックで担当）。
+ * 「消えるまでの期間」は選べる仕様をやめ常に1日固定にしたため、ここでは扱わない
+ * （fade.tsのFIXED_LIFESPAN_DAYS参照）。
  *
  * 下部バーは機能ごとに3ブロックへ分けており、このToolbarクラスはそのうち
- * 左と中央の2つを受け持つ（右の「時間選択ブロック」はDurationSelectorが別に
- * #duration-slotへ描画する）:
+ * 左と中央の2つを受け持つ（右のブロックは、旧「消えるまでの期間」選択の枠を
+ * 転用した振り返りスライダー——RewindSelectorが別に#duration-slotへ描画する）:
  *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンとテンプレートを
  *     同じ1列（.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
  *     「何をするか」という操作そのものの並びとして、1つのブロックにまとめている
  *     （ユーザー指示：ツールを左に1ブロックとしてまとめたい）。
  *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
- *     選んだ道具の見た目を決める設定。「サイズ」の小・中・大ステッパーは
- *     文字サイズとペンの線の太さを兼ねる共通の設定（ユーザー指示：鉛筆とペンの
- *     統合にあわせて、このステッパーでペンの太さも変えられるようにしたい）。
+ *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
+ *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない（ユーザー指示：
+ *     太さのスライダーが増えた分、サイズ選択のステッパー表示は不要）。
+ *     ペンの太さ・消しゴムの大きさは、GoodNotesのようにバーで連続的に
+ *     選べるようにしたいというユーザー指示で1本のスライダー
+ *     （buildThicknessSlider）にしており、選んでいる道具がペンなら太さ、
+ *     消しゴムなら大きさを表す（他の道具の間は無効化）。
  * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
@@ -62,11 +70,6 @@ const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "�
  * テンプレートの選択自体はここでは扱わない（空のキャンバスから開く全画面の
  * テンプレート選択、templatePicker.ts）——このクラスはinsertTemplate()経由で
  * 「道具をテキストに切り替えてから盤面に置く」の橋渡しだけを担う。
- * 文字サイズのステッパーは道具に関わらず常に表示したままにしており、
- * 出入りのアニメーションは持たない
- * ——以前はテキスト道具のときだけ出し入れしていたが、その分バーの横幅が
- * 変わって2行に折り返ってしまうことがあったため、最初から常時表示にして
- * 横幅を固定した（ユーザー指示：絶対に2行にはしたくない）。
  *
  * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
  * 更新する（innerHTMLを毎回作り直さない）。
@@ -78,12 +81,14 @@ export class Toolbar {
   private onInsertTemplate?: (id: TemplateId) => void;
   private tool: ToolbarTool = "pen";
   private color: string = DEFAULT_INK;
-  private fontSizeStep: FontSizeStep = DEFAULT_FONT_SIZE_STEP;
+  private penWidth: number = PEN_WIDTH_RANGE.default;
+  private eraserRadius: number = ERASER_RADIUS_RANGE.default;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
-  private stepperEl!: HTMLElement;
-  private stepperButtons = new Map<FontSizeStep, HTMLButtonElement>();
+  private thicknessWrap!: HTMLElement;
+  private thicknessLabel!: HTMLElement;
+  private thicknessSlider!: HTMLInputElement;
 
   private presetButtons = new Map<string, HTMLButtonElement>();
   private customSwatchBtn!: HTMLButtonElement;
@@ -116,30 +121,28 @@ export class Toolbar {
     return this.color;
   }
 
-  /** 基準円(半径340px)におけるフォントサイズ(px)。実際の描画時はtextLayout.fontPxForRenderでスケール・下限適用する。 */
+  /** 基準円(半径340px)におけるフォントサイズ(px)。選べる仕様をやめ常にDEFAULT_FONT_SIZE_STEP
+   *  固定にした（ユーザー指示）。実際の描画時はtextLayout.fontPxForRenderでスケール・下限適用する。 */
   getFontSize(): number {
-    return FONT_SIZE_STEPS[this.fontSizeStep];
+    return FONT_SIZE_STEPS[DEFAULT_FONT_SIZE_STEP];
   }
 
-  /**
-   * 基準円(半径340px)におけるペンの線の太さ(px)。文字サイズと同じ小・中・大の
-   * ステッパーを共有しており（ユーザー指示：鉛筆とペンを統合してサイズ変更を
-   * 効かせたい）、道具に応じてどちらの意味で使われるかが変わる。
-   * 実際の描画時はtoolStyle.toolRenderStyleでスケール・下限適用する。
-   */
+  /** 基準円(半径340px)におけるペンの線の太さ(px)。buildThicknessSliderのスライダーで
+   *  選ぶ（道具がペンの間だけ有効）。実際の描画時はtoolStyle.toolRenderStyleで
+   *  スケール・下限適用する。 */
   getLineWidth(): number {
-    return PEN_WIDTH_STEPS[this.fontSizeStep];
+    return this.penWidth;
+  }
+
+  /** 消しゴムの当たり判定半径(画面px)。buildThicknessSliderの同じスライダーで
+   *  選ぶ（道具が消しゴムの間だけ有効）。canvasView.tsのeraseAt呼び出しで使う。 */
+  getEraserRadius(): number {
+    return this.eraserRadius;
   }
 
   private setTool(tool: ToolbarTool): void {
     this.tool = tool;
     this.syncAll();
-    this.onChange?.();
-  }
-
-  private setFontSizeStep(step: FontSizeStep): void {
-    this.fontSizeStep = step;
-    this.syncStepper();
     this.onChange?.();
   }
 
@@ -216,39 +219,58 @@ export class Toolbar {
     details.className = "toolbar-details control-block";
     this.el.appendChild(details);
 
-    this.buildStepper(details);
+    this.buildThicknessSlider(details);
     this.buildSwatch(details);
   }
 
-  private buildStepper(details: HTMLElement): void {
-    this.stepperEl = document.createElement("div");
-    this.stepperEl.className = "font-size-stepper";
-    for (const step of FONT_SIZE_ORDER) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "font-size-btn";
-      btn.textContent = FONT_SIZE_LABEL[step];
-      btn.setAttribute("aria-label", `サイズ: ${FONT_SIZE_LABEL[step]}`);
-      btn.addEventListener("click", () => this.setFontSizeStep(step));
-      this.stepperButtons.set(step, btn);
-      this.stepperEl.appendChild(btn);
-    }
-    details.appendChild(this.stepperEl);
+  /** ペンの太さ・消しゴムの大きさを1本のスライダーで共有する（ユーザー指示：
+   *  GoodNotesのようにバーで変えたい）。物理量が違う2つの値を同じUI位置で
+   *  切り替えるだけで、状態（penWidth/eraserRadius）はツールごとに別々に持つ
+   *  ——ペンを太くしてから消しゴムに切り替えても、消しゴムの大きさは覚えたまま
+   *  残る。ペン・消しゴム以外の道具の間は無効化する（DurationSelectorの
+   *  setEnabledと同じ考え方——「サイズ」の文字ステッパーは道具を問わず常に
+   *  有効なままにしているのとは対照的に、こちらは意味を持つ道具が2つしかない
+   *  ため無効化する）。 */
+  private buildThicknessSlider(details: HTMLElement): void {
+    this.thicknessWrap = document.createElement("div");
+    this.thicknessWrap.className = "thickness-control";
+
+    this.thicknessLabel = document.createElement("span");
+    this.thicknessLabel.className = "thickness-label";
+    this.thicknessWrap.appendChild(this.thicknessLabel);
+
+    this.thicknessSlider = document.createElement("input");
+    this.thicknessSlider.type = "range";
+    this.thicknessSlider.className = "thickness-slider";
+    this.thicknessSlider.addEventListener("input", () => {
+      const value = Number(this.thicknessSlider.value);
+      if (this.tool === "eraser") {
+        this.eraserRadius = value;
+      } else {
+        this.penWidth = value;
+      }
+      this.syncThicknessSlider();
+      this.onChange?.();
+    });
+    this.thicknessWrap.appendChild(this.thicknessSlider);
+
+    details.appendChild(this.thicknessWrap);
   }
 
-  /**
-   * サイズのステッパーは、道具に関わらず常に表示する（以前はテキスト道具の
-   * ときだけ出し入れしていたが、その分バーの横幅が変わって2行に折り返って
-   * しまうことがあった。最初から全部出しておけば横幅は変わらない、という
-   * ユーザー指示による）。テキスト道具でなくても、次にテキストを書くときの
-   * サイズやペンの太さを先に決めておける、と捉えれば自然な操作でもある。
-   */
-  private syncStepper(): void {
-    for (const [step, btn] of this.stepperButtons) {
-      const active = this.fontSizeStep === step;
-      btn.setAttribute("aria-pressed", String(active));
-      btn.style.opacity = active ? "1" : "0.4";
-    }
+  private syncThicknessSlider(): void {
+    const isEraser = this.tool === "eraser";
+    const enabled = isEraser || this.tool === "pen";
+    const range = isEraser ? ERASER_RADIUS_RANGE : PEN_WIDTH_RANGE;
+    const value = isEraser ? this.eraserRadius : this.penWidth;
+
+    this.thicknessSlider.min = String(range.min);
+    this.thicknessSlider.max = String(range.max);
+    this.thicknessSlider.step = String(range.step);
+    this.thicknessSlider.value = String(value);
+    this.thicknessSlider.disabled = !enabled;
+    this.thicknessSlider.setAttribute("aria-label", isEraser ? "消しゴムの大きさ" : "ペンの太さ");
+    this.thicknessWrap.classList.toggle("thickness-control-disabled", !enabled);
+    this.thicknessLabel.textContent = `${value}px`;
   }
 
   /**
@@ -322,7 +344,17 @@ export class Toolbar {
 
   private syncAll(): void {
     this.syncPill();
-    this.syncStepper();
+    this.syncThicknessSlider();
     this.syncSwatch();
+  }
+
+  /**
+   * 振り返りスライダーで過去に遡っている間は道具を使えなくする（ユーザー指示：
+   * 遡り中はグレーアウトでよい）。触れない・薄いことで無効だと分かるようにする、
+   * という既存のDurationSelector/振り返りシークバーの無効表示と同じ考え方
+   * （style.cssの.toolbar-disabled参照）。
+   */
+  setEnabled(enabled: boolean): void {
+    this.el.classList.toggle("toolbar-disabled", !enabled);
   }
 }

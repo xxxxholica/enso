@@ -1,4 +1,5 @@
 import { createFadeVisibility } from "./fadeVisibility";
+import { opacityAtTime } from "./fade";
 import { FrameGeometry } from "./frameGeometry";
 import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
@@ -40,7 +41,6 @@ const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
 const HIT_THRESHOLD_PX = 12;
-const ERASER_RADIUS_PX = 16;
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
@@ -72,6 +72,9 @@ export interface ToolState {
   fontSize: number;
   /** 基準円(半径340px)におけるペンの線の太さ(px)。ペン道具の時のみ使う。 */
   lineWidth: number;
+  /** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）。
+   *  消しゴム道具の時のみ使う（ユーザー指示：GoodNotesのようにバーで変えたい）。 */
+  eraserRadius: number;
 }
 
 interface DrawState {
@@ -134,6 +137,11 @@ export class CircularCanvas {
    *  肥大化したための整理、Refactor。src/frameGeometry.ts参照）。 */
   private frame: FrameGeometry;
   private interactive: boolean;
+  /** null以外の間は、この絶対時刻(ms)における過去の状態を再現表示する
+   *  「遡り」モード（rewindSelector.ts経由、main.tsから渡される）。ポインタ・
+   *  キーボードでの操作はすべて無視し、道具バー側の見た目のグレーアウトと
+   *  合わせて実際に描画・編集できないようにする（ユーザー指示）。 */
+  private rewindAt: number | null = null;
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -241,6 +249,24 @@ export class CircularCanvas {
     this.frame.setFramePattern(id);
   }
 
+  /** 振り返りスライダー（main.ts）から呼ぶ。t=nullで「たった今」＝通常のライブ
+   *  表示に戻り、それ以外は過去の絶対時刻tにおける状態を再現表示する。遡り中に
+   *  切り替えた場合は、進行中の操作（ドラッグ中の描画・なぞり・移動など）を
+   *  そのまま続けさせず、いったん打ち切ってidleに戻す。 */
+  setRewindAt(t: number | null): void {
+    this.rewindAt = t;
+    if (t !== null) {
+      this.finishTextEditingIfOpen();
+      this.closeWritingSession();
+      this.state.mode = "idle";
+      this.state.tracingMemoId = null;
+      this.state.movingMemoId = null;
+      this.state.lastPoint = null;
+      this.hoverInfoMemoId = null;
+      this.hoverInfoPoint = null;
+    }
+  }
+
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
    *  入れる（position:absolute、containerに付けた.canvas-hostが基準）——画面固定
    *  (position:fixed)でbody直下に置く.text-editor-overlayと違い、この案内は
@@ -305,7 +331,8 @@ export class CircularCanvas {
    *  表示・非表示が実際に切り替わった瞬間だけにする。 */
   private syncEmptyState(activeMemoCount: number): void {
     if (!this.emptyStateEl || !this.setEmptyStateVisible) return;
-    const show = activeMemoCount === 0 && !this.textEditor;
+    // 過去を遡って見ている間は書き込めないため、「ドラッグで書き始める」案内は出さない。
+    const show = this.rewindAt === null && activeMemoCount === 0 && !this.textEditor;
     if (show === this.emptyStateShown) return;
     this.emptyStateShown = show;
     if (show) this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
@@ -361,6 +388,7 @@ export class CircularCanvas {
 
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
+    if (this.rewindAt !== null) return; // 過去を遡って見ている間は描画・操作を受け付けない
     // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
     // （pointerdown/moveはcanvas要素、pointerup/cancelはwindowという非対称な
     // 登録なので、captureで一本化しておく——特にピンチ中に有効）。
@@ -384,7 +412,7 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.effectiveScale());
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
     }
 
@@ -739,7 +767,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.effectiveScale());
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
 
@@ -750,7 +778,7 @@ export class CircularCanvas {
    *  ときだけ働く——タッチ側は従来どおりなぞる/移動を実際に始めたときに表示する。 */
   private updateHoverInfo(ev: PointerEvent): void {
     const tool = this.getToolState().tool;
-    if (ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
+    if (this.rewindAt !== null || ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
       return;
@@ -791,7 +819,7 @@ export class CircularCanvas {
    * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
@@ -810,14 +838,19 @@ export class CircularCanvas {
     const h = this.canvas.height;
 
     if (this.interactive) {
-      // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
-      const tool = this.getToolState().tool;
-      this.canvas.style.cursor =
-        tool === "move" || tool === "trace"
-          ? this.state.mode === "moving" || this.state.mode === "tracing"
-            ? "grabbing"
-            : "grab"
-          : "crosshair";
+      if (this.rewindAt !== null) {
+        // 過去を遡って見ている間は操作できないため、道具に応じたカーソルは出さない。
+        this.canvas.style.cursor = "default";
+      } else {
+        // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+        const tool = this.getToolState().tool;
+        this.canvas.style.cursor =
+          tool === "move" || tool === "trace"
+            ? this.state.mode === "moving" || this.state.mode === "tracing"
+              ? "grabbing"
+              : "grab"
+            : "crosshair";
+      }
     }
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -866,9 +899,15 @@ export class CircularCanvas {
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
     // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
     const activeMemos = this.store.getActive();
-    for (const memo of activeMemos) {
-      const opacity = this.store.opacityOf(memo, now);
-      if (opacity <= 0) continue;
+    // 遡り中（rewindAt !== null）は、消滅済みメモも含めた全メモを対象に、
+    // traceHistoryから過去の時刻tにおける不透明度を再現する（旧ArchiveViewの
+    // renderPreviewAtと同じロジック。fade.tsのopacityAtTime参照）。
+    const rewindAt = this.rewindAt;
+    const memosToRender = rewindAt !== null ? this.store.getAll() : activeMemos;
+    for (const memo of memosToRender) {
+      const opacity =
+        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+      if (opacity === null || opacity <= 0) continue;
       renderMemoAt(ctx, memo, r, opacity);
     }
     ctx.globalAlpha = 1;
@@ -900,7 +939,7 @@ export class CircularCanvas {
     if (this.state.mode === "erasing" && this.state.lastPoint) {
       const p = { x: this.state.lastPoint.x * r, y: this.state.lastPoint.y * r };
       ctx.beginPath();
-      ctx.arc(p.x, p.y, ERASER_RADIUS_PX, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, this.getToolState().eraserRadius, 0, Math.PI * 2);
       ctx.strokeStyle = ERASER_CURSOR;
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -929,7 +968,7 @@ export class CircularCanvas {
       this.frame.drawGlassesHinges(ctx, shape);
     }
 
-    if (this.interactive && activeMemos.length === 0) {
+    if (this.interactive && rewindAt === null && activeMemos.length === 0) {
       // 中心点（ここが書ける領域の中心、という目印）。文字の案内はDOM側
       // （.canvas-empty-state、syncEmptyState参照）へ移したので、canvasに描くのは
       // この点だけ。"glasses"では原点がブリッジ（書けない接合部）の真上なので、
