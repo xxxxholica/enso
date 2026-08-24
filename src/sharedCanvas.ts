@@ -6,13 +6,15 @@ import type { Memo } from "./types";
  * すべてのエンドポイントで Authorization ヘッダーが必須のため、未ログイン時は
  * 呼び出し元（smuiView.ts）でガードすること。
  *
- * 作成・参加・一覧・閲覧に加え、PUTによる保存も行う（SMUIの右レンズで実際に
- * 書き込めるようにするため）。同時編集の競合解決（楽観ロック等）は行わず、
- * 最後に保存した内容が勝つ単純な方式（sharedCanvasSync.ts側でポーリングする）。
+ * 作成・参加・一覧・閲覧・退出・名前変更に加え、PUTによる保存も行う（SMUIの
+ * 右レンズで実際に書き込めるようにするため）。同時編集の競合解決（楽観ロック等）
+ * は行わず、最後に保存した内容が勝つ単純な方式（sharedCanvasSync.ts側でポーリングする）。
  */
 
 export interface SharedCanvasSummary {
   id: string;
+  /** ルームの名前。未設定はnull（バックエンド仕様、2026-08-24からPATCHで保存可能に）。 */
+  name: string | null;
 }
 
 export interface SharedCanvasDetail {
@@ -37,16 +39,37 @@ export async function listSharedCanvases(): Promise<SharedCanvasSummary[]> {
   const data: unknown = await res.json();
   const raw = Array.isArray(data) ? data : (data as { canvases?: unknown }).canvases;
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (item): item is SharedCanvasSummary =>
-      typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string"
-  );
+  return raw
+    .filter(
+      (item): item is { id: string; name?: unknown } =>
+        typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string"
+    )
+    .map((item) => ({ id: item.id, name: typeof item.name === "string" ? item.name : null }));
 }
 
 /** 招待リンク経由で共有キャンバスのメンバーに加わる。 */
 export async function joinSharedCanvas(id: string): Promise<void> {
   const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/join`, { method: "POST" });
   if (!res.ok) throw new Error(`共有キャンバスへの参加に失敗しました (status: ${res.status})`);
+}
+
+/** 自分をメンバーから外す（退出）。残りメンバーが0人になった場合は、その場で
+ *  ルーム自体もサーバー側で削除される（バックエンド仕様、2026-08-24）。 */
+export async function leaveSharedCanvas(id: string): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/leave`, { method: "POST" });
+  if (!res.ok) throw new Error(`共有キャンバスからの退出に失敗しました (status: ${res.status})`);
+}
+
+/** ルームの名前を保存する（メンバー外は403、1〜100文字以外は400で失敗する）。
+ *  保存後は既存のWebSocket通知（{type:"changed"}）経由で他のメンバーにも
+ *  反映される（バックエンド仕様）。 */
+export async function renameSharedCanvas(id: string, name: string): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`ルーム名の保存に失敗しました (status: ${res.status})`);
 }
 
 /** 指定した共有キャンバスの中身を取得する（メンバー外は403で失敗する）。 */
