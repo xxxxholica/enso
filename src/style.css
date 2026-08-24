@@ -472,16 +472,47 @@ body {
   background: oklch(93% 0.006 75);
 }
 
+/* --- インクの色: 黒/赤/青の固定3スワッチ＋4つ目の「好きな色」スワッチ
+   （toolbar.ts、ユーザー指示：GoodNotesのように定番色をすぐ選べるようにしたい）。
+   4個並ぶ分、以前1個だけだった頃(32px)より小さくして横幅の増分を抑えている。 --- */
+.toolbar-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .toolbar-swatch {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 2px solid oklch(98% 0.005 75);
   box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px oklch(22% 0.012 55 / 0.12);
   cursor: pointer;
   padding: 0;
   overflow: hidden;
+}
+
+/* 今選んでいる色のスワッチだけ、外側にもう1本濃いリングを足して選択中と分かるようにする。 */
+.toolbar-swatch[data-active="true"] {
+  box-shadow: 0 0 0 1px oklch(98% 0.005 75), 0 0 0 3px oklch(22% 0.012 55 / 0.55), 0 1px 3px
+      oklch(22% 0.012 55 / 0.12);
+}
+
+/* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
+   「好きな色を選べる」ことを示す——一度選ぶとtoolbar.tsがインラインstyleで
+   その色を背景に敷くので、このグラデーションは自然に隠れる（インラインstyleが
+   クラス由来のbackgroundより優先されるため、JS側でクラスを付け替える必要が無い）。 */
+.toolbar-swatch--custom {
+  background: conic-gradient(
+    from 0deg,
+    oklch(60% 0.2 25),
+    oklch(75% 0.18 100),
+    oklch(65% 0.19 145),
+    oklch(55% 0.14 230),
+    oklch(50% 0.2 300),
+    oklch(60% 0.2 25)
+  );
 }
 
 .toolbar-color-input {
