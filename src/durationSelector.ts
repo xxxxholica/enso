@@ -2,6 +2,14 @@ import type { LifespanDays } from "./types";
 import { DURATION_STEPS } from "./durationSteps";
 import { MS_PER_DAY } from "./fade";
 
+/** 初期表示の「消えるまでの期間」（ユーザー指示：15分→1日に変更）。ラベルで
+ *  探すことで、DURATION_STEPSの並び・段階数が変わっても指し示す先がずれない
+ *  ようにする。見つからなければ先頭にフォールバックする。 */
+const DEFAULT_INDEX = Math.max(
+  0,
+  DURATION_STEPS.findIndex((step) => step.label === "1日")
+);
+
 /**
  * 下部バー・右ブロック（時間選択ブロック）: 「消えるまでの期間」だけを選ぶ
  * シークバー。道具（Toolbar）とは独立した軸として扱う。
@@ -22,7 +30,7 @@ export class DurationSelector {
   private onChange?: () => void;
   private labelEl!: HTMLElement;
   private slider!: HTMLInputElement;
-  private index = 0; // 先頭（15分）がデフォルト
+  private index = DEFAULT_INDEX;
 
   constructor(container: HTMLElement, onChange?: () => void) {
     this.container = container;
@@ -65,5 +73,20 @@ export class DurationSelector {
 
   private syncLabel(): void {
     this.labelEl.textContent = DURATION_STEPS[this.index].label;
+  }
+
+  /**
+   * 「消えるまでの期間」が意味を持つ道具（新しくメモを作るペン・マーカー・
+   * テキスト）を選んでいる間だけ操作できるようにし、それ以外では触れなくする
+   * （ユーザー指示：無効か有効かを分かりやすくしたい）。
+   * 「移動」「消しゴム」は時間が一切関与しないので無効。「なぞる」も、当初は
+   * このスライダーで回復量を選べるようにする案があったが、回復量そのものを
+   * 寿命の15%固定・生涯の上限つきに変えた（Issue #11）ため、なぞる道具の間も
+   * スライダーで選べることは何もなく無効のままでよい（ユーザー指示：
+   * なぞる時にスライダーは不要）。
+   */
+  setEnabled(enabled: boolean): void {
+    this.slider.disabled = !enabled;
+    this.el.classList.toggle("duration-seekbar-disabled", !enabled);
   }
 }

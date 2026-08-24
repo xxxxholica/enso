@@ -1,5 +1,5 @@
 /** 見せ消し用アニメーション時間。各要素の.is-visible用CSSトランジション（例:
- *  .bottom-bar-fade, .icon-popover）と長さを揃えてある。 */
+ *  .fade-visible, .icon-popover）と長さを揃えてある。 */
 export const FADE_TRANSITION_MS = 180;
 
 /**

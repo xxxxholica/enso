@@ -6,19 +6,23 @@ import { TEMPLATES } from "./templates";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
-export type ToolbarTool = DrawTool | "eraser" | "text" | "move";
+export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 
 const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
-/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。 */
-const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "eraser"];
+/** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
+ *  「なぞる」は、なぞって復活させる操作がペン等の描画操作と混じりやすかったため、
+ *  専用の道具として分離したもの（ユーザー指示）——「移動」道具と同じく、既存の
+ *  メモに触れた場合だけ働き、何もない場所への新規作成はしない。 */
+const TOOL_ORDER: ToolbarTool[] = ["pen", "marker", "text", "move", "trace", "eraser"];
 const TOOL_LABEL: Record<ToolbarTool, string> = {
   pen: "ペン",
   marker: "マーカー",
   text: "テキスト",
-  move: "移動",
+  move: "選択",
+  trace: "なぞる",
   eraser: "消しゴム",
 };
 
@@ -26,7 +30,7 @@ const FONT_SIZE_ORDER: FontSizeStep[] = ["small", "medium", "large"];
 const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "中", large: "大" };
 
 /**
- * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／消しゴムの切り替え、
+ * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
  * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
  * 機能だったため1つに統合した——ユーザー指示）。
  * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸・別ブロックで担当）。
@@ -86,9 +90,9 @@ export class Toolbar {
     this.onInsertTemplate = onInsertTemplate;
 
     this.el = document.createElement("div");
-    // bottom-bar-fade: 画面切り替え時にこのバー全体がふわっとクロスフェードする
+    // fade-visible: 画面切り替え時にこのバー全体がふわっとクロスフェードする
     // ためのクラス（main.tsが表示・非表示を切り替える。ユーザー指示）。
-    this.el.className = "toolbar bottom-bar-fade";
+    this.el.className = "toolbar fade-visible";
     this.container.appendChild(this.el);
 
     this.buildTools();
@@ -180,10 +184,18 @@ export class Toolbar {
       btn.setAttribute("aria-label", TOOL_LABEL[tool]);
       btn.innerHTML = ICONS[tool];
       btn.addEventListener("click", () => this.setTool(tool));
+      this.attachToolTooltip(btn, TOOL_LABEL[tool]);
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
-    pill.appendChild(this.buildTemplateControl());
+    // テンプレートは「途中から挿入する」道具バーの1ボタンから、キャンバスを
+    // 使い始める最初の選択肢へ格上げする予定（Issue化済み）。それまでの間、
+    // 下部バーからは一時的に隠す——ロジック（配置待ち・自由配置など）は
+    // 新しいUIからそのまま呼び出せるよう残しておくため、要素自体は組み立てた
+    // ままhiddenにするだけにとどめる（ユーザー指示）。
+    const templateControl = this.buildTemplateControl();
+    templateControl.hidden = true;
+    pill.appendChild(templateControl);
     tools.appendChild(pill);
   }
 
@@ -193,6 +205,26 @@ export class Toolbar {
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
+  }
+
+  /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／なぞる／
+   *  消しゴム）を付ける（ユーザー指示）。既存のテンプレートメニュー等と同じ
+   *  .icon-popoverの見た目・フェード（createFadeVisibility）をそのまま流用し、
+   *  1単語だけの案内なので.tool-tooltipで詰まった見た目に整える。タッチでは
+   *  「押さずに触れる」状態が無く、タップの前後にちらつくだけになってしまう
+   *  ため、pointerType==="mouse"のときだけ働かせる（PCに限る、というユーザー
+   *  指示。revive情報のホバー表示と同じ考え方）。 */
+  private attachToolTooltip(btn: HTMLButtonElement, label: string): void {
+    const tooltip = document.createElement("span");
+    tooltip.className = "icon-popover tool-tooltip";
+    tooltip.textContent = label;
+    tooltip.hidden = true;
+    btn.appendChild(tooltip);
+    const setVisible = createFadeVisibility(tooltip);
+    btn.addEventListener("pointerenter", (ev) => {
+      if (ev.pointerType === "mouse") setVisible(true);
+    });
+    btn.addEventListener("pointerleave", () => setVisible(false));
   }
 
   /** テンプレートボタンと、その上に開く「どちらを置くか選ぶ」ポップアップメニュー。

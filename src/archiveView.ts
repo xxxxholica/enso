@@ -14,16 +14,16 @@ interface SeekStep {
 }
 
 /**
- * 振り返りシークバーの目盛り。DURATION_STEPSの末尾（7日）を除いた8段階
- * （15分〜3日）を「何分/時間/日前か」という向き——遠い過去（左）から現在（右）へ
- * ——に並べ替え、右端に「たった今」（=現在、ms=0）を足した9個の目盛り。
- * 「消えるまでの期間」側は上限なく7日まで使うが、振り返り側だけこの制約を
- * かけているのは、検索性を意図的に下げるための設計判断（下のMAX_LOOKBACK_MS参照）
- * を、目盛りの範囲としてもそのまま反映しているため。
+ * 振り返りシークバーの目盛り。DURATION_STEPS（15分〜3日の8段階）を
+ * 「何分/時間/日前か」という向き——遠い過去（左）から現在（右）へ——に並べ替え、
+ * 右端に「たった今」（=現在、ms=0）を足した9個の目盛り。
+ * DURATION_STEPS自体の上限が3日（Issue #11の対応で7日から短縮）なので、
+ * 振り返り側もそのまま同じ範囲になる——以前は「消えるまでの期間」側だけ
+ * 7日まで使え、振り返り側だけ末尾の「7日」を除いて3日に制限していたが、
+ * 今は両者の上限が揃ったため、除く処理は不要になった。
  */
 const ARCHIVE_STEPS: SeekStep[] = [
-  ...DURATION_STEPS.slice(0, -1)
-    .slice()
+  ...DURATION_STEPS.slice()
     .reverse()
     .map((step) => ({ label: `${step.label}前`, ms: step.ms })),
   { label: "たった今", ms: 0 },
@@ -66,7 +66,8 @@ export class ArchiveView {
   private seekbarFade!: (show: boolean) => void;
   private timestampEl!: HTMLElement;
   private slider!: HTMLInputElement;
-  /** ARCHIVE_STEPSへのインデックス（大きいほど現在に近い）。9=たった今が既定。 */
+  /** ARCHIVE_STEPSへの位置（大きいほど現在に近い）。整数なら目盛りちょうど、
+   *  小数なら隣り合う目盛りの間の連続値（msAtPosition参照）。既定は末尾＝たった今。 */
   private currentIndex = ARCHIVE_STEPS.length - 1;
 
   constructor(canvasContainer: HTMLElement, seekbarContainer: HTMLElement, store: MemoStore) {
@@ -104,9 +105,9 @@ export class ArchiveView {
     // control-block: 道具バー側の3ブロック（ツール選択／詳細／時間選択）と同じ
     // 枠線付きの区画にして、外側の.control-panelがカードとしての見た目を
     // 持たなくなった後も、単体でひとまとまりの操作ブロックだと分かるようにする。
-    // bottom-bar-fade: 画面切り替え時にふわっとクロスフェードするためのクラス
-    // （toolbar.tsのbottom-bar-fadeと同じ仕組み。ユーザー指示）。
-    this.seekbarEl.className = "seekbar control-block bottom-bar-fade";
+    // fade-visible: 画面切り替え時にふわっとクロスフェードするためのクラス
+    // （toolbar.tsのfade-visibleと同じ仕組み。ユーザー指示）。
+    this.seekbarEl.className = "seekbar control-block fade-visible";
     this.seekbarEl.hidden = true;
     this.seekbarFade = createFadeVisibility(this.seekbarEl);
 
@@ -125,7 +126,12 @@ export class ArchiveView {
     this.slider = document.createElement("input");
     this.slider.type = "range";
     this.slider.className = "seekbar-slider";
-    this.slider.step = "1";
+    // 「消えるまでの期間」の時間選択（duration-seekbar-slider）は目盛りごとに
+    // 引っかかりのある区切りでスライダーを止める設計のままだが（ユーザー指示、
+    // durationSteps.ts参照）、振り返りバーだけはこの引っかかりを無くしたい
+    // というユーザー指示により、step="any"にしてARCHIVE_STEPS間を連続値で
+    // なぞれるようにする（値の解釈はmsAtPosition参照）。
+    this.slider.step = "any";
     this.slider.addEventListener("input", () => {
       this.currentIndex = Number(this.slider.value);
       this.updatePreviewForCurrentIndex();
@@ -145,6 +151,16 @@ export class ArchiveView {
   setActive(active: boolean): void {
     this.seekbarFade(active);
     if (active) this.resize();
+  }
+
+  /** 振り返りの下部バーが、キャンバス表示中の下部バー（道具バー＋時間選択ブロック）と
+   *  同じ横幅になるよう、main.ts側から実測値で揃える。振り返り表示中は
+   *  #primary-slotの中身がこのシークバー1ブロックだけになり、CSSの
+   *  `width:100%`のままだと.control-panelの最大幅（900px）いっぱいまで伸びて
+   *  3ブロック構成のキャンバス側より明らかに長くなってしまう（ユーザー指摘）ため、
+   *  固定pxで上書きする。 */
+  setSeekbarWidth(px: number): void {
+    this.seekbarEl.style.width = `${px}px`;
   }
 
   private resize(): void {
@@ -187,10 +203,28 @@ export class ArchiveView {
     this.updatePreviewForCurrentIndex();
   }
 
+  /** currentIndexは今やARCHIVE_STEPSへの整数インデックスではなく、隣り合う
+   *  2つの目盛りの間を連続値で表す位置（例: 6.4 = インデックス6と7の間、7寄り）。
+   *  目盛りが表す時刻(ms)を線形補間して返す——引っかかりを無くすため、
+   *  スライダーの見た目上の動きはなめらかにしつつ、目盛り自体（15分・30分…と
+   *  いう遡り幅の並び）はそのまま流用する。 */
+  private msAtPosition(pos: number): number {
+    const clamped = Math.max(0, Math.min(ARCHIVE_STEPS.length - 1, pos));
+    const lo = Math.floor(clamped);
+    const hi = Math.min(ARCHIVE_STEPS.length - 1, lo + 1);
+    const frac = clamped - lo;
+    const loMs = ARCHIVE_STEPS[lo].ms;
+    const hiMs = ARCHIVE_STEPS[hi].ms;
+    return loMs + (hiMs - loMs) * frac;
+  }
+
   private updatePreviewForCurrentIndex(): void {
-    const step = ARCHIVE_STEPS[this.currentIndex];
-    this.timestampEl.textContent = step.label;
-    this.renderPreviewAt(Date.now() - step.ms);
+    // ラベルは連続値そのままだと中途半端な時刻表現になってしまうため、
+    // 一番近い目盛りのラベル（「1時間前」等の相対表現）をそのまま使う
+    // ——検索性を意図的に下げるための相対表現のみ、という設計は保つ。
+    const nearestStep = ARCHIVE_STEPS[Math.round(this.currentIndex)];
+    this.timestampEl.textContent = nearestStep.label;
+    this.renderPreviewAt(Date.now() - this.msAtPosition(this.currentIndex));
   }
 
   private renderPreviewAt(t: number): void {

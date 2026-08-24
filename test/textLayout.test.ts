@@ -47,8 +47,8 @@ describe("wrapTextAtReferenceScale（行分割）", () => {
 
   it("幅を超えると複数行に折り返す", () => {
     const ctx = makeFakeCtx(10);
-    // 1文字10px、幅240pxなので24文字あたりで折り返るはず
-    const text = "a".repeat(30);
+    // 1文字10px、幅REFERENCE_TEXT_BOX_WIDTH_PXなので、それを超える文字数なら折り返るはず
+    const text = "a".repeat(Math.ceil(REFERENCE_TEXT_BOX_WIDTH_PX / 10) + 5);
     const lines = wrapTextAtReferenceScale(ctx, text, 24);
     expect(lines.length).toBeGreaterThan(1);
     expect(lines.join("")).toBe(text);
