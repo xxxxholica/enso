@@ -2,12 +2,14 @@ import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
-import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, normalizedBoxSize } from "./textLayout";
+import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, LINE_HEIGHT_MULTIPLIER, normalizedBoxSize } from "./textLayout";
+import type { TemplateDef } from "./templates";
 import type { DrawTool, Memo, StrokeMemo, TextMemo } from "./types";
 
 const STORAGE_KEY = "memos";
 const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
+const CUSTOM_TEMPLATES_KEY = "customTemplates";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
@@ -79,6 +81,7 @@ function migrate(raw: Record<string, unknown>): Memo {
       boxWidth: typeof raw.boxWidth === "number" ? raw.boxWidth : fallbackBox.width,
       boxHeight: typeof raw.boxHeight === "number" ? raw.boxHeight : fallbackBox.height,
       align: raw.align === "left" ? "left" : "center",
+      lineHeight: typeof raw.lineHeight === "number" ? raw.lineHeight : LINE_HEIGHT_MULTIPLIER,
     };
     return textMemo;
   }
@@ -139,4 +142,32 @@ export function loadFramePattern(): FramePatternId {
 
 export function saveFramePattern(id: FramePatternId): void {
   localStorage.setItem(FRAME_PATTERN_KEY, id);
+}
+
+function isCustomTemplateShaped(value: unknown): value is TemplateDef {
+  if (typeof value !== "object" || value === null) return false;
+  const t = value as Record<string, unknown>;
+  return (
+    typeof t.id === "string" &&
+    typeof t.label === "string" &&
+    typeof t.description === "string" &&
+    typeof t.text === "string"
+  );
+}
+
+/** ユーザーが全画面のテンプレート選択（templatePicker.ts）で作成したテンプレート。 */
+export function loadCustomTemplates(): TemplateDef[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TEMPLATES_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isCustomTemplateShaped);
+  } catch {
+    return [];
+  }
+}
+
+export function saveCustomTemplates(templates: TemplateDef[]): void {
+  localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
 }

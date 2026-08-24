@@ -2,7 +2,6 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, type FontSizeStep } from "./textLayout";
 import { PEN_WIDTH_STEPS } from "./toolStyle";
-import { TEMPLATES } from "./templates";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
@@ -50,10 +49,11 @@ const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "�
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
  *
- * テンプレートボタンを押すと、その上にどちらを置くか選ぶポップアップメニューが
- * 開く（.icon-popover、fadeVisibility.tsの共通ヘルパーでhidden属性の付け外し＋
- * .is-visibleクラスによるフェードを行う）。文字サイズのステッパーは道具に
- * 関わらず常に表示したままにしており、出入りのアニメーションは持たない
+ * テンプレートの選択自体はここでは扱わない（空のキャンバスから開く全画面の
+ * テンプレート選択、templatePicker.ts）——このクラスはinsertTemplate()経由で
+ * 「道具をテキストに切り替えてから盤面に置く」の橋渡しだけを担う。
+ * 文字サイズのステッパーは道具に関わらず常に表示したままにしており、
+ * 出入りのアニメーションは持たない
  * ——以前はテキスト道具のときだけ出し入れしていたが、その分バーの横幅が
  * 変わって2行に折り返ってしまうことがあったため、最初から常時表示にして
  * 横幅を固定した（ユーザー指示：絶対に2行にはしたくない）。
@@ -77,12 +77,6 @@ export class Toolbar {
 
   private swatchBtn!: HTMLButtonElement;
   private colorInput!: HTMLInputElement;
-
-  private templateBtn!: HTMLButtonElement;
-  private templatePicker!: HTMLElement;
-  private templatePickerFade!: (show: boolean) => void;
-  /** テンプレートのポップアップメニュー（どちらを置くか選ぶ）が開いている間だけtrue。 */
-  private templatePickerOpen = false;
 
   constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
     this.container = container;
@@ -135,35 +129,17 @@ export class Toolbar {
     this.onChange?.();
   }
 
-  /** テンプレートボタンを押したら、その上にどちらのテンプレートを置くか選ぶ
-   *  ポップアップメニューを出す（ユーザー指示：クリックしたら上にメニューを出したい）。 */
-  private toggleTemplatePicker(): void {
-    if (this.templatePickerOpen) this.closeTemplatePicker();
-    else this.openTemplatePicker();
-  }
-
-  private openTemplatePicker(): void {
-    if (this.templatePickerOpen) return;
-    this.templatePickerOpen = true;
-    this.templateBtn.dataset.active = "true";
-    this.templatePickerFade(true);
-  }
-
-  private closeTemplatePicker(): void {
-    if (!this.templatePickerOpen) return;
-    this.templatePickerOpen = false;
-    this.templateBtn.dataset.active = "false";
-    this.templatePickerFade(false);
-  }
-
   /**
-   * 選んだテンプレートを配置待ちにする（実際に置く場所は次に盤面をタップした位置
-   * ——ユーザー指示により自由配置にした）。項目は空欄のままにし、後からテキスト道具でタップして
-   * 書き込めるよう、道具をテキストに切り替えておく（ユーザー指示：項目はテンプレートを
-   * 置いた後に設定できるようにしたい）。
+   * 選んだテンプレートをそのまま盤面に置く（常に描画範囲の中心に、範囲全体を
+   * 使う横幅で——ユーザー指示。位置を選ぶタップの手順は無い）。項目は空欄の
+   * ままにし、後からテキスト道具でタップして書き込めるよう、道具をテキストに
+   * 切り替えておく。
+   *
+   * 呼ぶのは空のキャンバスから開く全画面のテンプレート選択（templatePicker.ts、
+   * 配線はmain.ts）。以前は道具バーのテンプレートボタン専用のprivateメソッドだったが、
+   * 選ぶUI自体が道具バーの外へ出たためpublicにした。
    */
-  private chooseTemplate(id: TemplateId): void {
-    this.closeTemplatePicker();
+  insertTemplate(id: TemplateId): void {
     this.setTool("text");
     this.onInsertTemplate?.(id);
   }
@@ -188,14 +164,6 @@ export class Toolbar {
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
-    // テンプレートは「途中から挿入する」道具バーの1ボタンから、キャンバスを
-    // 使い始める最初の選択肢へ格上げする予定（Issue化済み）。それまでの間、
-    // 下部バーからは一時的に隠す——ロジック（配置待ち・自由配置など）は
-    // 新しいUIからそのまま呼び出せるよう残しておくため、要素自体は組み立てた
-    // ままhiddenにするだけにとどめる（ユーザー指示）。
-    const templateControl = this.buildTemplateControl();
-    templateControl.hidden = true;
-    pill.appendChild(templateControl);
     tools.appendChild(pill);
   }
 
@@ -225,40 +193,6 @@ export class Toolbar {
       if (ev.pointerType === "mouse") setVisible(true);
     });
     btn.addEventListener("pointerleave", () => setVisible(false));
-  }
-
-  /** テンプレートボタンと、その上に開く「どちらを置くか選ぶ」ポップアップメニュー。
-   *  道具アイコンと同じ大きさ（.toolbar-btn）にして、道具の並び（.toolbar-pill）の
-   *  一員として見えるようにしている（ユーザー指示：消しゴムなどのツールと同じ
-   *  大きさに揃えたい）。メニューが開いている間は道具選択中と同じ見た目
-   *  （data-active）で強調する。 */
-  private buildTemplateControl(): HTMLElement {
-    const anchor = document.createElement("div");
-    anchor.className = "icon-anchor";
-
-    this.templateBtn = document.createElement("button");
-    this.templateBtn.type = "button";
-    this.templateBtn.className = "toolbar-btn";
-    this.templateBtn.setAttribute("aria-label", "テンプレートを置く");
-    this.templateBtn.innerHTML = ICONS.checklist;
-    this.templateBtn.addEventListener("click", () => this.toggleTemplatePicker());
-    anchor.appendChild(this.templateBtn);
-
-    this.templatePicker = document.createElement("div");
-    this.templatePicker.className = "template-popover icon-popover";
-    this.templatePicker.hidden = true;
-    this.templatePickerFade = createFadeVisibility(this.templatePicker);
-    for (const tpl of TEMPLATES) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "template-popover-item";
-      btn.textContent = tpl.label;
-      btn.addEventListener("click", () => this.chooseTemplate(tpl.id));
-      this.templatePicker.appendChild(btn);
-    }
-    anchor.appendChild(this.templatePicker);
-
-    return anchor;
   }
 
   // --- 中央ブロック（ツールの詳細ブロック）：色・サイズ -----------------------
