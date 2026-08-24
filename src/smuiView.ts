@@ -68,6 +68,7 @@ export class SmuiView {
    *  作らず即座に諦めることで、置き去りのポーリングが残るのを防ぐ。 */
   private roomRequestSeq = 0;
   private statusResizeObserver!: ResizeObserver;
+  private onRequestTemplatePicker?: () => void;
 
   private active = false;
 
@@ -75,9 +76,11 @@ export class SmuiView {
     container: HTMLElement,
     getToolState: () => ToolState,
     initialFrameShapeId: FrameShapeId,
-    initialFramePatternId: FramePatternId
+    initialFramePatternId: FramePatternId,
+    onRequestTemplatePicker?: () => void
   ) {
     this.getToolState = getToolState;
+    this.onRequestTemplatePicker = onRequestTemplatePicker;
     this.frameShapeId = initialFrameShapeId;
     this.framePatternId = initialFramePatternId;
 
@@ -114,6 +117,7 @@ export class SmuiView {
       framePatternId: this.framePatternId,
       frameStrokeColor: SMUI_FRAME_COLOR,
       frameStrokeWidth: (canvasSizePx) => canvasSizePx * SMUI_FRAME_WEIGHT_RATIO,
+      onRequestTemplatePicker: this.onRequestTemplatePicker,
       ...overrides,
     };
   }

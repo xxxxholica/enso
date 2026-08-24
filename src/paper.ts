@@ -22,16 +22,34 @@ export function drawRuledPaper(
   radius: number,
   fillHalfExtent: number = radius
 ): void {
+  // コンテナが非表示（hidden）の間にResizeObserver経由でresize()が走ると、
+  // 計測されたコンテナサイズが0になり、frame.scale（=このradius）も0になる
+  // ——共有タブへ戻った直後、この0がrender()にまだ残っている間に呼ばれると、
+  // 罫線の間隔(spacing = radius / RULE_LINE_DIVISIONS)が0になり、下のループの
+  // yが全く進まなくなってメインスレッドを止める無限ループになる
+  // （実機で再現・Firefox Profilerで確認済み——CanvasRenderingContext2D.stroke/
+  // moveToが延々サンプリングされてタブがクラッシュしていた）。描画に使えない
+  // 大きさ（0以下・NaN・Infinity）の間は何もせず抜け、実際のサイズが決まった
+  // 次のresize()後のフレームで正しく描かれるようにする。
+  if (!(radius > 0) || !(fillHalfExtent > 0) || !Number.isFinite(radius) || !Number.isFinite(fillHalfExtent)) {
+    return;
+  }
+
   ctx.fillStyle = PAPER_WHITE;
   ctx.fillRect(-fillHalfExtent, -fillHalfExtent, fillHalfExtent * 2, fillHalfExtent * 2);
 
   const spacing = radius / RULE_LINE_DIVISIONS;
   ctx.strokeStyle = RULE_LINE;
   ctx.lineWidth = Math.max(1, radius / 300);
+  // 罫線ごとにbeginPath/strokeを呼ぶと、線の本数だけstroke()の固定オーバーヘッドが
+  // 積み重なり、毎フレーム呼ばれるrender()の中で無視できないCPU負荷になっていた
+  // （SMUIの共有キャンバスは通常キャンバスより罫線本数が多く、フリーズとして
+  // 実機で再現・Firefox Profilerで確認済み）。全ての罫線を1本のパスにまとめ、
+  // stroke()を1回だけ呼ぶことで見た目を変えずにこのコストを解消する。
+  ctx.beginPath();
   for (let y = -fillHalfExtent; y <= fillHalfExtent; y += spacing) {
-    ctx.beginPath();
     ctx.moveTo(-fillHalfExtent, y);
     ctx.lineTo(fillHalfExtent, y);
-    ctx.stroke();
   }
+  ctx.stroke();
 }

@@ -1,5 +1,6 @@
+import { createFadeVisibility } from "./fadeVisibility";
 import { FrameGeometry } from "./frameGeometry";
-import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
+import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
@@ -12,8 +13,11 @@ import { getTemplateText } from "./templates";
 import type { TemplateId } from "./templates";
 import {
   fontPxForRender,
+  LINE_HEIGHT_MULTIPLIER,
   measureTextBoxWidthPx,
   normalizedBoxSize,
+  TEMPLATE_FONT_SIZE,
+  TEMPLATE_LINE_HEIGHT_MULTIPLIER,
   TEXT_FONT_FAMILY,
   wrapTextAtReferenceScale,
 } from "./textLayout";
@@ -23,14 +27,15 @@ import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
 const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
-const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
+/** 空のキャンバスの案内（.canvas-empty-state、DOM側）を、円の中心からどれだけ
+ *  下にずらして置くか（正規化単位）。以前canvasに直接fillTextしていたときと
+ *  同じ位置。 */
+const EMPTY_STATE_OFFSET_Y = 0.32;
 /** ルーム未接続時（frameKind:"glasses" かつ interactive:false）の共有キャンバスの
  *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
-/** テンプレートの配置ガイド（指を離すまでの位置プレビュー）の不透明度。 */
-const TEMPLATE_GUIDE_ALPHA = 0.4;
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -93,6 +98,11 @@ export interface CircularCanvasOptions {
    *  クリア/木目）。省略時はDEFAULT_FRAME_PATTERN_ID。"single"（通常キャンバス
    *  タブ）は常にframeStrokeColorの単色のままで、この値は無視される。 */
   framePatternId?: FramePatternId;
+  /** メモが1つも無い空のキャンバスに出す「＋テンプレートを使用」ボタンが押されたときに
+   *  呼ばれる（全画面のテンプレート選択を開く。templatePicker.ts、配線はmain.ts）。
+   *  省略した場合はボタンを作らず、「ドラッグで書き始める」の案内だけを出す
+   *  ——interactive:falseのプレースホルダーではそもそも空状態の案内自体を作らない。 */
+  onRequestTemplatePicker?: () => void;
 }
 
 export class CircularCanvas {
@@ -117,15 +127,18 @@ export class CircularCanvas {
   private container: HTMLElement;
   private store: MemoStore;
   private textEditor: HTMLTextAreaElement | null = null;
-  /** 配置待ちのテンプレート文面。設定中は次のタップでその場所に置く（自由配置）。 */
-  private pendingTemplate: string | null = null;
-  /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
-  private templateHoverPoint: Point | null = null;
+  /** 空のキャンバスに重ねる案内（「ドラッグで書き始める」＋「＋テンプレートを使用」）。
+   *  ボタンとして押せる・読み上げられる必要があるため、canvasへの描画ではなく本物の
+   *  DOMで持つ。interactive:falseのプレースホルダーでは作らない（nullのまま）。 */
+  private emptyStateEl: HTMLElement | null = null;
+  private setEmptyStateVisible: ((show: boolean) => void) | null = null;
+  private emptyStateShown = false;
   /** 今の「なぞる」ジェスチャー（pointerdownからpointerupまで）で、既に回復させた
-   *  メモのID。なぞるたびに回復量には上限があるため（memoStore.tsのreviveMemo参照）、
-   *  1回連続でなぞっている間にpointermoveが何度も発火しても、同じメモを何度も
-   *  回復させて上限をすぐ食いつぶしてしまわないよう、メモ単位で1ジェスチャーにつき
-   *  1回だけ呼ぶ。pointerdown/pointerupで作り直す・空にする。 */
+   *  メモのID。なぞって復活には寿命に応じたクールタイムがある（memoStore.tsの
+   *  reviveMemo参照）ため、1回連続でなぞっている間にpointermoveが何度も発火しても
+   *  2回目以降はどのみちクールタイムでブロックされるが、ストアへの無駄な問い合わせ・
+   *  書き込みを避けるため、メモ単位で1ジェスチャーにつき1回だけ呼ぶようにしている。
+   *  pointerdown/pointerupで作り直す・空にする。 */
   private tracedMemoIdsThisGesture = new Set<string>();
   /** PCでのマウスホバー用（ユーザー指示：タップ/ドラッグしなくてもホバーで見られる
    *  ようにしたい。タッチには「ホバー」に相当する状態が無いため、pointerType==="mouse"
@@ -161,7 +174,10 @@ export class CircularCanvas {
     });
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
-    this.resizeObserver = new ResizeObserver(() => this.frame.resize());
+    this.resizeObserver = new ResizeObserver(() => {
+      this.frame.resize();
+      this.syncEmptyStatePosition();
+    });
     this.resizeObserver.observe(this.container);
 
     if (this.interactive) {
@@ -172,17 +188,86 @@ export class CircularCanvas {
       window.addEventListener("pointerup", this.onPointerUp);
       window.addEventListener("pointercancel", this.onPointerUp);
       window.addEventListener("keydown", this.onGlobalKeyDown);
+      // 空のキャンバスの案内は対話可能なキャンバスにだけ持たせる——ルーム未接続の
+      // プレースホルダー（interactive:false）は無地の白い紙のままにする（ユーザー指示）。
+      this.buildEmptyState(options.onRequestTemplatePicker);
     }
   }
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
   setFrameShape(id: FrameShapeId): void {
     this.frame.setFrameShape(id);
+    this.syncEmptyStatePosition();
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
    *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
   setFramePattern(id: FramePatternId): void {
     this.frame.setFramePattern(id);
+  }
+
+  /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
+   *  入れる（position:absolute、containerに付けた.canvas-hostが基準）——画面固定
+   *  (position:fixed)でbody直下に置く.text-editor-overlayと違い、この案内は
+   *  出しっぱなしになる要素のため、タブを切り替えて#canvas-panel/#shared-panelが
+   *  hiddenになったときに一緒に消えてくれるcontainerの子である方が確実
+   *  （SMUIはルーム切替のたびにcontainerごと作り直すため、リークの心配もない）。 */
+  private buildEmptyState(onRequestTemplatePicker?: () => void): void {
+    this.container.classList.add("canvas-host");
+
+    const el = document.createElement("div");
+    el.className = "canvas-empty-state fade-visible";
+    el.hidden = true;
+
+    const hint = document.createElement("p");
+    hint.className = "canvas-empty-hint";
+    hint.textContent = "ドラッグで書き始める";
+    el.appendChild(hint);
+
+    // 「書き始める2つの選択肢」を並べて見せる（ユーザー指示：テンプレートを
+    // 道具バーの1ボタンから、キャンバスを使い始める最初の選択肢へ格上げする）。
+    if (onRequestTemplatePicker) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "pill-btn canvas-empty-template-btn";
+      btn.textContent = "＋テンプレートを使用";
+      btn.addEventListener("click", () => onRequestTemplatePicker());
+      el.appendChild(btn);
+    }
+
+    this.container.appendChild(el);
+    this.emptyStateEl = el;
+    this.setEmptyStateVisible = createFadeVisibility(el);
+    this.syncEmptyStatePosition();
+  }
+
+  /** 案内を「書ける領域の中心のすこし下」に合わせ直す。位置が変わるのはコンテナの
+   *  リサイズとフレーム形状の切り替え（どちらもframe.resize()を通る）だけなので、
+   *  renderの毎フレームではなくそのタイミングだけで呼ぶ（smuiViewのrepositionStatus
+   *  と同じ、毎フレームのレイアウト読み出しを避ける流儀）。 */
+  private syncEmptyStatePosition(): void {
+    const el = this.emptyStateEl;
+    if (!el) return;
+    // "glasses"（SMUI）の原点はブリッジ（書けない接合部）の真上に来るため、案内も
+    // 右レンズの中心へずらす——案内メッセージ(smuiView.ts)を右レンズに寄せているのと
+    // 同じ考え方。"single"（通常キャンバス）ではdx=0のまま円の中心を使う。
+    const dx = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * this.frame.scale : 0;
+    const dy = EMPTY_STATE_OFFSET_Y * this.frame.scale;
+    el.style.left = `${this.canvas.offsetLeft + this.frame.centerPx.x + dx}px`;
+    el.style.top = `${this.canvas.offsetTop + this.frame.centerPx.y + dy}px`;
+  }
+
+  /** 案内を出す条件（メモが1つも無い／テキスト入力中でない）を毎フレーム見直す
+   *  （テンプレートは選んだ瞬間に置かれるため、この条件だけで足りる）。
+   *  メモの増減はクラウド同期・共有ルームのポーリング・寿命切れなど
+   *  通知の無い経路でも起きるため、renderのついでに見るのがいちばん確実——DOMに触るのは
+   *  表示・非表示が実際に切り替わった瞬間だけにする。 */
+  private syncEmptyState(activeMemoCount: number): void {
+    if (!this.emptyStateEl || !this.setEmptyStateVisible) return;
+    const show = activeMemoCount === 0 && !this.textEditor;
+    if (show === this.emptyStateShown) return;
+    this.emptyStateShown = show;
+    if (show) this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
+    this.setEmptyStateVisible(show);
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
@@ -210,8 +295,6 @@ export class CircularCanvas {
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
     this.state.activeMemoId = null;
     this.state.idleTimer = null;
-    this.pendingTemplate = null;
-    this.templateHoverPoint = null;
   }
 
   private hitTestMemo(p: Point): Memo | null {
@@ -237,14 +320,6 @@ export class CircularCanvas {
     ev.preventDefault();
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = this.toNormalized(ev.clientX, ev.clientY);
-
-    if (this.pendingTemplate) {
-      // テンプレート配置待ち: タップした場所にそのまま置く（今選んでいる道具は問わない）
-      this.placeTemplateAt(p, this.pendingTemplate);
-      this.pendingTemplate = null;
-      this.templateHoverPoint = null;
-      return;
-    }
 
     const tool = this.getToolState().tool;
 
@@ -336,6 +411,7 @@ export class CircularCanvas {
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
     const align = editingMemo?.align ?? "center";
+    const lineHeight = editingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
     const canvasRect = this.canvas.getBoundingClientRect();
     const fontPx = fontPxForRender(fontSize, this.frame.scale);
     // 画面px⇄基準px（半径REFERENCE_RADIUS基準）の変換比率。可変幅ボックスの実際の
@@ -353,7 +429,7 @@ export class CircularCanvas {
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
     el.style.fontSize = `${fontPx}px`;
-    el.style.lineHeight = "1.4";
+    el.style.lineHeight = `${lineHeight}`;
     el.style.textAlign = align;
     document.body.appendChild(el);
     this.textEditor = el;
@@ -420,7 +496,7 @@ export class CircularCanvas {
         }
         const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
         const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
-        const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
+        const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
         this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
         return;
       }
@@ -460,65 +536,50 @@ export class CircularCanvas {
   }
 
   /**
-   * 指定したテンプレート（持ち物チェック／電話メモ）を配置待ちにする。実際に置かれるのは
-   * 次に盤面をタップした場所（自由配置——ユーザー指示）で、それまでは道具バーの操作は
-   * 通常どおり効く。配置待ちの間はポインタを追いかけて配置ガイドを表示する
-   * （renderTemplateGuideで描く）。
+   * 指定したテンプレートを、常に画面（形状）の中心(0,0)に置く（ユーザー指示：
+   * 配置は最初から画面中央に）。以前はタップした場所に自由配置していたが、
+   * 置く場所を選ぶタップの手順自体を無くし、選んだ瞬間にそのまま中心へ置く。
+   * 項目は空欄のまま——書き込むのは通常のテキストメモの編集と同じ操作でよい。
+   * 幅は実際の文面の最長行に合わせる（measureTextBoxWidthPx、編集時と同じ計算）
+   * ——形状の横幅ぎりぎりまで箱を広げると、行ごとに幅が違う文面を左揃えにした
+   * とき（中央揃えだと左端がガタつくため左揃え——ユーザー指示）文字が箱の左に
+   * 偏り、中心(0,0)に置いたつもりでも画面上は中央からずれて見えてしまうため
+   * （実測・見た目で確認済み）。文面の幅に合わせることで、左揃えのまま見た目も
+   * 中心に収まる。
+   *
+   * 文字サイズは道具バーの現在値ではなく常にTEMPLATE_FONT_SIZE固定にする
+   * （ユーザー指示：テンプレートを配置するときのみより大きいフォントサイズに
+   * したい——道具バーの最大ステップよりもさらに大きい専用の値）。
+   *
+   * 置いた直後、そのままテキスト編集状態にする（ユーザー指示：テンプレートを
+   * 選択した際に配置したテンプレートのテキスト編集状態にしてほしい）——空欄を
+   * 書き込むまでの一手間（タップして編集を開く）を省く。編集用の<textarea>も
+   * 同じmeasureTextBoxWidthPxで幅を決めるため、開いた瞬間に盤面の描画とぴったり
+   * 重なる。
+   *
+   * 行間は通常のLINE_HEIGHT_MULTIPLIERではなく、少し狭いTEMPLATE_LINE_HEIGHT_MULTIPLIER
+   * にする（ユーザー指示：テンプレートのみ行間を少し狭くしたい）。memoに保存して
+   * おくことで、renderMemoAt・この後開く編集用<textarea>のline-height・再編集時の
+   * 高さ再計算のすべてが同じ狭さのまま揃う。
    */
   beginPlacingTemplate(id: TemplateId): void {
-    this.pendingTemplate = getTemplateText(id);
-  }
-
-  /** 配置待ちのテンプレート文面を、タップされた場所（形の外なら内側に丸め込んだ位置）に
-   *  テキストメモとして置く。項目は空欄のまま——書き込むのは通常のテキストメモの編集と同じ操作でよい。
-   *  項目は行ごとに長さが変わるため、中央揃えだと左端がガタつく。左揃えにする（ユーザー指示）。 */
-  private placeTemplateAt(anchor: Point, text: string): void {
-    const { color, lifespanDays, fontSize } = this.getToolState();
-    const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize);
-    const { width, height } = normalizedBoxSize(fontSize, lines.length);
-    this.store.createTextMemo(anchor, text, lines, fontSize, width, height, {
+    const text = getTemplateText(id);
+    const { color, lifespanDays } = this.getToolState();
+    const fontSize = TEMPLATE_FONT_SIZE;
+    const lineHeight = TEMPLATE_LINE_HEIGHT_MULTIPLIER;
+    const boxWidthPx = measureTextBoxWidthPx(this.ctx, text, fontSize);
+    const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize, boxWidthPx);
+    const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
+    const memo = this.store.createTextMemo({ x: 0, y: 0 }, text, lines, fontSize, width, height, {
       color,
       lifespanDays,
       align: "left",
+      lineHeight,
     });
-  }
-
-  /** 配置待ちの間、ポインタの位置に「ここに置かれる」ことを示す薄いプレビューを描く。
-   *  実際に置かれた後と同じ見た目（renderMemoAt）を使うので、位置・折り返し・揃えが
-   *  そのまま本番の見た目のガイドになる。 */
-  private renderTemplateGuide(ctx: CanvasRenderingContext2D, radius: number): void {
-    if (!this.pendingTemplate || !this.templateHoverPoint) return;
-    const { color, fontSize } = this.getToolState();
-    const lines = wrapTextAtReferenceScale(this.ctx, this.pendingTemplate, fontSize);
-    const { width, height } = normalizedBoxSize(fontSize, lines.length);
-    const preview: TextMemo = {
-      id: "template-guide",
-      kind: "text",
-      x: this.templateHoverPoint.x,
-      y: this.templateHoverPoint.y,
-      text: this.pendingTemplate,
-      textLines: lines,
-      fontSize,
-      boxWidth: width,
-      boxHeight: height,
-      align: "left",
-      createdAt: 0,
-      lastTracedAt: 0,
-      traceHistory: [0],
-      recoveredMs: 0,
-      lifespanDays: null,
-      status: "active",
-      color,
-    };
-    renderMemoAt(ctx, preview, radius, TEMPLATE_GUIDE_ALPHA);
+    this.openTextEditor({ x: 0, y: 0 }, memo);
   }
 
   private onPointerMove = (ev: PointerEvent): void => {
-    if (this.pendingTemplate) {
-      // 配置待ちの間はポインタを追いかけてガイドを表示するだけ（実際に置くのはタップ時）
-      this.templateHoverPoint = this.toNormalized(ev.clientX, ev.clientY);
-      return;
-    }
     if (this.state.mode === "idle") {
       this.updateHoverInfo(ev);
       return;
@@ -596,7 +657,7 @@ export class CircularCanvas {
    * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.textEditor || this.pendingTemplate || this.state.mode !== "idle") return;
+    if (this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
@@ -616,11 +677,9 @@ export class CircularCanvas {
 
     if (this.interactive) {
       // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
-      // テンプレート配置待ちの間は、次のタップで何かが置かれることが伝わるカーソルにする。
       const tool = this.getToolState().tool;
-      this.canvas.style.cursor = this.pendingTemplate
-        ? "copy"
-        : tool === "move" || tool === "trace"
+      this.canvas.style.cursor =
+        tool === "move" || tool === "trace"
           ? this.state.mode === "moving" || this.state.mode === "tracing"
             ? "grabbing"
             : "grab"
@@ -692,10 +751,10 @@ export class CircularCanvas {
     }
 
     // なぞる/移動で実際に触れている間、またはPCでその道具にホバーしている間、
-    // 残り時間・回復できる時間を背景つきのボックスで表示する（ユーザー指示）。
-    // 回復量に生涯の上限を設けた（Issue #11、memoStore.tsのreviveMemo参照）
-    // ので、「あとどれだけ回復させられるか」が見えないと利用者が分からない
-    // ため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
+    // 残り時間・次に復活できるまでの時間を背景つきのボックスで表示する
+    // （ユーザー指示）。なぞって復活にはクールタイムがある（Issue #11、
+    // memoStore.tsのreviveMemo参照）ので、「次にいつなぞれるか」が見えないと
+    // 利用者が分からないため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
     renderReviveInfoBox(ctx, this.store, r, this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
 
     // 消しゴムの当たり範囲を示すカーソル
@@ -707,9 +766,6 @@ export class CircularCanvas {
       ctx.lineWidth = 1.2;
       ctx.stroke();
     }
-
-    // テンプレート配置待ちの間、置かれる場所のガイドを薄く表示する
-    this.renderTemplateGuide(ctx, r);
 
     ctx.restore(); // clip
 
@@ -735,19 +791,21 @@ export class CircularCanvas {
     }
 
     if (this.interactive && activeMemos.length === 0) {
-      // 中心点
+      // 中心点（ここが書ける領域の中心、という目印）。文字の案内はDOM側
+      // （.canvas-empty-state、syncEmptyState参照）へ移したので、canvasに描くのは
+      // この点だけ。"glasses"では原点がブリッジ（書けない接合部）の真上なので、
+      // DOM側の案内と同じ右レンズの中心に打つ。
+      const dotX = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * r : 0;
       ctx.beginPath();
-      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.arc(dotX, 0, 3, 0, Math.PI * 2);
       ctx.fillStyle = CENTER_DOT;
       ctx.fill();
-
-      ctx.fillStyle = HINT_TEXT;
-      ctx.font = "13px 'Noto Sans JP', sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("ドラッグで書き始める", 0, this.frame.scale * 0.32);
     }
 
     ctx.restore(); // translate + setTransform
+
+    // DOM側の案内（ドラッグで書き始める／＋テンプレートを使用）の出し入れ。
+    this.syncEmptyState(activeMemos.length);
   }
 
   /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した
@@ -766,6 +824,8 @@ export class CircularCanvas {
       window.removeEventListener("keydown", this.onGlobalKeyDown);
     }
     this.textEditor?.remove();
+    this.emptyStateEl?.remove();
+    this.container.classList.remove("canvas-host");
     this.canvas.remove();
   }
 }

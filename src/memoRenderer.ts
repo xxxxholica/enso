@@ -40,7 +40,7 @@ export function renderMemoAt(
   const fontPx = fontPxForRender(memo.fontSize, radius);
   ctx.font = `${fontPx}px ${TEXT_FONT_FAMILY}`;
   ctx.textBaseline = "middle";
-  const lineHeight = fontPx * LINE_HEIGHT_MULTIPLIER;
+  const lineHeight = fontPx * (memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
   const totalHeight = memo.textLines.length * lineHeight;
   let ly = memo.y * radius - totalHeight / 2 + lineHeight / 2;
   // 持ち物チェックのテンプレートのように行ごとに幅が違う文面は、中央揃えだと左端がガタつくため
