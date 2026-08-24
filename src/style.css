@@ -192,22 +192,11 @@ body {
   background: oklch(93% 0.008 75);
 }
 
-/* --- 振り返りビューのパネル。通常キャンバスと同じ大きさの円を出すため、
+/* --- SMUI（共有）のパネル。通常キャンバスと同じ大きさの円を出すため、
    view-panelの既定(align-items:center)を上書きしてstretchにし、
-   .archive-viewが#archive-panelいっぱいの高さを持てるようにする
-   （%指定のheightは祖先がflex-growで確定した高さだと解決に失敗することがあるため、
-   ここでもheight:100%は使わずstretchに委ねる）。
-   一覧が増えて縦に収まりきらない場合はこのパネル自身がスクロールする。 --- */
-#archive-panel {
-  align-items: stretch;
-  overflow-y: auto;
-}
-
-/* --- SMUI（共有）のパネル。#archive-panelと同じ理由で、view-panelの既定
-   (align-items:center)を上書きしてstretchにし、.smui-canvas-wrapがパネル
-   いっぱいの高さを持てるようにする——これが無いと.smui-viewは中身ぶんの
-   高さしか持たず、共有キャンバスがキャンバスタブの円のように縦方向の余白を
-   使い切れない。 --- */
+   .smui-canvas-wrapがパネルいっぱいの高さを持てるようにする——これが無いと
+   .smui-viewは中身ぶんの高さしか持たず、共有キャンバスがキャンバスタブの円の
+   ように縦方向の余白を使い切れない。 --- */
 #shared-panel {
   align-items: stretch;
 }
@@ -275,7 +264,7 @@ body {
    .toolbar-tools（左）＝道具アイコンとテンプレートを1列（.toolbar-pill）にまとめ、
    すべて同じ大きさ（.toolbar-btn）で揃えたもの。「何をするか」という操作の並びを
    1ブロックにしている（ユーザー指示）。.toolbar-details（中央）＝色・文字サイズ
-   という選んだ道具の"詳細"設定。時間選択ブロック（DurationSelector）はこの
+   という選んだ道具の"詳細"設定。振り返りスライダー（RewindSelector）はこの
    Toolbarの外、#duration-slotに別途並ぶ。画面切り替えナビをヘッダーへ移した分
    フッターの横幅に余裕ができたため、以前は道具アイコンの上にposition: absoluteで
    浮かせていた詳細ブロックを通常のフローに戻し、ブロックを横に並べるだけで1行に収まる。
@@ -510,52 +499,20 @@ body {
   padding: 2px 4px;
 }
 
-/* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
-
-.seekbar {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
-.seekbar-disabled {
+/* --- 道具バー全体のグレーアウト。振り返りスライダーで過去に遡っている間、
+   道具を使えないことを示す（ユーザー指示）。.duration-seekbar-disabled等と
+   同じ「触れない・薄い」パターン。.toolbarは.fade-visible.is-visible
+   （opacity:1、詳細度0,2,0）も同時に持つため、.toolbar-disabled単体（0,1,0）
+   では負けてしまう——.toolbarと組み合わせて詳細度を揃え、こちらを優先させる。 */
+.toolbar.toolbar-disabled {
   opacity: 0.4;
   pointer-events: none;
 }
 
-.seekbar-timestamp {
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-  color: oklch(22% 0.012 55 / 0.6);
-}
-
-.seekbar-track {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-}
-
-.seekbar-label {
-  flex: none;
-  font-size: 11px;
-  color: oklch(22% 0.012 55 / 0.4);
-}
-
-.seekbar-slider {
-  flex: 1;
-  accent-color: oklch(22% 0.012 55);
-  cursor: pointer;
-}
-
-/* --- 時間選択ブロック：消えるまでの期間を選ぶシークバー。振り返りのシークバー
-   （.seekbar）と同じく、現在値のラベルをスライダーの上に置く縦積みにしている
-   （ユーザー指示）。「最初」「現在」のような両端のラベルは持たない、振り返りほど
-   大仰にしない控えめな作り（以前からの指示）。 --- */
+/* --- 時間選択ブロック：旧「消えるまでの期間」を選ぶシークバーの枠を、
+   過去に遡って見るシークバー（rewindSelector.ts）に転用したもの。現在値の
+   ラベルをスライダーの上に置く縦積みにしている（ユーザー指示）。「最初」
+   「現在」のような両端のラベルは持たない、控えめな作り（以前からの指示）。 --- */
 
 .duration-seekbar {
   display: flex;
@@ -585,42 +542,6 @@ body {
 .duration-seekbar-disabled {
   opacity: 0.4;
   pointer-events: none;
-}
-
-/* --- 振り返りビュー ------------------------------------------------ */
-/* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
-   大きさを決める。消えたメモの一覧は持たない設計なので、円だけを表示すればよい
-   （メモが何もない時も専用の空状態メッセージは出さず、シークバー側の見た目
-   ——disabled・薄い表示——だけで伝える。ユーザー指示）。 */
-
-.archive-view {
-  width: 100%;
-  /* height指定はしない。#archive-panelのalign-items:stretchに高さを委ねる
-     （height:100%は祖先の高さがflex-growで確定したものだと解決に失敗することがあるため）。
-     paddingは持たせない: #canvas-panel（通常キャンバス側）にも一切paddingが
-     無く、fitCanvasToContainer()はこのラッパーのgetBoundingClientRect()を
-     そのまま「利用可能な高さ」として円のサイズを決めているため、ここだけ
-     paddingがあると通常キャンバスと振り返りとで円の大きさがずれてしまう
-     （ユーザー指摘：キャンバスと振り返りに変えた時に円のサイズが変わる）。
-     以前ここに残っていた上下のpaddingは、シークバーをまだ操作パネル側
-     （フッター）ではなくこのビュー自身の中に置いていた頃の名残り。 */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.archive-canvas-wrap {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.archive-preview {
-  display: block;
-  border-radius: 50%;
 }
 
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
@@ -894,8 +815,8 @@ body {
    大きな眼鏡形状1枚（左右レンズ+ブリッジが1つの連続領域、CircularCanvasの
    frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
    （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
-   (flex:1 1 auto; min-height:0)」を連鎖させることで、#archive-panel/
-   .archive-canvas-wrapと同じ仕組みでキャンバスがパネルの高さいっぱいまで育つ。 --- */
+   (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
+   高さいっぱいまで育つ。 --- */
 .smui-view {
   width: 100%;
   height: 100%;

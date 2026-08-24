@@ -12,8 +12,8 @@ export const FADE_TRANSITION_MS = 180;
  * 互いに干渉しない。
  *
  * テンプレートのポップアップメニュー（toolbar.ts）や、下部バーの中身の
- * クロスフェード（main.ts, archiveView.ts）など、複数箇所で同じ仕組みが
- * 必要になったため共通化した。
+ * クロスフェード（main.ts）など、複数箇所で同じ仕組みが必要になったため
+ * 共通化した。
  */
 export function createFadeVisibility(el: HTMLElement): (show: boolean) => void {
   let hideTimer: ReturnType<typeof setTimeout> | undefined;

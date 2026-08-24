@@ -32,11 +32,12 @@ const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "�
  * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
  * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
  * 機能だったため1つに統合した——ユーザー指示）。
- * 「消えるまでの期間」はここでは扱わない（DurationSelectorが別軸・別ブロックで担当）。
+ * 「消えるまでの期間」は選べる仕様をやめ常に1日固定にしたため、ここでは扱わない
+ * （fade.tsのFIXED_LIFESPAN_DAYS参照）。
  *
  * 下部バーは機能ごとに3ブロックへ分けており、このToolbarクラスはそのうち
- * 左と中央の2つを受け持つ（右の「時間選択ブロック」はDurationSelectorが別に
- * #duration-slotへ描画する）:
+ * 左と中央の2つを受け持つ（右のブロックは、旧「消えるまでの期間」選択の枠を
+ * 転用した振り返りスライダー——RewindSelectorが別に#duration-slotへ描画する）:
  *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンとテンプレートを
  *     同じ1列（.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
  *     「何をするか」という操作そのものの並びとして、1つのブロックにまとめている
@@ -269,5 +270,15 @@ export class Toolbar {
     this.syncPill();
     this.syncStepper();
     this.syncSwatch();
+  }
+
+  /**
+   * 振り返りスライダーで過去に遡っている間は道具を使えなくする（ユーザー指示：
+   * 遡り中はグレーアウトでよい）。触れない・薄いことで無効だと分かるようにする、
+   * という既存のDurationSelector/振り返りシークバーの無効表示と同じ考え方
+   * （style.cssの.toolbar-disabled参照）。
+   */
+  setEnabled(enabled: boolean): void {
+    this.el.classList.toggle("toolbar-disabled", !enabled);
   }
 }
