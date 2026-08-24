@@ -41,7 +41,6 @@ const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
 const HIT_THRESHOLD_PX = 12;
-const ERASER_RADIUS_PX = 16;
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
@@ -73,6 +72,9 @@ export interface ToolState {
   fontSize: number;
   /** 基準円(半径340px)におけるペンの線の太さ(px)。ペン道具の時のみ使う。 */
   lineWidth: number;
+  /** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）。
+   *  消しゴム道具の時のみ使う（ユーザー指示：GoodNotesのようにバーで変えたい）。 */
+  eraserRadius: number;
 }
 
 interface DrawState {
@@ -410,7 +412,7 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.effectiveScale());
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
     }
 
@@ -765,7 +767,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, ERASER_RADIUS_PX / this.effectiveScale());
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
 
@@ -937,7 +939,7 @@ export class CircularCanvas {
     if (this.state.mode === "erasing" && this.state.lastPoint) {
       const p = { x: this.state.lastPoint.x * r, y: this.state.lastPoint.y * r };
       ctx.beginPath();
-      ctx.arc(p.x, p.y, ERASER_RADIUS_PX, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, this.getToolState().eraserRadius, 0, Math.PI * 2);
       ctx.strokeStyle = ERASER_CURSOR;
       ctx.lineWidth = 1.2;
       ctx.stroke();

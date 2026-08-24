@@ -133,6 +133,7 @@ const getToolState = () => ({
   lifespanDays: FIXED_LIFESPAN_DAYS,
   fontSize: toolbar.getFontSize(),
   lineWidth: toolbar.getLineWidth(),
+  eraserRadius: toolbar.getEraserRadius(),
 });
 
 const canvasView = new CircularCanvas(canvasPanel, store, getToolState, {
