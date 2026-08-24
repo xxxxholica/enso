@@ -114,7 +114,7 @@ export class SharedRoomMenu {
     createSection.className = "shared-menu-section";
     this.createBtn = document.createElement("button");
     this.createBtn.type = "button";
-    this.createBtn.className = "pill-btn";
+    this.createBtn.className = "pill-btn pill-btn--primary";
     this.createBtn.textContent = CREATE_LABEL;
     this.createBtn.addEventListener("click", () => void this.handleCreate());
     createSection.appendChild(this.createBtn);
