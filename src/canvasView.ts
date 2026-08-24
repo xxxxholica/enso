@@ -337,7 +337,7 @@ export class CircularCanvas {
     if (onRequestTemplatePicker) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "pill-btn canvas-empty-template-btn";
+      btn.className = "pill-btn pill-btn--primary canvas-empty-template-btn";
       btn.textContent = "＋テンプレートを使用";
       btn.addEventListener("click", () => onRequestTemplatePicker());
       el.appendChild(btn);

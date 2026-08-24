@@ -286,7 +286,7 @@ export class TemplatePicker {
     cancelBtn.addEventListener("click", () => this.showGrid());
     const submitBtn = document.createElement("button");
     submitBtn.type = "button";
-    submitBtn.className = "pill-btn template-create-submit";
+    submitBtn.className = "pill-btn pill-btn--primary template-create-submit";
     submitBtn.textContent = "作成";
     submitBtn.addEventListener("click", () => this.submitCreateForm());
     actions.append(cancelBtn, submitBtn);
