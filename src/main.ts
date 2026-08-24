@@ -51,6 +51,7 @@ app.innerHTML = `
       <div class="control-panel-dots" aria-hidden="true">
         <button type="button" class="control-panel-dot" data-page="0"></button>
         <button type="button" class="control-panel-dot" data-page="1"></button>
+        <button type="button" class="control-panel-dot" data-page="2"></button>
       </div>
       <div class="control-panel-pages">
         <div id="primary-slot"></div>

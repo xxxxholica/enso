@@ -1,7 +1,7 @@
 /**
- * スマホ幅では、下部バーの1段目（ツール選択）・2段目（サイズ・色＋振り返り
- * スライダー）を1つの表示領域にまとめ、上下スワイプ（＝縦スクロール、
- * style.cssのscroll-snapで実現）で切り替える（ユーザー指示）。このモジュールは
+ * スマホ幅では、下部バーの3ブロック（ツール選択／ツールの詳細／時間選択）を
+ * 1つの表示領域にまとめ、上下スワイプ（＝縦スクロール、style.cssの
+ * scroll-snapで実現）で切り替える（ユーザー指示）。このモジュールは
  * 「今どちらのページが見えているか」をスクロール位置から判定してドットの
  * 強調を切り替える橋渡しと、ドットをタップした時に該当ページへスクロールする
  * 処理だけを担う——ページ送り自体（スワイプの物理挙動）はCSSのscroll-snapに
@@ -22,7 +22,7 @@ export function setupControlPanelPages(pagesEl: HTMLElement, dotsEl: HTMLElement
   pagesEl.scrollTop = 0;
 
   const syncActiveDot = () => {
-    const pageIndex = pagesEl.scrollTop >= pagesEl.clientHeight / 2 ? 1 : 0;
+    const pageIndex = Math.min(dots.length - 1, Math.round(pagesEl.scrollTop / pagesEl.clientHeight));
     dots.forEach((dot, i) => dot.classList.toggle("is-active", i === pageIndex));
   };
 

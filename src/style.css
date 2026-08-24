@@ -108,7 +108,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 16px 18px;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
   gap: 14px;
 }
 
@@ -328,7 +328,7 @@ body {
   width: 100%;
   display: flex;
   justify-content: center;
-  padding-bottom: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 }
 
 /* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの
@@ -448,24 +448,18 @@ body {
 
 /* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
    絶対に収まらない（ユーザー報告：3ブロック目が画面外に切れて見えない）。
-   「2行にはしない」という上のnowrapの方針はPC幅を前提にしたものだったため、
-   この幅だけ例外にする。1段目＝ツール選択、2段目＝ツールの詳細＋時間選択、
-   という2段構成にした上で、さらにその2段を1つの表示領域にまとめ、上下
-   スワイプ（＝縦スクロール、scroll-snapで実現）で切り替えられるようにする
-   （ユーザー指示）。.toolbarをdisplay:contentsにして.toolbar-tools/
-   .toolbar-detailsを.control-panel-pagesの直接の子として扱えるようにする
-   ことで、#duration-slot（時間選択）と合わせて3つとも同じグリッドの項目にし、
-   grid-template-areasで「1段目＝tools、2段目＝details+duration横並び」を
-   指定する。実際のスクロール・スナップは.control-panel-pages側（高さを
-   .control-blockの既存の固定高さ＝1ページぶんに制限した「窓」）が担い、
-   .control-panel自体は「左にドット・右にその窓」を横並びにするだけの
-   コンテナにする（ユーザー指示：ドットは左に）。
-   各グリッド項目はjustify-self:centerで中身の大きさに縮めるのではなく、
-   既定のstretchのままグリッドの列幅いっぱいに広げる——1段目（2列ぶんの幅）
-   と2段目（1列ずつの合計）が同じグリッド幅になり、上下のブロックの横幅が
-   ぴったり揃う（ユーザー指摘：揃っていない）。広がった分の余白の中で
-   アイコン等が真ん中に来るよう、各ブロック内側のjustify-content:centerで
-   中身だけを中央寄せする。
+   以前は「1段目＝ツール選択、2段目＝ツールの詳細＋時間選択」の2列グリッドに
+   していたが、2段目の2ブロックで列幅を分け合う形だと、それぞれの中身
+   （太さスライダー＋色スワッチ／時間選択スライダー）がその半分幅の中に
+   収まりきらず、ブロックの外まで見切れてスクロールが発生してしまっていた
+   （ユーザー報告：見切れてスクロールが発生する）。列で幅を分け合うのをやめ、
+   3ブロックを1列に積んで上下スワイプ（scroll-snapで実現）で切り替える
+   構成にし、各ブロックには常にコンテナの横幅いっぱいを渡す——横幅を
+   検証に使った端末の画面幅からpxで決め打ちすると、その端末幅でしか
+   収まらなくなるため、固定pxではなく100%（＝可変のコンテナ幅にそのまま
+   追従する）で指定する（ユーザー指示：pxではなく可変の単位で）。3ブロック
+   とも同じコンテナ幅いっぱいに広がるので、横の長さは自然に揃う
+   （ユーザー指示：3ブロックに分けて横の長さを揃えたい）。
    余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
    固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
    （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
@@ -501,19 +495,13 @@ body {
   }
 
   .control-panel-pages {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas:
-      "tools tools"
-      "details duration";
-    row-gap: clamp(6px, 2.5vw, 10px);
-    column-gap: clamp(6px, 2.5vw, 10px);
+    display: flex;
+    flex-direction: column;
     flex: 1 1 auto;
     min-width: 0;
     /* .control-blockの既存の固定高さ(72px)＝1ページぶんだけを見せる「窓」。
-       中身はグリッド2行ぶんの高さを持つため、ここからはみ出した2段目が
-       スクロールで現れる——幅を揃えるための帳尻合わせではなく、1ページだけ
-       見せるという仕様上必要な指定。 */
+       中身は3ブロックぶんの高さを持つため、ここからはみ出した2・3段目が
+       スクロールで現れる——1ページだけ見せるという仕様上必要な指定。 */
     height: 72px;
     overflow-y: auto;
     scroll-snap-type: y mandatory;
@@ -528,23 +516,21 @@ body {
     display: contents;
   }
 
+  .toolbar-tools,
+  .toolbar-details,
+  #duration-slot {
+    flex: none;
+    scroll-snap-align: start;
+  }
+
   .toolbar-tools {
-    grid-area: tools;
     justify-content: center;
     gap: clamp(8px, 3vw, 12px);
-    scroll-snap-align: start;
   }
 
   .toolbar-details {
-    grid-area: details;
     justify-content: center;
     gap: clamp(6px, 2.5vw, 10px);
-    scroll-snap-align: start;
-  }
-
-  #duration-slot {
-    grid-area: duration;
-    scroll-snap-align: start;
   }
 
   .control-block {
@@ -556,11 +542,12 @@ body {
      （ユーザー報告：キャンバスがデフォルトで小さい）。 */
   #app {
     padding: clamp(8px, 2.5vw, 10px);
+    padding-bottom: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-bottom, 0px));
     gap: clamp(6px, 2vw, 8px);
   }
 
   .app-footer {
-    padding-bottom: clamp(2px, 1vw, 4px);
+    padding-bottom: calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
   }
 }
 
