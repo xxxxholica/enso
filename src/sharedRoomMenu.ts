@@ -1,6 +1,7 @@
 import { onUserChange } from "./authState";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
+import { ICONS } from "./icons";
 import {
   createSharedCanvas,
   joinSharedCanvas,
@@ -50,6 +51,11 @@ export class SharedRoomMenu {
 
   private rooms: SharedCanvasSummary[] = [];
   private selectedId: string | null = null;
+
+  /** ルームごとの「その他の操作」メニュー（今は「名前を変更」の1件のみ、
+   *  今後増える操作もここに並べていく想定）。同時に1つしか開かない。 */
+  private roomActionsMenuEl: HTMLElement | null = null;
+  private roomActionsMenuCleanup: (() => void) | null = null;
 
   constructor(container: HTMLElement, onSelectRoom: (id: string) => void, onAutoOpen: () => void) {
     this.onSelectRoom = onSelectRoom;
@@ -201,6 +207,7 @@ export class SharedRoomMenu {
     this.btn.dataset.active = "false";
     this.popoverFade(false);
     notifyClose(this.closeRef);
+    this.closeRoomActionsMenu();
   }
 
   private setStatus(text: string): void {
@@ -321,12 +328,20 @@ export class SharedRoomMenu {
     this.renderRoomList();
   }
 
+  /** ルームの行は[ルーム名(操作トリガー付き)][退出]の2要素だけに絞る
+   *  （ユーザー指示：認知負荷を下げたい）。「名前を変更」は常時表示のボタンではなく、
+   *  ルーム名にホバー（PC）／長押し（タッチ）したときだけ開く操作メニューに
+   *  格上げする——ホバーしただけでは確定せず、メニューから選んで初めて実行される。 */
   private renderRoomList(): void {
+    this.closeRoomActionsMenu();
     this.roomListEl.innerHTML = "";
     this.emptyEl.hidden = this.rooms.length > 0;
     for (const room of this.rooms) {
       const li = document.createElement("li");
       li.className = "shared-room-item";
+
+      const nameWrap = document.createElement("div");
+      nameWrap.className = "shared-room-name-wrap";
 
       const btn = document.createElement("button");
       btn.type = "button";
@@ -337,25 +352,30 @@ export class SharedRoomMenu {
       // titleは表示中のラベル自体にしてホバーで全文を確認できるようにする。
       btn.title = label;
       btn.setAttribute("aria-pressed", String(room.id === this.selectedId));
-      btn.addEventListener("click", () => {
+      nameWrap.appendChild(btn);
+
+      const actionsBtn = document.createElement("button");
+      actionsBtn.type = "button";
+      actionsBtn.className = "shared-room-actions-trigger";
+      actionsBtn.setAttribute("aria-label", "ルームの操作メニュー");
+      actionsBtn.innerHTML = ICONS.moreActions;
+      actionsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.openRoomActionsMenu(actionsBtn, li, room);
+      });
+      nameWrap.appendChild(actionsBtn);
+
+      const selectRoom = () => {
         this.selectedId = room.id;
         this.updateTriggerLabel();
         this.renderRoomList();
         this.onSelectRoom(room.id);
         this.showInviteLink(room.id);
         this.close();
-      });
-      li.appendChild(btn);
+      };
+      this.attachRoomNamePress(btn, actionsBtn, li, room, selectRoom);
 
-      const renameBtn = document.createElement("button");
-      renameBtn.type = "button";
-      renameBtn.className = "pill-btn shared-room-rename";
-      renameBtn.textContent = "名前を変更";
-      renameBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.startRename(li, room);
-      });
-      li.appendChild(renameBtn);
+      li.appendChild(nameWrap);
 
       const leaveBtn = document.createElement("button");
       leaveBtn.type = "button";
@@ -369,6 +389,131 @@ export class SharedRoomMenu {
 
       this.roomListEl.appendChild(li);
     }
+  }
+
+  /** ルーム名ボタンの押し方を、マウスは通常クリック（＝選択）、タッチ／ペンは
+   *  長押しで操作メニューを開く・短いタップで選択、の2通りに振り分ける
+   *  （ユーザー指示：タッチでは長押しでメニューを開けるようにしたい）。
+   *  マウスは:hoverで見える「…」アイコン（openRoomActionsMenu）から開くため、
+   *  ここでは長押し扱いにしない。 */
+  private attachRoomNamePress(
+    btn: HTMLButtonElement,
+    actionsBtn: HTMLButtonElement,
+    li: HTMLLIElement,
+    room: SharedCanvasSummary,
+    selectRoom: () => void
+  ): void {
+    const LONG_PRESS_MS = 500;
+    const MOVE_CANCEL_PX = 10;
+    let timer: number | undefined;
+    let longPressed = false;
+    let startX = 0;
+    let startY = 0;
+
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+
+    btn.addEventListener("pointerdown", (ev) => {
+      if (ev.pointerType === "mouse") return;
+      longPressed = false;
+      startX = ev.clientX;
+      startY = ev.clientY;
+      clearTimer();
+      timer = window.setTimeout(() => {
+        longPressed = true;
+        this.openRoomActionsMenu(actionsBtn, li, room);
+      }, LONG_PRESS_MS);
+    });
+    btn.addEventListener("pointermove", (ev) => {
+      if (timer === undefined) return;
+      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > MOVE_CANCEL_PX) clearTimer();
+    });
+    btn.addEventListener("pointerup", clearTimer);
+    btn.addEventListener("pointercancel", clearTimer);
+    btn.addEventListener("click", (ev) => {
+      if (longPressed) {
+        // 長押しで既にメニューを開いたので、そのあとに来るclick（＝選択）は
+        // 打ち消す——選択とメニュー表示が同時に起きるのを防ぐ。
+        ev.preventDefault();
+        longPressed = false;
+        return;
+      }
+      selectRoom();
+    });
+  }
+
+  /** ルーム名にホバー（PC）／長押し（タッチ）したときに開く、そのルームの
+   *  操作メニュー。今は「名前を変更」の1件のみだが、今後増える操作もここに
+   *  並べていく想定（ユーザー指示）。.shared-room-list（一覧）はoverflow-y:auto
+   *  で内側だけスクロールするため、その中にposition:absoluteの子として置くと
+   *  はみ出した分が切られてしまう——canvasView.tsの.text-editor-overlayと
+   *  同じ理由でposition:fixed・body直下にして回避している。 */
+  private openRoomActionsMenu(anchorBtn: HTMLButtonElement, li: HTMLLIElement, room: SharedCanvasSummary): void {
+    this.closeRoomActionsMenu();
+
+    const actions: { label: string; onSelect: () => void }[] = [
+      { label: "名前を変更", onSelect: () => this.startRename(li, room) },
+    ];
+
+    const menu = document.createElement("div");
+    menu.className = "shared-room-actions-menu";
+    for (const action of actions) {
+      const actionBtn = document.createElement("button");
+      actionBtn.type = "button";
+      actionBtn.className = "shared-room-action-btn";
+      actionBtn.textContent = action.label;
+      actionBtn.addEventListener("click", () => {
+        this.closeRoomActionsMenu();
+        action.onSelect();
+      });
+      menu.appendChild(actionBtn);
+    }
+    document.body.appendChild(menu);
+    this.roomActionsMenuEl = menu;
+
+    const anchorRect = anchorBtn.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const margin = 6;
+    let top = anchorRect.bottom + margin;
+    if (top + menuRect.height > window.innerHeight - margin) {
+      top = anchorRect.top - menuRect.height - margin;
+    }
+    const left = Math.max(
+      margin,
+      Math.min(anchorRect.right - menuRect.width, window.innerWidth - menuRect.width - margin)
+    );
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+
+    const onOutside = (ev: PointerEvent) => {
+      if (ev.target instanceof Node && (menu.contains(ev.target) || anchorBtn.contains(ev.target))) return;
+      this.closeRoomActionsMenu();
+    };
+    const onKeydown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") this.closeRoomActionsMenu();
+    };
+    // 開いた直後の同じクリック／タップで即座に閉じてしまわないよう、
+    // 次のイベントループから listen する。
+    const listenTimer = window.setTimeout(() => {
+      document.addEventListener("pointerdown", onOutside);
+      document.addEventListener("keydown", onKeydown);
+    }, 0);
+    this.roomActionsMenuCleanup = () => {
+      window.clearTimeout(listenTimer);
+      document.removeEventListener("pointerdown", onOutside);
+      document.removeEventListener("keydown", onKeydown);
+    };
+  }
+
+  private closeRoomActionsMenu(): void {
+    this.roomActionsMenuCleanup?.();
+    this.roomActionsMenuCleanup = null;
+    this.roomActionsMenuEl?.remove();
+    this.roomActionsMenuEl = null;
   }
 
   /** ルームから退出する。他のメンバーが誰も残っていない場合、サーバー側で
