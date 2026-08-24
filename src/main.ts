@@ -18,10 +18,13 @@ import { TemplatePicker } from "./templatePicker";
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="app-header">
-    <nav class="view-nav">
-      <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
-      <button type="button" class="view-nav-btn" data-view="shared">共有</button>
-    </nav>
+    <div class="app-header-left">
+      <h1 class="app-wordmark">円相</h1>
+      <nav class="view-nav">
+        <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
+        <button type="button" class="view-nav-btn" data-view="shared">共有</button>
+      </nav>
+    </div>
     <div class="app-header-right">
       <div id="account-slot"></div>
     </div>

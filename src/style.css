@@ -1,7 +1,69 @@
 @import url("https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Noto+Sans+JP:wght@300;400;500&display=swap");
 
+/* --- デザイントークン ------------------------------------------------
+   これまで色・余白・角丸・文字サイズがファイル中に生の値のまま何十回も
+   複製されていて、後から一貫して調整するのが難しかった（UI再設計の
+   最初の段階として、まずここを整理する）。
+   色は暖色系グレースケール1本（インク）＋紙の明度違い＋インクの色として
+   すでに使っているアクセント（赤・青、toolbar.tsのPRESET_INKSと同じ値）
+   の3系統。2箇所以上で使われている値だけをトークン化しており、1箇所だけの
+   装飾的な値（虹色スワッチのグラデーション等）は無理に揃えずそのまま残す。
+   余白は4pxグリッド、文字サイズは今後ここへ段階的に揃えていく目標値。 --- */
 :root {
   color-scheme: light;
+
+  --ink-solid: oklch(22% 0.012 55);
+  --ink-95: oklch(22% 0.012 55 / 0.95);
+  --ink-85: oklch(22% 0.012 55 / 0.85);
+  --ink-80: oklch(22% 0.012 55 / 0.8);
+  --ink-70: oklch(22% 0.012 55 / 0.7);
+  --ink-60: oklch(22% 0.012 55 / 0.6);
+  --ink-55: oklch(22% 0.012 55 / 0.55);
+  --ink-50: oklch(22% 0.012 55 / 0.5);
+  --ink-45: oklch(22% 0.012 55 / 0.45);
+  --ink-40: oklch(22% 0.012 55 / 0.4);
+  --ink-35: oklch(22% 0.012 55 / 0.35);
+  --ink-20: oklch(22% 0.012 55 / 0.2);
+  --ink-12: oklch(22% 0.012 55 / 0.12);
+  --ink-08: oklch(22% 0.012 55 / 0.08);
+  --ink-06: oklch(22% 0.012 55 / 0.06);
+
+  --paper-0: oklch(97% 0.006 75);
+  --paper-1: oklch(98% 0.005 75);
+  --paper-2: oklch(93% 0.006 75);
+  --paper-2-hover: oklch(93% 0.008 75);
+  --paper-3: oklch(88% 0.008 75);
+  --paper-4: oklch(89% 0.008 75);
+
+  /* アクセント（インクの赤・青と同じ値）。UIの選択状態・フォーカスリング等、
+     意味のある色として今後使っていく（コンポーネント再設計フェーズ）。 */
+  --accent-red: oklch(52% 0.2 25);
+  --accent-blue: oklch(48% 0.16 258);
+
+  --rule-line: oklch(78% 0.07 240 / 0.4);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+
+  --duration-fast: 150ms;
+  --duration-base: 180ms;
 }
 
 * {
@@ -21,18 +83,18 @@ body {
 
 /* 初回起動時、キャンバス（円）が真っ平らな単色の上に浮いて見えないよう、
    同系色でごく淡い明暗差だけ付けた放射グラデーションにしている
-   （色相・彩度は元のoklch(93% 0.006 75)から変えず、明度だけ中心を明るく・
+   （色相・彩度は元のvar(--paper-2)から変えず、明度だけ中心を明るく・
    縁を少し落とす。ユーザー指摘：初回の第一印象が弱い）。 */
 body {
   background: radial-gradient(
     circle at 50% 38%,
-    oklch(97% 0.006 75) 0%,
-    oklch(93% 0.006 75) 55%,
-    oklch(89% 0.008 75) 100%
+    var(--paper-0) 0%,
+    var(--paper-2) 55%,
+    var(--paper-4) 100%
   );
   font-family: "Noto Sans JP", sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: oklch(22% 0.012 55);
+  color: var(--ink-solid);
 }
 
 #app {
@@ -57,6 +119,25 @@ body {
   gap: 16px;
 }
 
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+/* --- アプリのワードマーク「円相」。禅の書画で一筆で描く円のことで、
+   このアプリの核（一枚の丸いキャンバスにインクで書く）をそのまま表す言葉
+   （ユーザー指示）。手描き風のKlee Oneで、UIの残りの部分（Noto Sans JP）
+   とは意図的に異なる書体にし、アプリ名だけの特別さを出す。 --- */
+.app-wordmark {
+  margin: 0;
+  font-family: "Klee One", "Noto Sans JP", sans-serif;
+  font-weight: 600;
+  font-size: var(--text-lg);
+  letter-spacing: 0.02em;
+  color: var(--ink-solid);
+}
+
 /* --- アカウント表示を右寄せする器。共有ルームメニューは右レンズのラベル横に
    埋め込むため、ここには置かない（smuiView.ts参照）。 --- */
 .app-header-right {
@@ -73,7 +154,7 @@ body {
 
 .account-name {
   font-size: 12.5px;
-  color: oklch(22% 0.012 55 / 0.7);
+  color: var(--ink-70);
 }
 
 .account-badge-warning {
@@ -152,7 +233,7 @@ body {
    見えてしまう——ユーザー指摘）。 */
 .circle-canvas--paper {
   border-radius: 50%;
-  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
+  box-shadow: 0 1px 2px var(--ink-06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -165,7 +246,7 @@ body {
   overflow: hidden;
   box-sizing: border-box;
   padding: 4px 6px;
-  border: 1px dashed oklch(22% 0.012 55 / 0.35);
+  border: 1px dashed var(--ink-35);
   border-radius: 6px;
   background: oklch(98% 0.005 75 / 0.9);
   text-align: center;
@@ -173,7 +254,7 @@ body {
 }
 
 .text-editor-overlay::placeholder {
-  color: oklch(22% 0.012 55 / 0.35);
+  color: var(--ink-35);
 }
 
 /* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「ドラッグで書き始める」と
@@ -209,7 +290,7 @@ body {
 .canvas-empty-hint {
   margin: 0;
   font-size: 13px;
-  color: oklch(22% 0.012 55 / 0.4);
+  color: var(--ink-40);
 }
 
 /* 白い罫線の紙の上に直接置かれるボタンなので、.pill-btnの既定色（地色に近い
@@ -219,12 +300,12 @@ body {
   pointer-events: auto;
   font-size: 12.5px;
   padding: 7px 14px;
-  background: oklch(98% 0.005 75);
-  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+  background: var(--paper-1);
+  box-shadow: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
 }
 
 .canvas-empty-template-btn:hover {
-  background: oklch(93% 0.008 75);
+  background: var(--paper-2-hover);
 }
 
 /* --- SMUI（共有）のパネル。通常キャンバスと同じ大きさの円を出すため、
@@ -289,7 +370,7 @@ body {
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: oklch(22% 0.012 55);
+  color: var(--ink-solid);
   cursor: pointer;
   padding: 4px 2px;
   transition: opacity 0.15s ease;
@@ -353,9 +434,9 @@ body {
   padding: 8px 16px;
   height: 72px;
   border-radius: 20px;
-  border: 1px solid oklch(22% 0.012 55 / 0.12);
-  background: oklch(98% 0.005 75);
-  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
 }
 
 /* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
@@ -404,12 +485,12 @@ body {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: oklch(22% 0.012 55 / 0.2);
+    background: var(--ink-20);
     cursor: pointer;
   }
 
   .control-panel-dot.is-active {
-    background: oklch(22% 0.012 55 / 0.7);
+    background: var(--ink-70);
   }
 
   .control-panel-pages {
@@ -515,8 +596,8 @@ body {
   transform: translateX(-50%) translateY(6px);
   padding: 8px 14px;
   border-radius: 16px;
-  background: oklch(98% 0.005 75);
-  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+  background: var(--paper-1);
+  box-shadow: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease, transform 160ms ease;
@@ -555,7 +636,7 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  color: oklch(22% 0.012 55);
+  color: var(--ink-solid);
   cursor: pointer;
   transition: background-color 0.15s ease, opacity 0.15s ease;
   opacity: 0.55;
@@ -569,7 +650,7 @@ body {
 }
 
 .toolbar-btn[data-active="true"] {
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
   opacity: 1;
 }
 
@@ -581,7 +662,7 @@ body {
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 11px;
-  color: oklch(22% 0.012 55 / 0.85);
+  color: var(--ink-85);
   white-space: nowrap;
 }
 
@@ -601,13 +682,13 @@ body {
 .thickness-label {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-  color: oklch(22% 0.012 55 / 0.7);
+  color: var(--ink-70);
 }
 
 .thickness-slider {
   width: 100%;
   min-width: 64px;
-  accent-color: oklch(22% 0.012 55);
+  accent-color: var(--ink-solid);
   cursor: pointer;
 }
 
@@ -632,8 +713,8 @@ body {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  border: 2px solid oklch(98% 0.005 75);
-  box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px oklch(22% 0.012 55 / 0.12);
+  border: 2px solid var(--paper-1);
+  box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px var(--ink-12);
   cursor: pointer;
   padding: 0;
   overflow: hidden;
@@ -641,8 +722,8 @@ body {
 
 /* 今選んでいる色のスワッチだけ、外側にもう1本濃いリングを足して選択中と分かるようにする。 */
 .toolbar-swatch[data-active="true"] {
-  box-shadow: 0 0 0 1px oklch(98% 0.005 75), 0 0 0 3px oklch(22% 0.012 55 / 0.55), 0 1px 3px
-      oklch(22% 0.012 55 / 0.12);
+  box-shadow: 0 0 0 1px var(--paper-1), 0 0 0 3px var(--ink-55), 0 1px 3px
+      var(--ink-12);
 }
 
 /* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
@@ -682,7 +763,7 @@ body {
   background: none;
   font: inherit;
   font-size: 11.5px;
-  color: oklch(22% 0.012 55 / 0.4);
+  color: var(--ink-40);
   cursor: pointer;
   padding: 2px 4px;
 }
@@ -714,13 +795,13 @@ body {
 .duration-seekbar-label {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
-  color: oklch(22% 0.012 55 / 0.7);
+  color: var(--ink-70);
 }
 
 .duration-seekbar-slider {
   width: 100%;
   min-width: 90px;
-  accent-color: oklch(22% 0.012 55);
+  accent-color: var(--ink-solid);
   cursor: pointer;
 }
 
@@ -745,7 +826,7 @@ body {
 
 .shared-signedout {
   font-size: 13px;
-  color: oklch(22% 0.012 55 / 0.55);
+  color: var(--ink-55);
   text-align: center;
 }
 
@@ -754,7 +835,7 @@ body {
   max-width: 480px;
   text-align: center;
   font-size: 13px;
-  color: oklch(22% 0.012 55 / 0.45);
+  color: var(--ink-45);
 }
 
 /* --- ポップオーバーの中を「作成／招待リンク／ルーム一覧」の3区画に分ける
@@ -763,7 +844,7 @@ body {
    ことなく1枚に同居している）。最初の区画は仕切り線を引かない。 --- */
 .shared-menu-section {
   padding-top: 12px;
-  border-top: 1px solid oklch(22% 0.012 55 / 0.08);
+  border-top: 1px solid var(--ink-08);
 }
 
 .shared-menu-section:first-child {
@@ -775,7 +856,7 @@ body {
 .shared-section-label {
   font-size: 11px;
   font-weight: 500;
-  color: oklch(22% 0.012 55 / 0.45);
+  color: var(--ink-45);
   margin-bottom: 6px;
 }
 
@@ -788,7 +869,7 @@ body {
 .shared-status {
   margin: 0;
   font-size: 12px;
-  color: oklch(22% 0.012 55 / 0.5);
+  color: var(--ink-50);
 }
 
 .shared-status:empty {
@@ -797,7 +878,7 @@ body {
 
 .shared-invite {
   font-size: 12px;
-  color: oklch(22% 0.012 55 / 0.6);
+  color: var(--ink-60);
 }
 
 /* --- 入力欄とコピーボタンだけの行。見出し（「招待リンク」）を同じ行に
@@ -816,9 +897,9 @@ body {
   font: inherit;
   font-size: 12px;
   padding: 4px 8px;
-  border: 1px solid oklch(22% 0.012 55 / 0.2);
+  border: 1px solid var(--ink-20);
   border-radius: 6px;
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
   color: inherit;
 }
 
@@ -880,8 +961,8 @@ body {
 }
 
 .shared-room-btn[aria-pressed="true"] {
-  background: oklch(88% 0.008 75);
-  color: oklch(22% 0.012 55 / 0.95);
+  background: var(--paper-3);
+  color: var(--ink-95);
   font-weight: 600;
 }
 
@@ -901,7 +982,7 @@ body {
   background: none;
   padding: 0;
   border-radius: 999px;
-  color: oklch(22% 0.012 55 / 0.5);
+  color: var(--ink-50);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -921,7 +1002,7 @@ body {
 }
 
 .shared-room-actions-trigger:hover {
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
 }
 
 /* ルームの操作メニュー本体。位置はJS側でposition:fixed（画面px）を都度
@@ -937,8 +1018,8 @@ body {
   min-width: 120px;
   padding: 6px;
   border-radius: 12px;
-  background: oklch(98% 0.005 75);
-  box-shadow: 0 2px 6px oklch(22% 0.012 55 / 0.08), 0 18px 48px oklch(22% 0.012 55 / 0.12);
+  background: var(--paper-1);
+  box-shadow: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
 }
 
 .shared-room-action-btn {
@@ -950,12 +1031,12 @@ body {
   text-align: left;
   padding: 7px 10px;
   border-radius: 8px;
-  color: oklch(22% 0.012 55);
+  color: var(--ink-solid);
   cursor: pointer;
 }
 
 .shared-room-action-btn:hover {
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
 }
 
 /* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
@@ -979,7 +1060,7 @@ body {
   padding: 3px 6px;
   border: 1px solid oklch(22% 0.012 55 / 0.25);
   border-radius: 6px;
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
   color: inherit;
 }
 
@@ -987,17 +1068,17 @@ body {
    文字だけの装飾なしボタン（旧.text-link）だと押せることが伝わりにくかった
    （ユーザー指摘）ため、背景色つきのピル型にする。共有ルームメニュー内の
    「＋ルームを作成」・招待リンクの「コピー」・ルーム一覧の各項目で共通して
-   使う——これらは全部.icon-popover（背景oklch(98% 0.005 75)）の中に置かれる
+   使う——これらは全部.icon-popover（背景var(--paper-1)）の中に置かれる
    ため、それより一段暗いトーンにして溶けないようにする（.toolbar-btnの
    data-active時が.control-blockの上で使っているのと同じ組み合わせ）。 --- */
 .pill-btn {
   appearance: none;
   border: none;
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
-  color: oklch(22% 0.012 55 / 0.85);
+  color: var(--ink-85);
   white-space: nowrap;
   padding: 5px 12px;
   border-radius: 999px;
@@ -1006,25 +1087,25 @@ body {
 }
 
 .pill-btn:hover {
-  background: oklch(88% 0.008 75);
+  background: var(--paper-3);
 }
 
 /* --- トリガーボタン（sharedRoomMenu.ts）だけ、ポップオーバーの外・右レンズの
-   ラベル横（地色oklch(93% 0.006 75)のページの上）に直接置かれるため、
+   ラベル横（地色var(--paper-2)のページの上）に直接置かれるため、
    .pill-btnの既定色だと今度はページと同化してしまう——ポップオーバーの
    カードと同じ明るいトーンに個別で上書きする。開いている間はさらに一段
    暗くして目立たせる（他の.pill-btnはクリックした瞬間だけの一時的な操作
    なのでこの状態を持たない）。 --- */
 .shared-room-trigger {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
 }
 
 .shared-room-trigger:hover {
-  background: oklch(93% 0.008 75);
+  background: var(--paper-2-hover);
 }
 
 .shared-room-trigger[data-active="true"] {
-  background: oklch(88% 0.008 75);
+  background: var(--paper-3);
 }
 
 /* --- 共有ルームメニュー（sharedRoomMenu.ts、右レンズのラベル横）。
@@ -1044,7 +1125,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
 }
 
 .appearance-trigger svg {
@@ -1054,11 +1135,11 @@ body {
 }
 
 .appearance-trigger:hover {
-  background: oklch(93% 0.008 75);
+  background: var(--paper-2-hover);
 }
 
 .appearance-trigger[data-active="true"] {
-  background: oklch(88% 0.008 75);
+  background: var(--paper-3);
 }
 
 /* --- 見た目の設定のポップアップ。「フレームの形」「フレームの色」の2区画を
@@ -1150,7 +1231,7 @@ body {
   width: 42%;
   text-align: center;
   font-size: 12.5px;
-  color: oklch(22% 0.012 55 / 0.45);
+  color: var(--ink-45);
   pointer-events: none;
 }
 
@@ -1177,9 +1258,9 @@ body {
   overflow-y: auto;
   padding: 22px 24px 24px;
   border-radius: 24px;
-  border: 1px solid oklch(22% 0.012 55 / 0.12);
-  background: oklch(98% 0.005 75);
-  box-shadow: 0 2px 6px oklch(22% 0.012 55 / 0.08), 0 18px 48px oklch(22% 0.012 55 / 0.12);
+  border: 1px solid var(--ink-12);
+  background: var(--paper-1);
+  box-shadow: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
   transform: translateY(8px) scale(0.985);
   transition: transform 180ms ease;
   outline: none;
@@ -1214,7 +1295,7 @@ body {
   margin: 5px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: oklch(22% 0.012 55 / 0.55);
+  color: var(--ink-55);
 }
 
 .template-picker-close {
@@ -1227,13 +1308,13 @@ body {
   height: 32px;
   border-radius: 999px;
   font-size: 15px;
-  color: oklch(22% 0.012 55 / 0.6);
+  color: var(--ink-60);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .template-picker-close:hover {
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
 }
 
 .template-picker-grid {
@@ -1252,14 +1333,14 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  border: 1px solid oklch(22% 0.012 55 / 0.12);
+  border: 1px solid var(--ink-12);
   border-radius: 18px;
   background: oklch(93% 0.006 75 / 0.5);
   transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .template-card:hover {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
   border-color: oklch(22% 0.012 55 / 0.22);
   transform: translateY(-1px);
 }
@@ -1272,7 +1353,7 @@ body {
 .template-card-desc {
   font-size: 11.5px;
   line-height: 1.55;
-  color: oklch(22% 0.012 55 / 0.55);
+  color: var(--ink-55);
 }
 
 /* 置かれたときの見た目そのままを見せる：canvasのテキストと同じKlee One、
@@ -1282,16 +1363,16 @@ body {
   white-space: pre-line;
   font-size: 12px;
   line-height: 24px;
-  color: oklch(22% 0.012 55 / 0.8);
+  color: var(--ink-80);
   padding: 4px 10px 6px;
   border-radius: 10px;
-  background: repeating-linear-gradient(to bottom, transparent 0 23px, oklch(78% 0.07 240 / 0.4) 23px 24px) #ffffff;
+  background: repeating-linear-gradient(to bottom, transparent 0 23px, var(--rule-line) 23px 24px) #ffffff;
 }
 
 .template-picker-foot {
   margin: 16px 0 0;
   font-size: 11.5px;
-  color: oklch(22% 0.012 55 / 0.5);
+  color: var(--ink-50);
 }
 
 /* --- ユーザー作成テンプレートのカード。削除ボタンをカード本体のボタンに
@@ -1327,7 +1408,7 @@ body {
   border: none;
   background: none;
   border-radius: 999px;
-  color: oklch(22% 0.012 55 / 0.4);
+  color: var(--ink-40);
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -1338,7 +1419,7 @@ body {
 }
 
 .template-card-delete:hover {
-  background: oklch(93% 0.006 75);
+  background: var(--paper-2);
   color: oklch(55% 0.16 25 / 0.9);
 }
 
@@ -1354,7 +1435,7 @@ body {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.6;
-  color: oklch(22% 0.012 55 / 0.8);
+  color: var(--ink-80);
 }
 
 .template-card-confirm-actions {
@@ -1385,7 +1466,7 @@ body {
 .template-card-create-plus {
   font-size: 22px;
   line-height: 1;
-  color: oklch(22% 0.012 55 / 0.45);
+  color: var(--ink-45);
 }
 
 /* --- 新規テンプレート作成フォーム。カード一覧（.template-picker-grid）と
