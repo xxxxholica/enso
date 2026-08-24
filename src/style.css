@@ -147,11 +147,12 @@ body {
 /* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
    canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
    （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
-   形をその丸に沿わせるための指定——他パネルのカード(line 1000付近)と同じ
-   「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ね流儀。 */
+   形をその丸に沿わせるための指定。この円は他パネルのカードより一枚の紙に
+   近いため、影はごく控えめにしてある（大きなblur/offsetは輪が太い外枠に
+   見えてしまう——ユーザー指摘）。 */
 .circle-canvas--paper {
   border-radius: 50%;
-  box-shadow: 0 1px 3px oklch(22% 0.012 55 / 0.05), 0 14px 36px oklch(22% 0.012 55 / 0.1);
+  box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -582,35 +583,6 @@ body {
   font-size: 11px;
   color: oklch(22% 0.012 55 / 0.85);
   white-space: nowrap;
-}
-
-/* --- 文字サイズのステッパー。道具に関わらず常に.toolbar-detailsに表示している
-   ——以前はテキスト道具の間だけ出し入れしていたが、その分中央ブロックの横幅が
-   変わり、バー全体が2行に折り返ってしまうことがあった。最初から常時表示にして
-   横幅を固定することで解決している（ユーザー指示：絶対に2行にしたくない／
-   最初から全部出す）。出し入れがなくなったのでアニメーションは持たない。 --- */
-
-.font-size-stepper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.font-size-btn {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-weight: 500;
-  color: oklch(22% 0.012 55);
-  cursor: pointer;
-  padding: 5px 9px;
-  border-radius: 999px;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-
-.font-size-btn[aria-pressed="true"] {
-  background: oklch(93% 0.006 75);
 }
 
 /* --- ペンの太さ／消しゴムの大きさを1本で共有するスライダー（GoodNotesの

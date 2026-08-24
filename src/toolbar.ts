@@ -1,6 +1,6 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { ICONS } from "./icons";
-import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS, type FontSizeStep } from "./textLayout";
+import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_WIDTH_RANGE } from "./toolStyle";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
@@ -41,9 +41,6 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
   eraser: "消しゴム",
 };
 
-const FONT_SIZE_ORDER: FontSizeStep[] = ["small", "medium", "large"];
-const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "中", large: "大" };
-
 /**
  * Appleメモ風の道具バー: ペン／マーカー／テキスト／移動／なぞる／消しゴムの切り替え、
  * テンプレート挿入、フルカラーのインク色選択をまとめて扱う（鉛筆とペンはほぼ同じ
@@ -59,11 +56,13 @@ const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "�
  *     「何をするか」という操作そのものの並びとして、1つのブロックにまとめている
  *     （ユーザー指示：ツールを左に1ブロックとしてまとめたい）。
  *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
- *     選んだ道具の見た目を決める設定。「サイズ」の小・中・大ステッパーは
- *     文字サイズ専用（テキスト道具用）。ペンの太さ・消しゴムの大きさは、
- *     GoodNotesのようにバーで連続的に選べるようにしたいというユーザー指示で
- *     別の1本のスライダー（buildThicknessSlider）に分けており、選んでいる
- *     道具がペンなら太さ、消しゴムなら大きさを表す（他の道具の間は無効化）。
+ *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
+ *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない（ユーザー指示：
+ *     太さのスライダーが増えた分、サイズ選択のステッパー表示は不要）。
+ *     ペンの太さ・消しゴムの大きさは、GoodNotesのようにバーで連続的に
+ *     選べるようにしたいというユーザー指示で1本のスライダー
+ *     （buildThicknessSlider）にしており、選んでいる道具がペンなら太さ、
+ *     消しゴムなら大きさを表す（他の道具の間は無効化）。
  * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
@@ -71,11 +70,6 @@ const FONT_SIZE_LABEL: Record<FontSizeStep, string> = { small: "小", medium: "�
  * テンプレートの選択自体はここでは扱わない（空のキャンバスから開く全画面の
  * テンプレート選択、templatePicker.ts）——このクラスはinsertTemplate()経由で
  * 「道具をテキストに切り替えてから盤面に置く」の橋渡しだけを担う。
- * 文字サイズのステッパーは道具に関わらず常に表示したままにしており、
- * 出入りのアニメーションは持たない
- * ——以前はテキスト道具のときだけ出し入れしていたが、その分バーの横幅が
- * 変わって2行に折り返ってしまうことがあったため、最初から常時表示にして
- * 横幅を固定した（ユーザー指示：絶対に2行にはしたくない）。
  *
  * DOMは初回に一度だけ組み立て、以降は状態が変わった箇所だけをピンポイントで
  * 更新する（innerHTMLを毎回作り直さない）。
@@ -87,14 +81,10 @@ export class Toolbar {
   private onInsertTemplate?: (id: TemplateId) => void;
   private tool: ToolbarTool = "pen";
   private color: string = DEFAULT_INK;
-  private fontSizeStep: FontSizeStep = DEFAULT_FONT_SIZE_STEP;
   private penWidth: number = PEN_WIDTH_RANGE.default;
   private eraserRadius: number = ERASER_RADIUS_RANGE.default;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
-
-  private stepperEl!: HTMLElement;
-  private stepperButtons = new Map<FontSizeStep, HTMLButtonElement>();
 
   private thicknessWrap!: HTMLElement;
   private thicknessLabel!: HTMLElement;
@@ -131,9 +121,10 @@ export class Toolbar {
     return this.color;
   }
 
-  /** 基準円(半径340px)におけるフォントサイズ(px)。実際の描画時はtextLayout.fontPxForRenderでスケール・下限適用する。 */
+  /** 基準円(半径340px)におけるフォントサイズ(px)。選べる仕様をやめ常にDEFAULT_FONT_SIZE_STEP
+   *  固定にした（ユーザー指示）。実際の描画時はtextLayout.fontPxForRenderでスケール・下限適用する。 */
   getFontSize(): number {
-    return FONT_SIZE_STEPS[this.fontSizeStep];
+    return FONT_SIZE_STEPS[DEFAULT_FONT_SIZE_STEP];
   }
 
   /** 基準円(半径340px)におけるペンの線の太さ(px)。buildThicknessSliderのスライダーで
@@ -152,12 +143,6 @@ export class Toolbar {
   private setTool(tool: ToolbarTool): void {
     this.tool = tool;
     this.syncAll();
-    this.onChange?.();
-  }
-
-  private setFontSizeStep(step: FontSizeStep): void {
-    this.fontSizeStep = step;
-    this.syncStepper();
     this.onChange?.();
   }
 
@@ -234,41 +219,8 @@ export class Toolbar {
     details.className = "toolbar-details control-block";
     this.el.appendChild(details);
 
-    this.buildStepper(details);
     this.buildThicknessSlider(details);
     this.buildSwatch(details);
-  }
-
-  private buildStepper(details: HTMLElement): void {
-    this.stepperEl = document.createElement("div");
-    this.stepperEl.className = "font-size-stepper";
-    for (const step of FONT_SIZE_ORDER) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "font-size-btn";
-      btn.textContent = FONT_SIZE_LABEL[step];
-      btn.setAttribute("aria-label", `サイズ: ${FONT_SIZE_LABEL[step]}`);
-      btn.addEventListener("click", () => this.setFontSizeStep(step));
-      this.stepperButtons.set(step, btn);
-      this.stepperEl.appendChild(btn);
-    }
-    details.appendChild(this.stepperEl);
-  }
-
-  /**
-   * サイズのステッパー（文字サイズ専用）は、道具に関わらず常に表示する
-   * （以前はテキスト道具のときだけ出し入れしていたが、その分バーの横幅が
-   * 変わって2行に折り返ってしまうことがあった。最初から全部出しておけば
-   * 横幅は変わらない、というユーザー指示による）。テキスト道具でなくても、
-   * 次にテキストを書くときのサイズを先に決めておける、と捉えれば自然な
-   * 操作でもある。
-   */
-  private syncStepper(): void {
-    for (const [step, btn] of this.stepperButtons) {
-      const active = this.fontSizeStep === step;
-      btn.setAttribute("aria-pressed", String(active));
-      btn.style.opacity = active ? "1" : "0.4";
-    }
   }
 
   /** ペンの太さ・消しゴムの大きさを1本のスライダーで共有する（ユーザー指示：
@@ -392,7 +344,6 @@ export class Toolbar {
 
   private syncAll(): void {
     this.syncPill();
-    this.syncStepper();
     this.syncThicknessSlider();
     this.syncSwatch();
   }
