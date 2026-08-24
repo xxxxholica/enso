@@ -124,16 +124,6 @@ export class FrameGeometry {
    *  広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
    *  computeAutoScaleした小さい方をscaleとして採用する。 */
   resize(): void {
-    // #app（style.css）はmin-height:100dvhで最低限のみ保証しており、キャンバスの
-    // 実サイズ（style幅高さ）自体もその祖先の「中身から決まる高さ」に数えられる
-    // ——一度大きく広がった状態のまま次のresize()の計測(getBoundingClientRect)に
-    // 入ると、祖先がその大きさに広がったままなのを「利用可能な広さ」として読み取り、
-    // 同じ大きさを出し直してしまう（画面を拡大してから縮小しても縮んだ大きさに
-    // 戻らない自己参照ループ、ユーザー報告のバグ）。計測の直前に自分自身を一旦
-    // 0にして祖先への影響を切ってから測ることで、祖先が実際に縮んだ後の
-    // 正しい大きさを読み取れるようにする。
-    this.canvas.style.width = "0px";
-    this.canvas.style.height = "0px";
     if (this.frameKindValue === "glasses") {
       // ヒンジの鋲がキャンバス要素の外にクリップされないよう、横方向の余白は
       // GLASSES_HORIZONTAL_REACH_WITH_HINGE（鋲ぶんを含む）を基準にする。

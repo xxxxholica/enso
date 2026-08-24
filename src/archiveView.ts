@@ -164,11 +164,6 @@ export class ArchiveView {
   }
 
   private resize(): void {
-    // frameGeometry.ts の resize() 参照: 計測前にキャンバス自身のサイズを0にして、
-    // 祖先(#app、min-height:100dvh)の「中身から決まる高さ」への自己参照を切る
-    // ——画面を拡大してから縮小しても縮んだ大きさに戻らないバグの対策。
-    this.previewCanvas.style.width = "0px";
-    this.previewCanvas.style.height = "0px";
     const { scale, width, height } = fitCanvasToContainer(this.previewCanvas, this.canvasWrap, this.dpr);
     this.scale = scale;
     this.width = width;
