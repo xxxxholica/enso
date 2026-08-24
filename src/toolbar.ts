@@ -11,6 +11,16 @@ const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
+/** すぐ選べる固定インク3色（GoodNotesの黒/赤/青のような定番色、ユーザー指示）。
+ *  「黒」は既存の既定インク色（DEFAULT_INK）をそのまま使う——見た目・初期状態を
+ *  変えないため。赤・青は罫線紙の上でも視認しやすいよう、黒と同じくらいの
+ *  明度感（暗め）で彩度を持たせた値にしている。 */
+const PRESET_INKS: { id: "black" | "red" | "blue"; label: string; color: string }[] = [
+  { id: "black", label: "黒", color: DEFAULT_INK },
+  { id: "red", label: "赤", color: "oklch(52% 0.2 25)" },
+  { id: "blue", label: "青", color: "oklch(48% 0.16 258)" },
+];
+
 /** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
  *  「なぞる」は、なぞって復活させる操作がペン等の描画操作と混じりやすかったため、
  *  専用の道具として分離したもの（ユーザー指示）——「移動」道具と同じく、既存の
@@ -75,8 +85,12 @@ export class Toolbar {
   private stepperEl!: HTMLElement;
   private stepperButtons = new Map<FontSizeStep, HTMLButtonElement>();
 
-  private swatchBtn!: HTMLButtonElement;
+  private presetButtons = new Map<string, HTMLButtonElement>();
+  private customSwatchBtn!: HTMLButtonElement;
   private colorInput!: HTMLInputElement;
+  /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
+   *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。 */
+  private customColor: string | null = null;
 
   constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
     this.container = container;
@@ -237,32 +251,73 @@ export class Toolbar {
     }
   }
 
+  /**
+   * インクの色: すぐ選べる黒/赤/青の3スワッチ＋4つ目の「好きな色」スワッチを
+   * 横に並べる（ユーザー指示：GoodNotesのように定番色をすぐ選べるようにし、
+   * 4つ目でRGBの好きな色を選べるようにしたい）。以前は1個のスワッチ（クリックで
+   * ネイティブのカラーピッカーを開くだけ）だったが、その1個をそのまま「好きな色」
+   * スワッチとして残し、前に固定3色を並べる形にした。
+   */
   private buildSwatch(details: HTMLElement): void {
+    const row = document.createElement("div");
+    row.className = "toolbar-swatches";
+
+    for (const preset of PRESET_INKS) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toolbar-swatch";
+      btn.style.background = preset.color;
+      btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
+      btn.addEventListener("click", () => {
+        this.color = preset.color;
+        this.syncSwatch();
+        this.onChange?.();
+      });
+      this.presetButtons.set(preset.id, btn);
+      row.appendChild(btn);
+    }
+
     this.colorInput = document.createElement("input");
     this.colorInput.type = "color";
     this.colorInput.value = COLOR_INPUT_SEED;
     this.colorInput.className = "toolbar-color-input";
-    this.colorInput.setAttribute("aria-label", "インクの色を選ぶ");
+    this.colorInput.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
     this.colorInput.addEventListener("input", () => {
-      this.color = this.colorInput.value;
+      this.customColor = this.colorInput.value;
+      this.color = this.customColor;
       this.syncSwatch();
       this.onChange?.();
     });
 
-    this.swatchBtn = document.createElement("button");
-    this.swatchBtn.type = "button";
-    this.swatchBtn.className = "toolbar-swatch";
-    this.swatchBtn.setAttribute("aria-label", "インクの色を選ぶ");
-    this.swatchBtn.appendChild(this.colorInput);
-    this.swatchBtn.addEventListener("click", (ev) => {
+    // 未使用のうちは「好きな色」だと一目で分かるよう虹色の見た目にする
+    // （style.cssの.toolbar-swatch--custom）。一度選んだ後は、その色そのものを
+    // 背景に出す（インラインstyleがクラス由来の背景より優先される）。
+    this.customSwatchBtn = document.createElement("button");
+    this.customSwatchBtn.type = "button";
+    this.customSwatchBtn.className = "toolbar-swatch toolbar-swatch--custom";
+    this.customSwatchBtn.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
+    this.customSwatchBtn.appendChild(this.colorInput);
+    this.customSwatchBtn.addEventListener("click", (ev) => {
       if (ev.target === this.colorInput) return;
       this.colorInput.click();
     });
-    details.appendChild(this.swatchBtn);
+    row.appendChild(this.customSwatchBtn);
+
+    details.appendChild(row);
   }
 
+  /** 今の色がどのスワッチと一致するかで、その1つだけにリングを付けて選択中を示す
+   *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー入力の
+   *  表記ゆれを考慮する必要がない）。 */
   private syncSwatch(): void {
-    this.swatchBtn.style.background = this.color;
+    const isPresetActive = PRESET_INKS.some((preset) => preset.color === this.color);
+    for (const preset of PRESET_INKS) {
+      this.presetButtons.get(preset.id)!.dataset.active = String(preset.color === this.color);
+    }
+    this.customSwatchBtn.dataset.active = String(!isPresetActive);
+    if (this.customColor) {
+      this.customSwatchBtn.style.background = this.customColor;
+    }
   }
 
   private syncAll(): void {

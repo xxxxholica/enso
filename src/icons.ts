@@ -18,6 +18,7 @@ export const ICONS: Record<
   | "shapeOval"
   | "shapeSquare"
   | "sharedRooms"
+  | "moreActions"
   | "appearance"
   | "patternMatte"
   | "patternTortoiseshell"
@@ -88,6 +89,14 @@ export const ICONS: Record<
     <svg viewBox="0 0 24 24" ${common}>
       <circle cx="9" cy="12" r="5.5" />
       <circle cx="15" cy="12" r="5.5" />
+    </svg>`,
+  // ルーム項目の「その他の操作」メニューを開くトリガー（sharedRoomMenu.ts）。
+  // 3つの点はケバブメニューの定番表現で、線ではなく塗りの点として描く。
+  moreActions: `
+    <svg viewBox="0 0 24 24">
+      <circle cx="12" cy="6" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.8" fill="currentColor" />
     </svg>`,
   appearance: `
     <svg viewBox="0 0 24 24" ${common}>
