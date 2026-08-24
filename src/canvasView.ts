@@ -122,10 +122,11 @@ export class CircularCanvas {
   /** 配置待ちの間、ポインタが今どこにあるか（正規化座標）。置かれる場所のガイド表示に使う。 */
   private templateHoverPoint: Point | null = null;
   /** 今の「なぞる」ジェスチャー（pointerdownからpointerupまで）で、既に回復させた
-   *  メモのID。なぞるたびに回復量には上限があるため（memoStore.tsのreviveMemo参照）、
-   *  1回連続でなぞっている間にpointermoveが何度も発火しても、同じメモを何度も
-   *  回復させて上限をすぐ食いつぶしてしまわないよう、メモ単位で1ジェスチャーにつき
-   *  1回だけ呼ぶ。pointerdown/pointerupで作り直す・空にする。 */
+   *  メモのID。なぞって復活には寿命に応じたクールタイムがある（memoStore.tsの
+   *  reviveMemo参照）ため、1回連続でなぞっている間にpointermoveが何度も発火しても
+   *  2回目以降はどのみちクールタイムでブロックされるが、ストアへの無駄な問い合わせ・
+   *  書き込みを避けるため、メモ単位で1ジェスチャーにつき1回だけ呼ぶようにしている。
+   *  pointerdown/pointerupで作り直す・空にする。 */
   private tracedMemoIdsThisGesture = new Set<string>();
   /** PCでのマウスホバー用（ユーザー指示：タップ/ドラッグしなくてもホバーで見られる
    *  ようにしたい。タッチには「ホバー」に相当する状態が無いため、pointerType==="mouse"
@@ -505,7 +506,7 @@ export class CircularCanvas {
       createdAt: 0,
       lastTracedAt: 0,
       traceHistory: [0],
-      recoveredMs: 0,
+      reviveCooldownUntil: 0,
       lifespanDays: null,
       status: "active",
       color,
@@ -692,10 +693,10 @@ export class CircularCanvas {
     }
 
     // なぞる/移動で実際に触れている間、またはPCでその道具にホバーしている間、
-    // 残り時間・回復できる時間を背景つきのボックスで表示する（ユーザー指示）。
-    // 回復量に生涯の上限を設けた（Issue #11、memoStore.tsのreviveMemo参照）
-    // ので、「あとどれだけ回復させられるか」が見えないと利用者が分からない
-    // ため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
+    // 残り時間・次に復活できるまでの時間を背景つきのボックスで表示する
+    // （ユーザー指示）。なぞって復活にはクールタイムがある（Issue #11、
+    // memoStore.tsのreviveMemo参照）ので、「次にいつなぞれるか」が見えないと
+    // 利用者が分からないため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
     renderReviveInfoBox(ctx, this.store, r, this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
 
     // 消しゴムの当たり範囲を示すカーソル
