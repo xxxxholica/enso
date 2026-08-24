@@ -2,9 +2,10 @@ import { formatDurationJa } from "./fade";
 import type { MemoStore } from "./memoStore";
 import type { Point } from "./types";
 
-/** なぞる/移動している（またはPCでホバーしている）メモの「残り時間・回復できる
- *  時間」を表示する案内ボックス（renderReviveInfoBox参照）の配色。text-editor-
- *  overlay（DOM側のテキスト編集欄）と同じ紙色・線色に揃えている。 */
+/** なぞる/移動している（またはPCでホバーしている）メモの「残り時間・次に
+ *  なぞって復活できるまでの時間」を表示する案内ボックス（renderReviveInfoBox
+ *  参照）の配色。text-editor-overlay（DOM側のテキスト編集欄）と同じ紙色・
+ *  線色に揃えている。 */
 const INFO_BOX_BG = "oklch(98% 0.005 75 / 0.96)";
 const INFO_BOX_BORDER = "oklch(22% 0.012 55 / 0.18)";
 /** canvasView.tsのHINT_TEXTと同じ値。このファイルをcanvasView.tsに依存しない
@@ -23,10 +24,11 @@ export interface ReviveInfoDrawState {
 }
 
 /**
- * 「残り時間・回復できる時間」の案内を今どのメモ・どの画面位置に出すべきかを
- * 決め（優先順位：実際になぞっている＞実際に移動している＞PCでのホバー）、
- * 表示条件を満たせば背景つきのボックスに文字だけで描く（ユーザー指示：バーは
- * 無くし、文字だけでよい）。条件を満たさなければ何もしない。
+ * 「残り時間・次になぞって復活できるまでの時間」の案内を今どのメモ・どの画面
+ * 位置に出すべきかを決め（優先順位：実際になぞっている＞実際に移動している
+ * ＞PCでのホバー）、表示条件を満たせば背景つきのボックスに文字だけで描く
+ * （ユーザー指示：バーは無くし、文字だけでよい）。条件を満たさなければ
+ * 何もしない。
  *
  * memoRenderer.tsのrenderMemoAtと同じ流儀（thisを持たない純粋関数、明示的な
  * 引数のみ）で、canvasView.ts側から状態を渡してもらう。
@@ -42,8 +44,8 @@ export function renderReviveInfoBox(
   const target = currentReviveInfoTarget(state, hoverInfoMemoId, hoverInfoPoint);
   if (!target) return;
 
-  const budget = store.reviveBudgetOf(target.memoId);
-  if (!budget) return;
+  const status = store.reviveStatusOf(target.memoId);
+  if (!status) return;
   const p = { x: target.point.x * r, y: target.point.y * r };
 
   const boxW = 220;
@@ -64,13 +66,13 @@ export function renderReviveInfoBox(
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  drawReviveInfoLine(ctx, textX, boxY + padding + lineHeight * 0.7, "残り時間", formatDurationJa(budget.remainingMs));
+  drawReviveInfoLine(ctx, textX, boxY + padding + lineHeight * 0.7, "残り時間", formatDurationJa(status.remainingMs));
   drawReviveInfoLine(
     ctx,
     textX,
     boxY + padding + lineHeight * 1.7,
-    "回復できる時間",
-    budget.extendableMs > 0 ? formatDurationJa(budget.extendableMs) : "なし"
+    "次に復活できるまで",
+    status.cooldownMs > 0 ? formatDurationJa(status.cooldownMs) : "今すぐ"
   );
   ctx.restore();
 }

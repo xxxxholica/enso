@@ -56,9 +56,10 @@ function migrate(raw: Record<string, unknown>): Memo {
     createdAt,
     lastTracedAt,
     traceHistory,
-    // 古いデータ（なぞって回復できる合計時間に上限を設ける前のもの）には
-    // この項目が無いため、まだ何も回復に使っていない扱い(0)で補う。
-    recoveredMs: typeof raw.recoveredMs === "number" ? raw.recoveredMs : 0,
+    // 古いデータ（クールタイム制を導入する前のもの）にはこの項目が無いため、
+    // 直近のなぞり（lastTracedAt）時点でクールタイムは明けていた扱いで補う
+    // （どのみち過去の絶対時刻なので、読み込み直後から復活操作が可能になる）。
+    reviveCooldownUntil: typeof raw.reviveCooldownUntil === "number" ? raw.reviveCooldownUntil : lastTracedAt,
     lifespanDays: raw.lifespanDays as Memo["lifespanDays"],
     status: raw.status as Memo["status"],
     color: typeof raw.color === "string" ? raw.color : DEFAULT_COLOR,
