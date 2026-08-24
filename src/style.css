@@ -124,6 +124,21 @@ body {
   display: contents;
 }
 
+/* --- スマホ幅で下部バーの1段目・2段目を上下スワイプ1画面にまとめる時の
+   「現在ページ」を示すドットと、スワイプする器。デスクトップ幅では
+   どちらも見た目に影響しないようにしておく（ユーザー指示：スワイプで
+   切り替える仕様はモバイル専用）——ドットは非表示、器は#primary-slotと
+   同じdisplay:contentsで自分自身の箱を持たず、#primary-slot/#duration-slotが
+   これまで通り.control-panelの直接の子として振る舞う。実際にグリッド・
+   スクロールの器として働くのは@media (max-width: 480px)の中だけ。 --- */
+.control-panel-dots {
+  display: none;
+}
+
+.control-panel-pages {
+  display: contents;
+}
+
 .circle-canvas {
   display: block;
   cursor: crosshair;
@@ -351,6 +366,124 @@ body {
   border: 1px solid oklch(22% 0.012 55 / 0.12);
   background: oklch(98% 0.005 75);
   box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+}
+
+/* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
+   絶対に収まらない（ユーザー報告：3ブロック目が画面外に切れて見えない）。
+   「2行にはしない」という上のnowrapの方針はPC幅を前提にしたものだったため、
+   この幅だけ例外にする。1段目＝ツール選択、2段目＝ツールの詳細＋時間選択、
+   という2段構成にした上で、さらにその2段を1つの表示領域にまとめ、上下
+   スワイプ（＝縦スクロール、scroll-snapで実現）で切り替えられるようにする
+   （ユーザー指示）。.toolbarをdisplay:contentsにして.toolbar-tools/
+   .toolbar-detailsを.control-panel-pagesの直接の子として扱えるようにする
+   ことで、#duration-slot（時間選択）と合わせて3つとも同じグリッドの項目にし、
+   grid-template-areasで「1段目＝tools、2段目＝details+duration横並び」を
+   指定する。実際のスクロール・スナップは.control-panel-pages側（高さを
+   .control-blockの既存の固定高さ＝1ページぶんに制限した「窓」）が担い、
+   .control-panel自体は「左にドット・右にその窓」を横並びにするだけの
+   コンテナにする（ユーザー指示：ドットは左に）。
+   各グリッド項目はjustify-self:centerで中身の大きさに縮めるのではなく、
+   既定のstretchのままグリッドの列幅いっぱいに広げる——1段目（2列ぶんの幅）
+   と2段目（1列ずつの合計）が同じグリッド幅になり、上下のブロックの横幅が
+   ぴったり揃う（ユーザー指摘：揃っていない）。広がった分の余白の中で
+   アイコン等が真ん中に来るよう、各ブロック内側のjustify-content:centerで
+   中身だけを中央寄せする。
+   余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
+   固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
+   （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
+@media (max-width: 480px) {
+  .control-panel {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(6px, 2.5vw, 10px);
+  }
+
+  .control-panel-dots {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  .control-panel-dot {
+    appearance: none;
+    border: none;
+    padding: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: oklch(22% 0.012 55 / 0.2);
+    cursor: pointer;
+  }
+
+  .control-panel-dot.is-active {
+    background: oklch(22% 0.012 55 / 0.7);
+  }
+
+  .control-panel-pages {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "tools tools"
+      "details duration";
+    row-gap: clamp(6px, 2.5vw, 10px);
+    column-gap: clamp(6px, 2.5vw, 10px);
+    flex: 1 1 auto;
+    min-width: 0;
+    /* .control-blockの既存の固定高さ(72px)＝1ページぶんだけを見せる「窓」。
+       中身はグリッド2行ぶんの高さを持つため、ここからはみ出した2段目が
+       スクロールで現れる——幅を揃えるための帳尻合わせではなく、1ページだけ
+       見せるという仕様上必要な指定。 */
+    height: 72px;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+  }
+
+  .control-panel-pages::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar {
+    display: contents;
+  }
+
+  .toolbar-tools {
+    grid-area: tools;
+    justify-content: center;
+    gap: clamp(8px, 3vw, 12px);
+    scroll-snap-align: start;
+  }
+
+  .toolbar-details {
+    grid-area: details;
+    justify-content: center;
+    gap: clamp(6px, 2.5vw, 10px);
+    scroll-snap-align: start;
+  }
+
+  #duration-slot {
+    grid-area: duration;
+    scroll-snap-align: start;
+  }
+
+  .control-block {
+    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
+  }
+
+  /* 折り返した分だけ下部バーの縦幅が増えるため、#app・.app-footer側の余白を
+     詰めて、その分をキャンバス（.app-main、flex:1で残り高さを取る）に回す
+     （ユーザー報告：キャンバスがデフォルトで小さい）。 */
+  #app {
+    padding: clamp(8px, 2.5vw, 10px);
+    gap: clamp(6px, 2vw, 8px);
+  }
+
+  .app-footer {
+    padding-bottom: clamp(2px, 1vw, 4px);
+  }
 }
 
 /* --- キャンバス⇔振り返り⇔共有の画面切り替え時、下部バーの中身（道具バー／

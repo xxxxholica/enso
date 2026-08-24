@@ -7,6 +7,7 @@ import type { ToolbarTool } from "./toolbar";
 import { DurationSelector } from "./durationSelector";
 import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
+import { setupControlPanelPages } from "./controlPanelPages";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
@@ -34,8 +35,14 @@ app.innerHTML = `
   </main>
   <footer class="app-footer">
     <div class="control-panel">
-      <div id="primary-slot"></div>
-      <div id="duration-slot" class="fade-visible"></div>
+      <div class="control-panel-dots" aria-hidden="true">
+        <button type="button" class="control-panel-dot" data-page="0"></button>
+        <button type="button" class="control-panel-dot" data-page="1"></button>
+      </div>
+      <div class="control-panel-pages">
+        <div id="primary-slot"></div>
+        <div id="duration-slot" class="fade-visible"></div>
+      </div>
     </div>
   </footer>
 `;
@@ -104,6 +111,18 @@ const toolbar = new Toolbar(primarySlot, onToolOrDurationChange, (id) => {
 const durationSelector = new DurationSelector(durationSlot, onToolOrDurationChange);
 // 初期道具（ペン）は使うので、最初から有効な見た目にしておく。
 durationSelector.setEnabled(TOOLS_USING_DURATION.has(toolbar.getTool()));
+
+// スマホ幅では#primary-slot・#duration-slotの2ブロックを1画面にまとめ、上下
+// スワイプで切り替える（ユーザー指示）。デスクトップ幅では.control-panel-pagesが
+// display:contentsになりスクロールが発生しないため、常時呼んでおいて問題ない。
+// Toolbar/DurationSelectorが実際の中身（.toolbar-tools等）を描画し終えた後で
+// 呼ぶ必要がある——先に呼ぶと.control-panel-pagesがまだ空の状態で初期スクロール
+// 位置を決めてしまい、後から中身が増えた拍子にscroll-snapが2段目へずれてしまう
+// （実機・自動テストで再現確認済み）。
+setupControlPanelPages(
+  document.querySelector<HTMLDivElement>(".control-panel-pages")!,
+  document.querySelector<HTMLDivElement>(".control-panel-dots")!
+);
 
 // 空のキャンバスの「＋テンプレートを使用」から開く全画面のテンプレート選択。
 // 選ばれたテンプレートは道具バー経由でそのまま盤面に置く（道具をテキストに切り替える
