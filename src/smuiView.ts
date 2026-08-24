@@ -61,6 +61,12 @@ export class SmuiView {
 
   private lens: CircularCanvas;
   private roomSync: SharedRoomSync | null = null;
+  private selectedRoomId: string | null = null;
+  /** selectRoom()の多重呼び出し（招待リンク自動参加と手動クリックが競合する
+   *  等）に対するレース対策。呼び出しごとに採番し、awaitから戻った時点で
+   *  自分がまだ最新かを確認する——古い方はSharedRoomSyncのsetIntervalを
+   *  作らず即座に諦めることで、置き去りのポーリングが残るのを防ぐ。 */
+  private roomRequestSeq = 0;
   private statusResizeObserver!: ResizeObserver;
 
   private active = false;
@@ -184,15 +190,23 @@ export class SmuiView {
     );
   }
 
-  /** ヘッダーのSharedRoomMenuで作成・選択されたルームを読み込む。 */
+  /** ヘッダーのSharedRoomMenuで作成・選択されたルームを読み込む。
+   *  main.tsが同時にrealtimeSync.subscribeToRoom(id)も呼び、以後の
+   *  WebSocket通知はnotifyRemoteChangeIfCurrent()経由で届く。 */
   async selectRoom(id: string): Promise<void> {
+    const mySeq = ++this.roomRequestSeq;
     this.roomSync?.stop();
     this.roomSync = null;
+    this.selectedRoomId = id;
     this.lens = this.buildPlaceholderCanvas();
     this.setStatus("読み込み中…");
 
     try {
       const detail = await getSharedCanvas(id);
+      // 待っている間に別のselectRoom呼び出しが割り込んでいたら、自分は
+      // もう最新ではないので、SharedRoomSyncを作らず（＝ポーリングの
+      // setIntervalを残さず）ここで諦める。
+      if (mySeq !== this.roomRequestSeq) return;
       const sync = new SharedRoomSync(id, (memos) => sharedStore.replaceAll(memos));
       const sharedStore = new MemoStore((memos) => sync.schedulePush(memos), false);
       sharedStore.replaceAll(detail.memos);
@@ -204,8 +218,16 @@ export class SmuiView {
       this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.getToolState, this.lensOptions());
       this.setStatus("");
     } catch (e) {
+      if (mySeq !== this.roomRequestSeq) return;
       this.setStatus(e instanceof Error ? e.message : "取得に失敗しました");
     }
+  }
+
+  /** realtimeSync.tsが{type:"changed", canvasId}を受け取るたびに呼ぶ。
+   *  サーバー側に購読解除が無く、過去に見ていた別ルーム分の通知も届き
+   *  続けるため、今表示中のルームと一致する時だけ即座に取得し直す。 */
+  notifyRemoteChangeIfCurrent(canvasId: string): void {
+    if (this.selectedRoomId === canvasId) this.roomSync?.pollNow();
   }
 
   /** 操作パネルのAppearanceSelectorで選ばれた形状（レンズスタイル）を適用する。
