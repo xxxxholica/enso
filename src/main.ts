@@ -13,8 +13,17 @@ import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./
 import { connectRealtimeSync } from "./realtimeSync";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
-import { loadFramePattern, loadFrameShape, saveFramePattern, saveFrameShape } from "./storage";
+import {
+  loadFramePattern,
+  loadFrameShape,
+  loadTutorialSeen,
+  markTutorialSeen,
+  saveFramePattern,
+  saveFrameShape,
+} from "./storage";
 import { TemplatePicker } from "./templatePicker";
+import { openTutorialOverlay } from "./tutorial/tutorialOverlay";
+import { ICONS } from "./icons";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -24,6 +33,7 @@ app.innerHTML = `
       <button type="button" class="view-nav-btn" data-view="shared">共有</button>
     </nav>
     <div class="app-header-right">
+      <button type="button" id="tutorial-replay-btn" class="tutorial-replay-btn" aria-label="円相のチュートリアルを見る"></button>
       <div id="account-slot"></div>
     </div>
   </header>
@@ -134,7 +144,23 @@ setupControlPanelPages(
 // ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
 // 変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-const openTemplatePicker = () => templatePicker.open();
+// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介するチュートリアルを
+// 挟む（仮想キャンバス上で完結し、実キャンバスのメモ・振り返り機構には触れない）。
+// 見終えた／スキップした後は、これまで通りテンプレート選択へ続く。
+const openTemplatePicker = () => {
+  if (!loadTutorialSeen()) {
+    openTutorialOverlay(() => {
+      markTutorialSeen();
+      templatePicker.open();
+    });
+    return;
+  }
+  templatePicker.open();
+};
+
+const tutorialReplayBtn = document.querySelector<HTMLButtonElement>("#tutorial-replay-btn")!;
+tutorialReplayBtn.innerHTML = ICONS.guide;
+tutorialReplayBtn.addEventListener("click", () => openTutorialOverlay(() => {}));
 
 const getToolState = () => ({
   tool: toolbar.getTool(),

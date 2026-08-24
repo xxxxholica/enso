@@ -13,6 +13,7 @@ export const ICONS: Record<
   | "text"
   | "move"
   | "trace"
+  | "guide"
   | "checklist"
   | "shapeRound"
   | "shapeOval"
@@ -65,6 +66,12 @@ export const ICONS: Record<
       <path d="M3.5 15c2.5-6 5-6 7-3s4.5 3 7-3" stroke-dasharray="2.2 3" opacity="0.55" />
       <path d="M12.7 11.3c1-1.5 2.2-1.9 3.3-1.3" />
       <circle cx="17.5" cy="8.3" r="1.6" fill="currentColor" stroke="none" />
+    </svg>`,
+  // 円相（一筆で描き、始点と終点をわずかにずらして閉じる円）をそのまま模した、
+  // チュートリアル再視聴ボタン用のアイコン。
+  guide: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M12 4.5c4.4 0 7.5 3.3 7.5 7.3s-3.3 7.2-7.6 7.2S4.5 16.2 4.6 12.4" />
     </svg>`,
   checklist: `
     <svg viewBox="0 0 24 24" ${common}>
