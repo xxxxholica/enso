@@ -2,6 +2,7 @@ import { onUserChange } from "./authState";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { getNickname, getAllNicknames, setNickname } from "./sharedCanvasNicknames";
+import { hideRoom, isRoomHidden } from "./sharedCanvasHiddenRooms";
 import {
   createSharedCanvas,
   joinSharedCanvas,
@@ -327,11 +328,14 @@ export class SharedRoomMenu {
 
   private renderRoomList(): void {
     this.roomListEl.innerHTML = "";
-    this.emptyEl.hidden = this.rooms.length > 0;
+    // 「削除」は非表示化のみ（バックエンドに退出/削除APIが無いため）。
+    // ルーム自体はサーバーに残るが、一覧からは消す。
+    const visibleRooms = this.rooms.filter((room) => !isRoomHidden(room.id));
+    this.emptyEl.hidden = visibleRooms.length > 0;
     // ルームごとにgetNickname()を呼ぶとlocalStorageの読み出し+JSON.parseが
     // ルーム数だけ繰り返されるため、一覧描画の間だけ1回読み込んでおく。
     const nicknames = getAllNicknames();
-    for (const room of this.rooms) {
+    for (const room of visibleRooms) {
       const li = document.createElement("li");
       li.className = "shared-room-item";
 
@@ -363,6 +367,27 @@ export class SharedRoomMenu {
         this.startRename(li, room.id);
       });
       li.appendChild(renameBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "pill-btn shared-room-delete";
+      deleteBtn.textContent = "削除";
+      deleteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const confirmed = window.confirm(
+          `「${label}」を一覧から削除します。ルーム自体はサーバーに残るため、招待リンクがあれば後から再度参加できます。よろしいですか？`
+        );
+        if (!confirmed) return;
+        hideRoom(room.id);
+        // 今表示中のルームを削除した場合、一覧上はどれも選択されていない
+        // 状態に戻す（キャンバス自体は次にルームを選ぶまでそのまま残る）。
+        if (this.selectedId === room.id) {
+          this.selectedId = null;
+          this.updateTriggerLabel();
+        }
+        this.renderRoomList();
+      });
+      li.appendChild(deleteBtn);
 
       this.roomListEl.appendChild(li);
     }

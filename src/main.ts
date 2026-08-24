@@ -49,18 +49,27 @@ const store = new MemoStore((memos) => schedulePush(memos));
 // 取得し直してローカルに反映する（＝ページを開いたままでも他端末の変更が自動で見える）。
 // ログアウト時はdisconnectRealtimeを呼んで接続を切る。
 let disconnectRealtime: (() => void) | null = null;
+// 共有キャンバス（ルーム）を選んだ時、そのcanvasIdの変更通知を受け取れる
+// ようにするための橋渡し。ログイン中だけ実体を持つ（SharedRoomMenuの
+// onSelectRoomから呼ぶ。selectRoom自体はスクロールの都合でsmuiViewが持つ）。
+let subscribeToRoom: ((canvasId: string) => void) | null = null;
 
 void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!, (session) => {
   if (session) {
     setTokenGetter(session.getToken);
     void syncOnSignIn(store);
-    disconnectRealtime = connectRealtimeSync(session, () => {
-      void refreshFromCloud(store);
-    });
+    const realtime = connectRealtimeSync(
+      session,
+      () => void refreshFromCloud(store),
+      (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId)
+    );
+    disconnectRealtime = realtime.disconnect;
+    subscribeToRoom = realtime.subscribeToRoom;
   } else {
     setTokenGetter(null);
     disconnectRealtime?.();
     disconnectRealtime = null;
+    subscribeToRoom = null;
   }
 });
 
@@ -189,7 +198,10 @@ new AppearanceSelector(
 // 常に生成しておく。
 new SharedRoomMenu(
   smuiView.getRoomMenuSlot(),
-  (id) => void smuiView.selectRoom(id),
+  (id) => {
+    subscribeToRoom?.(id);
+    void smuiView.selectRoom(id);
+  },
   () => setView("shared")
 );
 

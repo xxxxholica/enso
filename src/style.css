@@ -769,6 +769,18 @@ body {
   flex: 0 0 auto;
 }
 
+/* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
+   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。 */
+.shared-room-delete {
+  flex: 0 0 auto;
+  color: oklch(45% 0.13 25 / 0.8);
+}
+
+.shared-room-delete:hover {
+  background: oklch(90% 0.05 25 / 0.5);
+  color: oklch(40% 0.15 25 / 0.95);
+}
+
 .shared-room-rename-input {
   flex: 1;
   font: inherit;

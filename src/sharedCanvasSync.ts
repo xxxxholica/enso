@@ -2,12 +2,16 @@ import { getSharedCanvas, saveSharedCanvas } from "./sharedCanvas";
 import type { Memo } from "./types";
 
 const PUSH_DEBOUNCE_MS = 2000;
-export const SHARED_POLL_INTERVAL_MS = 4000;
+// サーバー(index.js)のWebSocket通知（realtimeSync.ts経由）でほぼ即座に
+// 変更を検知できるようになったため、ポーリングは「通知を取りこぼした場合の
+// 保険」という位置づけに下げてよく、間隔を伸ばしてサーバー負荷を減らす。
+export const SHARED_POLL_INTERVAL_MS = 15000;
 
 /**
- * 1つのルーム（共有キャンバス）に対する、書き込み(PUT)のデバウンス送信と
- * 定期ポーリング(GET)による他メンバーの変更取り込みをまとめて担う。
- * WebSocketが無いため「だいたいリアルタイムに見える」ことをポーリングで狙う
+ * 1つのルーム（共有キャンバス）に対する、書き込み(PUT)のデバウンス送信と、
+ * 他メンバーの変更取り込みをまとめて担う。取り込みは主にWebSocket通知
+ * （realtimeSync.tsが受け取り、SmuiView経由でpollNow()を呼ぶ）で即座に
+ * 行い、定期ポーリング(GET)は通知の取りこぼしに備えた保険として残す
  * ——本格的な競合解決はせず、最後に保存した内容が勝つ単純な方式（cloudSync.tsの
  * 個人キャンバス向け同期と同じ考え方）。
  */
@@ -17,6 +21,10 @@ export class SharedRoomSync {
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private pushInFlight = false;
+  /** poll()の多重実行防止。WebSocket通知は短時間に連続で届き得るため、
+   *  前回のGETがまだ終わっていない間に来た通知は無視する（schedulePush側の
+   *  pushInFlightと同じ考え方）。 */
+  private pollInFlight = false;
   /** 自分が最後にサーバーへ送った(または取得した)内容。自分のpushをポーリングが
    *  そのまま拾い直して二重に反映してしまわないための判定に使う。 */
   private lastSyncedJson: string | null = null;
@@ -65,6 +73,13 @@ export class SharedRoomSync {
     return this.pushTimer !== undefined || this.pushInFlight;
   }
 
+  /** WebSocketで「変わった」通知を受け取った時に、次の定期ポーリングを
+   *  待たずすぐ取得し直す。通知が来ない環境（再接続中など）でも定期
+   *  ポーリング自体は動き続けるので、こちらは無くても壊れない「保険の上乗せ」。 */
+  pollNow(): void {
+    void this.poll();
+  }
+
   schedulePush(memos: readonly Memo[]): void {
     if (this.pushTimer) clearTimeout(this.pushTimer);
     this.pushTimer = setTimeout(() => {
@@ -85,7 +100,8 @@ export class SharedRoomSync {
   }
 
   private async poll(): Promise<void> {
-    if (this.hasPendingLocalChanges()) return;
+    if (this.hasPendingLocalChanges() || this.pollInFlight) return;
+    this.pollInFlight = true;
     try {
       const detail = await getSharedCanvas(this.id);
       const json = JSON.stringify(detail.memos);
@@ -94,6 +110,8 @@ export class SharedRoomSync {
       this.onRemoteChange(detail.memos);
     } catch (e) {
       console.error("[sharedCanvasSync] poll failed", e);
+    } finally {
+      this.pollInFlight = false;
     }
   }
 }
