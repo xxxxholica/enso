@@ -19,8 +19,17 @@ body {
   margin: 0;
 }
 
+/* 初回起動時、キャンバス（円）が真っ平らな単色の上に浮いて見えないよう、
+   同系色でごく淡い明暗差だけ付けた放射グラデーションにしている
+   （色相・彩度は元のoklch(93% 0.006 75)から変えず、明度だけ中心を明るく・
+   縁を少し落とす。ユーザー指摘：初回の第一印象が弱い）。 */
 body {
-  background: oklch(93% 0.006 75);
+  background: radial-gradient(
+    circle at 50% 38%,
+    oklch(97% 0.006 75) 0%,
+    oklch(93% 0.006 75) 55%,
+    oklch(89% 0.008 75) 100%
+  );
   font-family: "Noto Sans JP", sans-serif;
   -webkit-font-smoothing: antialiased;
   color: oklch(22% 0.012 55);
@@ -118,6 +127,16 @@ body {
 .circle-canvas {
   display: block;
   cursor: crosshair;
+}
+
+/* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
+   canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
+   （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
+   形をその丸に沿わせるための指定——他パネルのカード(line 1000付近)と同じ
+   「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ね流儀。 */
+.circle-canvas--paper {
+  border-radius: 50%;
+  box-shadow: 0 1px 3px oklch(22% 0.012 55 / 0.05), 0 14px 36px oklch(22% 0.012 55 / 0.1);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -443,6 +462,28 @@ body {
   white-space: nowrap;
 }
 
+/* --- 「消えるまでの期間」のホバー案内（durationSelector.ts）専用の薄字。
+   .tool-tooltipの.85は「ペン」等の1〜2語なら薄く見えるが、この案内は文章が
+   長く（漢字も多く）、同じ不透明度でも文字の並びが密になって濃く・重く見える
+   （ユーザー指摘：道具バーの案内より薄くない）。文字数に関わらず道具バーの
+   案内と同じ「薄さ」の見た目に揃うよう、この案内だけ不透明度を落としている。 --- */
+.tool-tooltip.duration-hint {
+  color: oklch(22% 0.012 55 / 0.55);
+}
+
+/* --- 表示/非表示はJS（pointerenter/leave＋タイマー）ではなくCSSの:hoverだけで
+   切り替える（durationSelector.ts参照：JSのタイマー管理だと2回目以降の
+   ホバーで出てこなくなる不具合があった）。ホバーできないデバイス（タッチのみ）
+   では意味を持たないため@media (hover: hover)で絞り、道具バーのホバー案内
+   （toolbar.ts、pointerType==="mouse"チェック）と同じ「PCに限る」制約を保つ。 --- */
+@media (hover: hover) and (pointer: fine) {
+  .duration-seekbar:hover .duration-hint {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
+}
+
 /* --- 文字サイズのステッパー。道具に関わらず常に.toolbar-detailsに表示している
    ——以前はテキスト道具の間だけ出し入れしていたが、その分中央ブロックの横幅が
    変わり、バー全体が2行に折り返ってしまうことがあった。最初から常時表示にして
@@ -564,6 +605,9 @@ body {
   align-items: center;
   gap: 6px;
   min-width: 150px;
+  /* ホバー案内(.tool-tooltip、durationSelector.ts)をこのブロック基準で
+     重ねて表示するため（.icon-popoverはposition:absolute）。 */
+  position: relative;
 }
 
 .duration-seekbar-label {

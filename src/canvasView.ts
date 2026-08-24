@@ -158,7 +158,12 @@ export class CircularCanvas {
     this.getToolState = getToolState;
     this.interactive = options.interactive ?? true;
     this.canvas = document.createElement("canvas");
-    this.canvas.className = "circle-canvas";
+    // frameKind:"single"（個人キャンバス）は形状が常に丸固定なので、要素自体に
+    // border-radius:50%を与えてbox-shadowを円形に沿わせられる（ユーザー指摘：
+    // 初回の第一印象が弱い＝紙が背景に対して浮いて見えない）。SMUI側
+    // （frameKind:"glasses"、楕円/長方形もあり得る）は形状が揃わないため対象外。
+    this.canvas.className =
+      (options.frameKind ?? "single") === "single" ? "circle-canvas circle-canvas--paper" : "circle-canvas";
     this.container.appendChild(this.canvas);
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context is not available");

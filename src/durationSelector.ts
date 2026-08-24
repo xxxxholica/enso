@@ -49,6 +49,8 @@ export class DurationSelector {
   }
 
   private build(): void {
+    this.attachHint();
+
     this.labelEl = document.createElement("span");
     this.labelEl.className = "duration-seekbar-label";
     this.el.appendChild(this.labelEl);
@@ -73,6 +75,24 @@ export class DurationSelector {
 
   private syncLabel(): void {
     this.labelEl.textContent = DURATION_STEPS[this.index].label;
+  }
+
+  /** このブロックにホバーしたときの案内。ラベルが選んだ値（例:「1日」）だけしか
+   *  出さないため、初めて触る人にはその日数・時間が何を指すのか（書いたものが
+   *  消えるまでの猶予期間）が伝わらない（ユーザー指摘）。
+   *  道具バーのホバー案内（toolbar.tsのattachToolTooltip）はpointerenter/leave
+   *  ＋createFadeVisibility（hidden属性とタイマーで出し入れ）だったが、
+   *  こちらは2回目以降のホバーで出てこなくなる不具合が起きた（ユーザー指摘：
+   *  ホバーしても文字出てこない／初回だけでなく毎回出るようにしたい）。
+   *  JS側で状態やタイマーを持たず、CSSの:hoverだけで開閉させれば毎回必ず
+   *  同じように出せるため、ここではJSは要素を作るだけにして、表示/非表示は
+   *  style.cssの`.duration-seekbar:hover .duration-hint`（ホバー可能なポインタ
+   *  デバイスに絞る@media (hover: hover)付き）に委ねている。 */
+  private attachHint(): void {
+    const hint = document.createElement("span");
+    hint.className = "icon-popover tool-tooltip duration-hint";
+    hint.textContent = "書いたものが消えるまでの時間";
+    this.el.appendChild(hint);
   }
 
   /**
