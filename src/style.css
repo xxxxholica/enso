@@ -770,13 +770,15 @@ body {
 }
 
 /* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
-   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。 */
-.shared-room-delete {
+   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。
+   他のメンバーが誰も残っていない場合はルーム自体の削除に繋がる操作
+   （POST /shared-canvases/:id/leave、バックエンド仕様）。 */
+.shared-room-leave {
   flex: 0 0 auto;
   color: oklch(45% 0.13 25 / 0.8);
 }
 
-.shared-room-delete:hover {
+.shared-room-leave:hover {
   background: oklch(90% 0.05 25 / 0.5);
   color: oklch(40% 0.15 25 / 0.95);
 }
@@ -790,12 +792,6 @@ body {
   border-radius: 6px;
   background: oklch(98% 0.005 75);
   color: inherit;
-}
-
-.shared-room-hint {
-  font-size: 10.5px;
-  color: oklch(22% 0.012 55 / 0.35);
-  max-width: 200px;
 }
 
 /* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
