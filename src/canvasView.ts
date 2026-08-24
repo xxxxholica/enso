@@ -1,4 +1,5 @@
 import { createFadeVisibility } from "./fadeVisibility";
+import { opacityAtTime } from "./fade";
 import { FrameGeometry } from "./frameGeometry";
 import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
@@ -42,6 +43,26 @@ const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 const HIT_THRESHOLD_PX = 12;
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
+/** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
+ *  意味がないため許可しない。 */
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
+function pointerDistance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pointerMidpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+/** 進行中のピンチ操作の起点（開始時の指間距離・中点・その時点のズーム/パン）。 */
+interface PinchState {
+  startDist: number;
+  startZoom: number;
+  startMid: Point;
+  startPan: Point;
+}
 
 export interface ToolState {
   tool: ToolbarTool;
@@ -57,7 +78,7 @@ export interface ToolState {
 }
 
 interface DrawState {
-  mode: "idle" | "drawing" | "tracing" | "erasing" | "moving";
+  mode: "idle" | "drawing" | "tracing" | "erasing" | "moving" | "pinching";
   activeMemoId: string | null;
   tracingMemoId: string | null;
   /** 移動道具でドラッグ中のメモID。ドラッグ中はポインタが動くたびに差分移動を積む。 */
@@ -116,6 +137,11 @@ export class CircularCanvas {
    *  肥大化したための整理、Refactor。src/frameGeometry.ts参照）。 */
   private frame: FrameGeometry;
   private interactive: boolean;
+  /** null以外の間は、この絶対時刻(ms)における過去の状態を再現表示する
+   *  「遡り」モード（rewindSelector.ts経由、main.tsから渡される）。ポインタ・
+   *  キーボードでの操作はすべて無視し、道具バー側の見た目のグレーアウトと
+   *  合わせて実際に描画・編集できないようにする（ユーザー指示）。 */
+  private rewindAt: number | null = null;
   private state: DrawState = {
     mode: "idle",
     activeMemoId: null,
@@ -148,6 +174,13 @@ export class CircularCanvas {
    *  でない（mode==="idle"）ときにポインタの下のメモを追いかける。 */
   private hoverInfoMemoId: string | null = null;
   private hoverInfoPoint: Point | null = null;
+  /** ブラウザ純正のページズームに頼らず、キャンバス自体を2本指でピンチ
+   *  ズーム・パンできるようにする（ユーザー指示：スマホでのUX改善）。
+   *  pointerIdごとの最新クライアント座標——2本目の指が乗るとピンチ開始。 */
+  private activePointers = new Map<number, Point>();
+  private viewZoom = 1;
+  private viewPan: Point = { x: 0, y: 0 };
+  private pinch: PinchState | null = null;
 
   constructor(
     container: HTMLElement,
@@ -160,7 +193,12 @@ export class CircularCanvas {
     this.getToolState = getToolState;
     this.interactive = options.interactive ?? true;
     this.canvas = document.createElement("canvas");
-    this.canvas.className = "circle-canvas";
+    // frameKind:"single"（個人キャンバス）は形状が常に丸固定なので、要素自体に
+    // border-radius:50%を与えてbox-shadowを円形に沿わせられる（ユーザー指摘：
+    // 初回の第一印象が弱い＝紙が背景に対して浮いて見えない）。SMUI側
+    // （frameKind:"glasses"、楕円/長方形もあり得る）は形状が揃わないため対象外。
+    this.canvas.className =
+      (options.frameKind ?? "single") === "single" ? "circle-canvas circle-canvas--paper" : "circle-canvas";
     this.container.appendChild(this.canvas);
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context is not available");
@@ -178,6 +216,10 @@ export class CircularCanvas {
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
     this.resizeObserver = new ResizeObserver(() => {
       this.frame.resize();
+      // レイアウトが変わった後に古いズーム・パン量を引きずると見た目が破綻する
+      // ため、コンテナサイズが変わるたびに単純にリセットする（画面回転など）。
+      this.viewZoom = 1;
+      this.viewPan = { x: 0, y: 0 };
       this.syncEmptyStatePosition();
     });
     this.resizeObserver.observe(this.container);
@@ -205,6 +247,24 @@ export class CircularCanvas {
    *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
   setFramePattern(id: FramePatternId): void {
     this.frame.setFramePattern(id);
+  }
+
+  /** 振り返りスライダー（main.ts）から呼ぶ。t=nullで「たった今」＝通常のライブ
+   *  表示に戻り、それ以外は過去の絶対時刻tにおける状態を再現表示する。遡り中に
+   *  切り替えた場合は、進行中の操作（ドラッグ中の描画・なぞり・移動など）を
+   *  そのまま続けさせず、いったん打ち切ってidleに戻す。 */
+  setRewindAt(t: number | null): void {
+    this.rewindAt = t;
+    if (t !== null) {
+      this.finishTextEditingIfOpen();
+      this.closeWritingSession();
+      this.state.mode = "idle";
+      this.state.tracingMemoId = null;
+      this.state.movingMemoId = null;
+      this.state.lastPoint = null;
+      this.hoverInfoMemoId = null;
+      this.hoverInfoPoint = null;
+    }
   }
 
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
@@ -252,10 +312,16 @@ export class CircularCanvas {
     // "glasses"（SMUI）の原点はブリッジ（書けない接合部）の真上に来るため、案内も
     // 右レンズの中心へずらす——案内メッセージ(smuiView.ts)を右レンズに寄せているのと
     // 同じ考え方。"single"（通常キャンバス）ではdx=0のまま円の中心を使う。
-    const dx = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * this.frame.scale : 0;
-    const dy = EMPTY_STATE_OFFSET_Y * this.frame.scale;
-    el.style.left = `${this.canvas.offsetLeft + this.frame.centerPx.x + dx}px`;
-    el.style.top = `${this.canvas.offsetTop + this.frame.centerPx.y + dy}px`;
+    const scale = this.effectiveScale();
+    const dx = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * scale : 0;
+    const dy = EMPTY_STATE_OFFSET_Y * scale;
+    el.style.left = `${this.canvas.offsetLeft + this.frame.centerPx.x + this.viewPan.x + dx}px`;
+    el.style.top = `${this.canvas.offsetTop + this.frame.centerPx.y + this.viewPan.y + dy}px`;
+  }
+
+  /** ピンチズームの倍率を加味した、正規化座標→画面px変換の実効スケール。 */
+  private effectiveScale(): number {
+    return this.frame.scale * this.viewZoom;
   }
 
   /** 案内を出す条件（メモが1つも無い／テキスト入力中でない）を毎フレーム見直す
@@ -265,7 +331,8 @@ export class CircularCanvas {
    *  表示・非表示が実際に切り替わった瞬間だけにする。 */
   private syncEmptyState(activeMemoCount: number): void {
     if (!this.emptyStateEl || !this.setEmptyStateVisible) return;
-    const show = activeMemoCount === 0 && !this.textEditor;
+    // 過去を遡って見ている間は書き込めないため、「ドラッグで書き始める」案内は出さない。
+    const show = this.rewindAt === null && activeMemoCount === 0 && !this.textEditor;
     if (show === this.emptyStateShown) return;
     this.emptyStateShown = show;
     if (show) this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
@@ -276,8 +343,9 @@ export class CircularCanvas {
    *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
-    const x = (clientX - rect.left - this.frame.centerPx.x) / this.frame.scale;
-    const y = (clientY - rect.top - this.frame.centerPx.y) / this.frame.scale;
+    const scale = this.effectiveScale();
+    const x = (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale;
+    const y = (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale;
     return this.frame.currentShape().clamp({ x, y });
   }
 
@@ -300,7 +368,7 @@ export class CircularCanvas {
   }
 
   private hitTestMemo(p: Point): Memo | null {
-    const threshold = HIT_THRESHOLD_PX / this.frame.scale;
+    const threshold = HIT_THRESHOLD_PX / this.effectiveScale();
     for (const memo of this.store.getActive()) {
       if (memo.kind === "stroke") {
         if (pointNearStrokes(p, memo.strokes, threshold)) return memo;
@@ -320,6 +388,22 @@ export class CircularCanvas {
 
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
+    if (this.rewindAt !== null) return; // 過去を遡って見ている間は描画・操作を受け付けない
+    // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
+    // （pointerdown/moveはcanvas要素、pointerup/cancelはwindowという非対称な
+    // 登録なので、captureで一本化しておく——特にピンチ中に有効）。
+    try {
+      this.canvas.setPointerCapture(ev.pointerId);
+    } catch {
+      // ブラウザ差異等でcaptureに失敗しても致命的ではないため無視する。
+    }
+    this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (this.activePointers.size === 2) {
+      this.beginPinch();
+      return;
+    }
+    if (this.activePointers.size > 2) return; // 3本目以降の指は無視（既存のピンチを継続）
+
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = this.toNormalized(ev.clientX, ev.clientY);
 
@@ -328,7 +412,7 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.frame.scale);
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
     }
 
@@ -384,6 +468,68 @@ export class CircularCanvas {
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
   };
 
+  /** 2本目の指が乗った瞬間に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
+   *  なぞる・移動）があれば打ち切ってからピンチの起点を記録する。 */
+  private beginPinch(): void {
+    if (this.state.mode !== "idle" && this.state.mode !== "pinching") {
+      this.endSinglePointerGesture();
+    }
+    const [a, b] = [...this.activePointers.values()];
+    this.state.mode = "pinching";
+    this.pinch = {
+      startDist: pointerDistance(a, b),
+      startZoom: this.viewZoom,
+      startMid: pointerMidpoint(a, b),
+      startPan: { ...this.viewPan },
+    };
+  }
+
+  /** ピンチ中、いずれかの指が動くたびに呼ぶ。指間距離の変化比でズーム、
+   *  中点の移動量でパンを更新する。 */
+  private updatePinch(): void {
+    if (!this.pinch || this.activePointers.size < 2) return;
+    const [a, b] = [...this.activePointers.values()];
+    const dist = pointerDistance(a, b);
+    const mid = pointerMidpoint(a, b);
+    this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
+    const pan = {
+      x: this.pinch.startPan.x + (mid.x - this.pinch.startMid.x),
+      y: this.pinch.startPan.y + (mid.y - this.pinch.startMid.y),
+    };
+    this.viewPan = this.viewZoom <= MIN_ZOOM ? { x: 0, y: 0 } : this.clampPan(pan);
+    this.syncEmptyStatePosition();
+  }
+
+  /** 円が完全に画面外へ出てしまわないよう、パン量をズーム倍率に応じた範囲に
+   *  収める（ズームしていないときはパン自体を許可しない）。 */
+  private clampPan(pan: Point): Point {
+    const maxOffset = this.frame.scale * (this.viewZoom - 1);
+    if (maxOffset <= 0) return { x: 0, y: 0 };
+    const mag = Math.hypot(pan.x, pan.y);
+    if (mag <= maxOffset) return pan;
+    const k = maxOffset / mag;
+    return { x: pan.x * k, y: pan.y * k };
+  }
+
+  /** 1本指ジェスチャー（描画・消しゴム・なぞる・移動）の後始末。onPointerUpと
+   *  「2本目の指が乗って途中でピンチに切り替わった」場合の両方から呼ぶ。 */
+  private endSinglePointerGesture(): void {
+    if (this.state.mode === "drawing") {
+      // ドラッグせずに離した一瞬のクリックは、線としては何も描けていない
+      // （renderMemoAtがstroke.length<2のメモを描画対象から除外する）ため、
+      // ストア側にも「見えないメモ」を残さない（詳しくはdiscardTrailingSinglePointStroke参照）。
+      if (this.state.activeMemoId && this.store.discardTrailingSinglePointStroke(this.state.activeMemoId)) {
+        this.state.activeMemoId = null;
+      }
+      this.scheduleSessionClose();
+    }
+    this.state.mode = "idle";
+    this.state.tracingMemoId = null;
+    this.state.movingMemoId = null;
+    this.state.lastPoint = null;
+    this.tracedMemoIdsThisGesture.clear();
+  }
+
   /**
    * タップした位置にテキスト入力用の<textarea>を重ねて表示する。円のクリップの外に
    * 出しても構わないよう画面固定(position:fixed)で配置し、blurした時点で内容を
@@ -415,13 +561,15 @@ export class CircularCanvas {
     const align = editingMemo?.align ?? "center";
     const lineHeight = editingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
     const canvasRect = this.canvas.getBoundingClientRect();
-    const fontPx = fontPxForRender(fontSize, this.frame.scale);
+    const scale = this.effectiveScale();
+    const fontPx = fontPxForRender(fontSize, scale);
     // 画面px⇄基準px（半径REFERENCE_RADIUS基準）の変換比率。可変幅ボックスの実際の
     // 幅は基準pxで測る（measureTextBoxWidthPx）ため、textareaに反映する際はこれで
-    // 画面pxへ変換する。
-    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * this.frame.scale;
-    const screenX = canvasRect.left + this.frame.centerPx.x + anchor.x * this.frame.scale;
-    const screenY = canvasRect.top + this.frame.centerPx.y + anchor.y * this.frame.scale;
+    // 画面pxへ変換する。ピンチズーム中でも見た目の位置・大きさがキャンバス側の
+    // 描画とずれないよう、frame.scaleではなく実効スケール（ズーム込み）を使う。
+    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * scale;
+    const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale;
+    const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale;
 
     const el = document.createElement("textarea");
     el.className = "text-editor-overlay";
@@ -582,6 +730,15 @@ export class CircularCanvas {
   }
 
   private onPointerMove = (ev: PointerEvent): void => {
+    if (this.activePointers.has(ev.pointerId)) {
+      this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    }
+    if (this.state.mode === "pinching") {
+      this.updatePinch();
+      return;
+    }
+    if (this.activePointers.size >= 2) return; // 3本目以降の指の動きは無視
+
     if (this.state.mode === "idle") {
       this.updateHoverInfo(ev);
       return;
@@ -610,7 +767,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.frame.scale);
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
 
@@ -621,7 +778,7 @@ export class CircularCanvas {
    *  ときだけ働く——タッチ側は従来どおりなぞる/移動を実際に始めたときに表示する。 */
   private updateHoverInfo(ev: PointerEvent): void {
     const tool = this.getToolState().tool;
-    if (ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
+    if (this.rewindAt !== null || ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
       return;
@@ -638,21 +795,18 @@ export class CircularCanvas {
     this.hoverInfoPoint = null;
   };
 
-  private onPointerUp = (): void => {
-    if (this.state.mode === "drawing") {
-      // ドラッグせずに離した一瞬のクリックは、線としては何も描けていない
-      // （renderMemoAtがstroke.length<2のメモを描画対象から除外する）ため、
-      // ストア側にも「見えないメモ」を残さない（詳しくはdiscardTrailingSinglePointStroke参照）。
-      if (this.state.activeMemoId && this.store.discardTrailingSinglePointStroke(this.state.activeMemoId)) {
-        this.state.activeMemoId = null;
+  private onPointerUp = (ev: PointerEvent): void => {
+    this.activePointers.delete(ev.pointerId);
+    if (this.state.mode === "pinching") {
+      // 1本の指を離しただけでは描画を再開しない——残り1本になったら
+      // いったんidleに戻し、新しいpointerdownから仕切り直す。
+      if (this.activePointers.size < 2) {
+        this.state.mode = "idle";
+        this.pinch = null;
       }
-      this.scheduleSessionClose();
+      return;
     }
-    this.state.mode = "idle";
-    this.state.tracingMemoId = null;
-    this.state.movingMemoId = null;
-    this.state.lastPoint = null;
-    this.tracedMemoIdsThisGesture.clear();
+    this.endSinglePointerGesture();
   };
 
   /**
@@ -665,7 +819,7 @@ export class CircularCanvas {
    * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
@@ -684,19 +838,29 @@ export class CircularCanvas {
     const h = this.canvas.height;
 
     if (this.interactive) {
-      // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
-      const tool = this.getToolState().tool;
-      this.canvas.style.cursor =
-        tool === "move" || tool === "trace"
-          ? this.state.mode === "moving" || this.state.mode === "tracing"
-            ? "grabbing"
-            : "grab"
-          : "crosshair";
+      if (this.rewindAt !== null) {
+        // 過去を遡って見ている間は操作できないため、道具に応じたカーソルは出さない。
+        this.canvas.style.cursor = "default";
+      } else {
+        // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+        const tool = this.getToolState().tool;
+        this.canvas.style.cursor =
+          tool === "move" || tool === "trace"
+            ? this.state.mode === "moving" || this.state.mode === "tracing"
+              ? "grabbing"
+              : "grab"
+            : "crosshair";
+      }
     }
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, w / this.dpr, h / this.dpr);
-    ctx.translate(this.frame.centerPx.x, this.frame.centerPx.y);
+    ctx.translate(this.frame.centerPx.x + this.viewPan.x, this.frame.centerPx.y + this.viewPan.y);
+    // ピンチズームの倍率をここで1回だけ適用する。以降の描画（メモのストローク・
+    // 罫線紙・フレームのクリップパス・グロー・消しゴムカーソル等）はすべて
+    // このtransformの上に乗るため、個々の描画コードは一切変更不要で自動的に
+    // ズームが反映される（`r = this.frame.scale`もこれまで通りでよい）。
+    ctx.scale(this.viewZoom, this.viewZoom);
 
     const shape = this.frame.currentShape();
 
@@ -735,9 +899,15 @@ export class CircularCanvas {
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
     // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
     const activeMemos = this.store.getActive();
-    for (const memo of activeMemos) {
-      const opacity = this.store.opacityOf(memo, now);
-      if (opacity <= 0) continue;
+    // 遡り中（rewindAt !== null）は、消滅済みメモも含めた全メモを対象に、
+    // traceHistoryから過去の時刻tにおける不透明度を再現する（旧ArchiveViewの
+    // renderPreviewAtと同じロジック。fade.tsのopacityAtTime参照）。
+    const rewindAt = this.rewindAt;
+    const memosToRender = rewindAt !== null ? this.store.getAll() : activeMemos;
+    for (const memo of memosToRender) {
+      const opacity =
+        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+      if (opacity === null || opacity <= 0) continue;
       renderMemoAt(ctx, memo, r, opacity);
     }
     ctx.globalAlpha = 1;
@@ -798,7 +968,7 @@ export class CircularCanvas {
       this.frame.drawGlassesHinges(ctx, shape);
     }
 
-    if (this.interactive && activeMemos.length === 0) {
+    if (this.interactive && rewindAt === null && activeMemos.length === 0) {
       // 中心点（ここが書ける領域の中心、という目印）。文字の案内はDOM側
       // （.canvas-empty-state、syncEmptyState参照）へ移したので、canvasに描くのは
       // この点だけ。"glasses"では原点がブリッジ（書けない接合部）の真上なので、

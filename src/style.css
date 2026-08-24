@@ -19,8 +19,17 @@ body {
   margin: 0;
 }
 
+/* 初回起動時、キャンバス（円）が真っ平らな単色の上に浮いて見えないよう、
+   同系色でごく淡い明暗差だけ付けた放射グラデーションにしている
+   （色相・彩度は元のoklch(93% 0.006 75)から変えず、明度だけ中心を明るく・
+   縁を少し落とす。ユーザー指摘：初回の第一印象が弱い）。 */
 body {
-  background: oklch(93% 0.006 75);
+  background: radial-gradient(
+    circle at 50% 38%,
+    oklch(97% 0.006 75) 0%,
+    oklch(93% 0.006 75) 55%,
+    oklch(89% 0.008 75) 100%
+  );
   font-family: "Noto Sans JP", sans-serif;
   -webkit-font-smoothing: antialiased;
   color: oklch(22% 0.012 55);
@@ -115,9 +124,34 @@ body {
   display: contents;
 }
 
+/* --- スマホ幅で下部バーの1段目・2段目を上下スワイプ1画面にまとめる時の
+   「現在ページ」を示すドットと、スワイプする器。デスクトップ幅では
+   どちらも見た目に影響しないようにしておく（ユーザー指示：スワイプで
+   切り替える仕様はモバイル専用）——ドットは非表示、器は#primary-slotと
+   同じdisplay:contentsで自分自身の箱を持たず、#primary-slot/#duration-slotが
+   これまで通り.control-panelの直接の子として振る舞う。実際にグリッド・
+   スクロールの器として働くのは@media (max-width: 480px)の中だけ。 --- */
+.control-panel-dots {
+  display: none;
+}
+
+.control-panel-pages {
+  display: contents;
+}
+
 .circle-canvas {
   display: block;
   cursor: crosshair;
+}
+
+/* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
+   canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
+   （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
+   形をその丸に沿わせるための指定——他パネルのカード(line 1000付近)と同じ
+   「近距離の締まった影＋遠距離のぼんやりした影」の2枚重ね流儀。 */
+.circle-canvas--paper {
+  border-radius: 50%;
+  box-shadow: 0 1px 3px oklch(22% 0.012 55 / 0.05), 0 14px 36px oklch(22% 0.012 55 / 0.1);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -192,22 +226,11 @@ body {
   background: oklch(93% 0.008 75);
 }
 
-/* --- 振り返りビューのパネル。通常キャンバスと同じ大きさの円を出すため、
+/* --- SMUI（共有）のパネル。通常キャンバスと同じ大きさの円を出すため、
    view-panelの既定(align-items:center)を上書きしてstretchにし、
-   .archive-viewが#archive-panelいっぱいの高さを持てるようにする
-   （%指定のheightは祖先がflex-growで確定した高さだと解決に失敗することがあるため、
-   ここでもheight:100%は使わずstretchに委ねる）。
-   一覧が増えて縦に収まりきらない場合はこのパネル自身がスクロールする。 --- */
-#archive-panel {
-  align-items: stretch;
-  overflow-y: auto;
-}
-
-/* --- SMUI（共有）のパネル。#archive-panelと同じ理由で、view-panelの既定
-   (align-items:center)を上書きしてstretchにし、.smui-canvas-wrapがパネル
-   いっぱいの高さを持てるようにする——これが無いと.smui-viewは中身ぶんの
-   高さしか持たず、共有キャンバスがキャンバスタブの円のように縦方向の余白を
-   使い切れない。 --- */
+   .smui-canvas-wrapがパネルいっぱいの高さを持てるようにする——これが無いと
+   .smui-viewは中身ぶんの高さしか持たず、共有キャンバスがキャンバスタブの円の
+   ように縦方向の余白を使い切れない。 --- */
 #shared-panel {
   align-items: stretch;
 }
@@ -275,7 +298,7 @@ body {
    .toolbar-tools（左）＝道具アイコンとテンプレートを1列（.toolbar-pill）にまとめ、
    すべて同じ大きさ（.toolbar-btn）で揃えたもの。「何をするか」という操作の並びを
    1ブロックにしている（ユーザー指示）。.toolbar-details（中央）＝色・文字サイズ
-   という選んだ道具の"詳細"設定。時間選択ブロック（DurationSelector）はこの
+   という選んだ道具の"詳細"設定。振り返りスライダー（RewindSelector）はこの
    Toolbarの外、#duration-slotに別途並ぶ。画面切り替えナビをヘッダーへ移した分
    フッターの横幅に余裕ができたため、以前は道具アイコンの上にposition: absoluteで
    浮かせていた詳細ブロックを通常のフローに戻し、ブロックを横に並べるだけで1行に収まる。
@@ -332,6 +355,124 @@ body {
   border: 1px solid oklch(22% 0.012 55 / 0.12);
   background: oklch(98% 0.005 75);
   box-shadow: 0 1px 2px oklch(22% 0.012 55 / 0.08), 0 4px 14px oklch(22% 0.012 55 / 0.06);
+}
+
+/* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
+   絶対に収まらない（ユーザー報告：3ブロック目が画面外に切れて見えない）。
+   「2行にはしない」という上のnowrapの方針はPC幅を前提にしたものだったため、
+   この幅だけ例外にする。1段目＝ツール選択、2段目＝ツールの詳細＋時間選択、
+   という2段構成にした上で、さらにその2段を1つの表示領域にまとめ、上下
+   スワイプ（＝縦スクロール、scroll-snapで実現）で切り替えられるようにする
+   （ユーザー指示）。.toolbarをdisplay:contentsにして.toolbar-tools/
+   .toolbar-detailsを.control-panel-pagesの直接の子として扱えるようにする
+   ことで、#duration-slot（時間選択）と合わせて3つとも同じグリッドの項目にし、
+   grid-template-areasで「1段目＝tools、2段目＝details+duration横並び」を
+   指定する。実際のスクロール・スナップは.control-panel-pages側（高さを
+   .control-blockの既存の固定高さ＝1ページぶんに制限した「窓」）が担い、
+   .control-panel自体は「左にドット・右にその窓」を横並びにするだけの
+   コンテナにする（ユーザー指示：ドットは左に）。
+   各グリッド項目はjustify-self:centerで中身の大きさに縮めるのではなく、
+   既定のstretchのままグリッドの列幅いっぱいに広げる——1段目（2列ぶんの幅）
+   と2段目（1列ずつの合計）が同じグリッド幅になり、上下のブロックの横幅が
+   ぴったり揃う（ユーザー指摘：揃っていない）。広がった分の余白の中で
+   アイコン等が真ん中に来るよう、各ブロック内側のjustify-content:centerで
+   中身だけを中央寄せする。
+   余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
+   固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
+   （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
+@media (max-width: 480px) {
+  .control-panel {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: clamp(6px, 2.5vw, 10px);
+  }
+
+  .control-panel-dots {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+
+  .control-panel-dot {
+    appearance: none;
+    border: none;
+    padding: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: oklch(22% 0.012 55 / 0.2);
+    cursor: pointer;
+  }
+
+  .control-panel-dot.is-active {
+    background: oklch(22% 0.012 55 / 0.7);
+  }
+
+  .control-panel-pages {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "tools tools"
+      "details duration";
+    row-gap: clamp(6px, 2.5vw, 10px);
+    column-gap: clamp(6px, 2.5vw, 10px);
+    flex: 1 1 auto;
+    min-width: 0;
+    /* .control-blockの既存の固定高さ(72px)＝1ページぶんだけを見せる「窓」。
+       中身はグリッド2行ぶんの高さを持つため、ここからはみ出した2段目が
+       スクロールで現れる——幅を揃えるための帳尻合わせではなく、1ページだけ
+       見せるという仕様上必要な指定。 */
+    height: 72px;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+  }
+
+  .control-panel-pages::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar {
+    display: contents;
+  }
+
+  .toolbar-tools {
+    grid-area: tools;
+    justify-content: center;
+    gap: clamp(8px, 3vw, 12px);
+    scroll-snap-align: start;
+  }
+
+  .toolbar-details {
+    grid-area: details;
+    justify-content: center;
+    gap: clamp(6px, 2.5vw, 10px);
+    scroll-snap-align: start;
+  }
+
+  #duration-slot {
+    grid-area: duration;
+    scroll-snap-align: start;
+  }
+
+  .control-block {
+    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
+  }
+
+  /* 折り返した分だけ下部バーの縦幅が増えるため、#app・.app-footer側の余白を
+     詰めて、その分をキャンバス（.app-main、flex:1で残り高さを取る）に回す
+     （ユーザー報告：キャンバスがデフォルトで小さい）。 */
+  #app {
+    padding: clamp(8px, 2.5vw, 10px);
+    gap: clamp(6px, 2vw, 8px);
+  }
+
+  .app-footer {
+    padding-bottom: clamp(2px, 1vw, 4px);
+  }
 }
 
 /* --- キャンバス⇔振り返り⇔共有の画面切り替え時、下部バーの中身（道具バー／
@@ -505,16 +646,47 @@ body {
   pointer-events: none;
 }
 
+/* --- インクの色: 黒/赤/青の固定3スワッチ＋4つ目の「好きな色」スワッチ
+   （toolbar.ts、ユーザー指示：GoodNotesのように定番色をすぐ選べるようにしたい）。
+   4個並ぶ分、以前1個だけだった頃(32px)より小さくして横幅の増分を抑えている。 --- */
+.toolbar-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .toolbar-swatch {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 2px solid oklch(98% 0.005 75);
   box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px oklch(22% 0.012 55 / 0.12);
   cursor: pointer;
   padding: 0;
   overflow: hidden;
+}
+
+/* 今選んでいる色のスワッチだけ、外側にもう1本濃いリングを足して選択中と分かるようにする。 */
+.toolbar-swatch[data-active="true"] {
+  box-shadow: 0 0 0 1px oklch(98% 0.005 75), 0 0 0 3px oklch(22% 0.012 55 / 0.55), 0 1px 3px
+      oklch(22% 0.012 55 / 0.12);
+}
+
+/* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
+   「好きな色を選べる」ことを示す——一度選ぶとtoolbar.tsがインラインstyleで
+   その色を背景に敷くので、このグラデーションは自然に隠れる（インラインstyleが
+   クラス由来のbackgroundより優先されるため、JS側でクラスを付け替える必要が無い）。 */
+.toolbar-swatch--custom {
+  background: conic-gradient(
+    from 0deg,
+    oklch(60% 0.2 25),
+    oklch(75% 0.18 100),
+    oklch(65% 0.19 145),
+    oklch(55% 0.14 230),
+    oklch(50% 0.2 300),
+    oklch(60% 0.2 25)
+  );
 }
 
 .toolbar-color-input {
@@ -543,52 +715,20 @@ body {
   padding: 2px 4px;
 }
 
-/* --- シークバー（振り返り時、道具バーと同じ場所に表示する「雨雲レーダー」） --- */
-
-.seekbar {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-
-.seekbar-disabled {
+/* --- 道具バー全体のグレーアウト。振り返りスライダーで過去に遡っている間、
+   道具を使えないことを示す（ユーザー指示）。.duration-seekbar-disabled等と
+   同じ「触れない・薄い」パターン。.toolbarは.fade-visible.is-visible
+   （opacity:1、詳細度0,2,0）も同時に持つため、.toolbar-disabled単体（0,1,0）
+   では負けてしまう——.toolbarと組み合わせて詳細度を揃え、こちらを優先させる。 */
+.toolbar.toolbar-disabled {
   opacity: 0.4;
   pointer-events: none;
 }
 
-.seekbar-timestamp {
-  font-size: 12.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.03em;
-  color: oklch(22% 0.012 55 / 0.6);
-}
-
-.seekbar-track {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-}
-
-.seekbar-label {
-  flex: none;
-  font-size: 11px;
-  color: oklch(22% 0.012 55 / 0.4);
-}
-
-.seekbar-slider {
-  flex: 1;
-  accent-color: oklch(22% 0.012 55);
-  cursor: pointer;
-}
-
-/* --- 時間選択ブロック：消えるまでの期間を選ぶシークバー。振り返りのシークバー
-   （.seekbar）と同じく、現在値のラベルをスライダーの上に置く縦積みにしている
-   （ユーザー指示）。「最初」「現在」のような両端のラベルは持たない、振り返りほど
-   大仰にしない控えめな作り（以前からの指示）。 --- */
+/* --- 時間選択ブロック：旧「消えるまでの期間」を選ぶシークバーの枠を、
+   過去に遡って見るシークバー（rewindSelector.ts）に転用したもの。現在値の
+   ラベルをスライダーの上に置く縦積みにしている（ユーザー指示）。「最初」
+   「現在」のような両端のラベルは持たない、控えめな作り（以前からの指示）。 --- */
 
 .duration-seekbar {
   display: flex;
@@ -618,42 +758,6 @@ body {
 .duration-seekbar-disabled {
   opacity: 0.4;
   pointer-events: none;
-}
-
-/* --- 振り返りビュー ------------------------------------------------ */
-/* 円のプレビューは通常キャンバスと全く同じ仕組み(fitCanvasToContainer)で
-   大きさを決める。消えたメモの一覧は持たない設計なので、円だけを表示すればよい
-   （メモが何もない時も専用の空状態メッセージは出さず、シークバー側の見た目
-   ——disabled・薄い表示——だけで伝える。ユーザー指示）。 */
-
-.archive-view {
-  width: 100%;
-  /* height指定はしない。#archive-panelのalign-items:stretchに高さを委ねる
-     （height:100%は祖先の高さがflex-growで確定したものだと解決に失敗することがあるため）。
-     paddingは持たせない: #canvas-panel（通常キャンバス側）にも一切paddingが
-     無く、fitCanvasToContainer()はこのラッパーのgetBoundingClientRect()を
-     そのまま「利用可能な高さ」として円のサイズを決めているため、ここだけ
-     paddingがあると通常キャンバスと振り返りとで円の大きさがずれてしまう
-     （ユーザー指摘：キャンバスと振り返りに変えた時に円のサイズが変わる）。
-     以前ここに残っていた上下のpaddingは、シークバーをまだ操作パネル側
-     （フッター）ではなくこのビュー自身の中に置いていた頃の名残り。 */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.archive-canvas-wrap {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.archive-preview {
-  display: block;
-  border-radius: 50%;
 }
 
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
@@ -782,6 +886,17 @@ body {
   gap: 6px;
 }
 
+/* ルーム名＋操作メニュートリガーをまとめる器（ユーザー指示：見える要素を
+   [ルーム名][退出]の2つに絞りたい——「名前を変更」は常時ボタンではなく、
+   ここにホバー/長押ししたときだけ開くメニューに格上げする）。 */
+.shared-room-name-wrap {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+
 /* 名前が長いとポップオーバー幅（.shared-room-popover、上限340px）から
    はみ出すため、行内で省略表示（…）にする。flexアイテムとしてellipsisが
    効くにはmin-width:0が必須（既定のautoだと内容の実際の幅まで縮まない）。 */
@@ -798,18 +913,89 @@ body {
   font-weight: 600;
 }
 
-.shared-room-rename {
+/* 「…」操作メニュートリガー。PCではホバーするまで見えないようにして
+   見える要素を増やさない（ユーザー指示）。タッチ（hover非対応）では
+   このメディアクエリ自体が当たらないため常に非表示のままで良い
+   ——タッチは.shared-room-btnへの長押しで同じメニューを開く
+   （sharedRoomMenu.tsのattachRoomNamePress参照）。 */
+.shared-room-actions-trigger {
   flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: 999px;
+  color: oklch(22% 0.012 55 / 0.5);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.shared-room-actions-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .shared-room-name-wrap:hover .shared-room-actions-trigger {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+.shared-room-actions-trigger:hover {
+  background: oklch(93% 0.006 75);
+}
+
+/* ルームの操作メニュー本体。位置はJS側でposition:fixed（画面px）を都度
+   計算するため、ここでは見た目だけを定義する——.shared-room-list（一覧）が
+   overflow-y:autoで内側だけスクロールするため、その中の子として置くと
+   はみ出した分が切られてしまう（canvasView.tsの.text-editor-overlayと
+   同じ理由でbody直下に置いている）。 */
+.shared-room-actions-menu {
+  position: fixed;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+  padding: 6px;
+  border-radius: 12px;
+  background: oklch(98% 0.005 75);
+  box-shadow: 0 2px 6px oklch(22% 0.012 55 / 0.08), 0 18px 48px oklch(22% 0.012 55 / 0.12);
+}
+
+.shared-room-action-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: oklch(22% 0.012 55);
+  cursor: pointer;
+}
+
+.shared-room-action-btn:hover {
+  background: oklch(93% 0.006 75);
 }
 
 /* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
-   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。 */
-.shared-room-delete {
+   （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。
+   他のメンバーが誰も残っていない場合はルーム自体の削除に繋がる操作
+   （POST /shared-canvases/:id/leave、バックエンド仕様）。 */
+.shared-room-leave {
   flex: 0 0 auto;
   color: oklch(45% 0.13 25 / 0.8);
 }
 
-.shared-room-delete:hover {
+.shared-room-leave:hover {
   background: oklch(90% 0.05 25 / 0.5);
   color: oklch(40% 0.15 25 / 0.95);
 }
@@ -823,12 +1009,6 @@ body {
   border-radius: 6px;
   background: oklch(98% 0.005 75);
   color: inherit;
-}
-
-.shared-room-hint {
-  font-size: 10.5px;
-  color: oklch(22% 0.012 55 / 0.35);
-  max-width: 200px;
 }
 
 /* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
@@ -927,8 +1107,8 @@ body {
    大きな眼鏡形状1枚（左右レンズ+ブリッジが1つの連続領域、CircularCanvasの
    frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
    （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
-   (flex:1 1 auto; min-height:0)」を連鎖させることで、#archive-panel/
-   .archive-canvas-wrapと同じ仕組みでキャンバスがパネルの高さいっぱいまで育つ。 --- */
+   (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
+   高さいっぱいまで育つ。 --- */
 .smui-view {
   width: 100%;
   height: 100%;

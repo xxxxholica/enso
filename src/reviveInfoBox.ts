@@ -17,7 +17,7 @@ const HINT_TEXT = "oklch(22% 0.012 55 / 0.4)";
  *  構造的に受け取る（canvasView.tsのDrawStateはexportされていないため、
  *  循環参照を避けてこのファイル独自の最小限の型で受け取る）。 */
 export interface ReviveInfoDrawState {
-  mode: "idle" | "drawing" | "tracing" | "erasing" | "moving";
+  mode: "idle" | "drawing" | "tracing" | "erasing" | "moving" | "pinching";
   tracingMemoId: string | null;
   movingMemoId: string | null;
   lastPoint: Point | null;
