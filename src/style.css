@@ -184,7 +184,23 @@ body {
   justify-content: center;
 }
 
+/* --- キャンバスタブ本体。以前は円だけを中央に置く単純な箱だったが、
+   共有タブ（.smui-view）と同じく「ツールバー直上」に情報行(#canvas-info-row、
+   残り時間ピル)を置きたいため、縦積みのflexにして円側(#canvas-wrap)に
+   残りの高さを埋めさせる（align-items:stretchに切り替え、.smui-viewと
+   同じ考え方）。 --- */
 #canvas-panel {
+  width: 100%;
+  padding: 4px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+#canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   display: flex;
   align-items: center;
@@ -223,17 +239,6 @@ body {
 .circle-canvas {
   display: block;
   cursor: crosshair;
-}
-
-/* 個人キャンバス（frameKind:"single"、常に丸形）専用。border-radius:50%は
-   canvas要素のcontent（ctx側で既に円クリップ済み）を切り取るためではなく
-   （overflow:hiddenを付けていないので描画自体は変わらない）、box-shadowの
-   形をその丸に沿わせるための指定。この円は他パネルのカードより一枚の紙に
-   近いため、影はごく控えめにしてある（大きなblur/offsetは輪が太い外枠に
-   見えてしまう——ユーザー指摘）。 */
-.circle-canvas--paper {
-  border-radius: 50%;
-  box-shadow: 0 1px 2px var(--ink-06), 0 3px 8px oklch(22% 0.012 55 / 0.05);
 }
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
@@ -1090,6 +1095,21 @@ body {
   background: var(--paper-3);
 }
 
+/* --- 「残り時間」ピル（reviveInfoPill.ts）。.shared-room-trigger等と同じく
+   ポップオーバーの外・ページの地色（oklch(93%...)）に直接置かれるため
+   明るいトーンにする。押せる操作ではないため、カーソル・ホバーの見た目は
+   変化させない（ユーザー指摘：ホバー時の表示が目立ちすぎる——輪郭線を
+   消しただけでなく、ボタンらしい反応も持たせないことで「ただの表示」だと
+   伝わるようにした）。 --- */
+.revive-info-pill {
+  background: oklch(98% 0.005 75);
+  cursor: default;
+}
+
+.revive-info-pill:hover {
+  background: oklch(98% 0.005 75);
+}
+
 /* --- トリガーボタン（sharedRoomMenu.ts）だけ、ポップオーバーの外・右レンズの
    ラベル横（地色var(--paper-2)のページの上）に直接置かれるため、
    .pill-btnの既定色だと今度はページと同化してしまう——ポップオーバーの
@@ -1171,16 +1191,16 @@ body {
   gap: 12px;
 }
 
-/* --- ルーム作成・選択（SharedRoomMenu）の置き場所。眼鏡キャンバスの下に
-   中央寄せで置く（ユーザー指示）。フレーム形状・柄のセレクタ（AppearanceSelector）
-   もルーム設定ボタンの右隣に横並びで置く（ユーザー指示）。
-   min-heightはボタンの見た目上の高さに固定しておく——
-   ボタンの中身（「+ルームを作成」⇔選択中のルームID）が変わってもこの行の
-   高さ自体は変わらないようにし、共有キャンバス（.smui-canvas-wrap、
-   flex:1 1 auto）の実際の高さがルーム選択のたびに変わってフレームの太さ
-   （frameStrokeWidthは高さに比例）まで変化して見えてしまう、という事態を
-   避ける。 --- */
-.smui-room-menu-row {
+/* --- ツールバー直上の情報行。共有タブでは眼鏡キャンバスの下にルーム作成・
+   選択（SharedRoomMenu）、見た目の設定（AppearanceSelector）、残り時間ピルを
+   中央寄せで横並びに置く（ユーザー指示）。キャンバスタブでは残り時間ピルだけを
+   同じ見た目で置く（#canvas-info-row、main.ts）。
+   min-heightは中身の見た目上の高さに固定しておく——中身（「+ルームを作成」
+   ⇔選択中のルームID、ピルの表示/非表示）が変わってもこの行の高さ自体は
+   変わらないようにし、共有キャンバス（.smui-canvas-wrap、flex:1 1 auto）の
+   実際の高さがそのたびに変わってフレームの太さ（frameStrokeWidthは高さに
+   比例）まで変化して見えてしまう、という事態を避ける。 --- */
+.info-row {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1542,4 +1562,191 @@ body {
     padding: 18px 16px 20px;
     border-radius: 20px;
   }
+}
+
+/* --- 初回チュートリアル（tutorial/tutorialOverlay.ts）。全画面の骨格・余白・
+   フォーカスの作法はtemplate-pickerに揃えるが、ガイド中の誤操作による離脱を
+   避けたいため背景クリックでは閉じない分、z-indexは1段上に置く。 --- */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: oklch(93% 0.006 75 / 0.86);
+  overflow-y: auto;
+}
+
+.tutorial-sheet {
+  width: min(600px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 20px 22px 24px;
+  border-radius: 24px;
+  border: 1px solid oklch(22% 0.012 55 / 0.12);
+  background: oklch(98% 0.005 75);
+  box-shadow: 0 2px 6px oklch(22% 0.012 55 / 0.08), 0 18px 48px oklch(22% 0.012 55 / 0.12);
+  transform: translateY(8px) scale(0.985);
+  transition: transform 180ms ease;
+  outline: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.tutorial-overlay.is-visible .tutorial-sheet {
+  transform: none;
+}
+
+.tutorial-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tutorial-marker {
+  font-size: 15px;
+  font-weight: 600;
+  color: oklch(55% 0.16 25 / 0.85);
+}
+
+.tutorial-skip {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: oklch(22% 0.012 55 / 0.5);
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.15s ease;
+}
+
+.tutorial-skip:hover {
+  color: oklch(22% 0.012 55 / 0.8);
+}
+
+.tutorial-canvas-wrap {
+  align-self: center;
+  width: min(360px, 68vw);
+  aspect-ratio: 1;
+  margin: 16px 0 4px;
+}
+
+.tutorial-canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* --- 実物のtoolbar.ts（.toolbar-tools.control-block > .toolbar-pill > .toolbar-btn）
+   と同じクラスを使い回した、チュートリアル内蔵の道具バー。「ペン」「選択」の
+   2つだけを置き、ステップが自動で切り替えるのではなく自分で選ばせる
+   （ユーザー指示：選択ツールへの切り替えという最も伝わりにくい操作こそ、
+   実際に道具を選ぶところから体験させたい）。 --- */
+.tutorial-toolbar {
+  align-self: center;
+  margin: 0 0 4px;
+}
+
+.tutorial-toolbar .toolbar-pill {
+  gap: 10px;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* --- 今どの道具を選べばよいかを示す、道具ボタン自体の控えめな点滅。 --- */
+@keyframes tutorial-tool-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(55% 0.16 25 / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px oklch(55% 0.16 25 / 0);
+  }
+}
+
+.tutorial-tool-hint {
+  border-radius: 999px;
+  animation: tutorial-tool-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-tool-hint {
+    animation: none;
+    box-shadow: 0 0 0 3px oklch(55% 0.16 25 / 0.35);
+  }
+}
+
+/* --- 見出し・本文・補足・ボタンは、内容の有無にかかわらず常に同じ高さを
+   確保する（ユーザー指摘：ステップごとにウィンドウの大きさが変わってしまう）。
+   非表示にする時は要素を消す（hidden）のではなく透明化する（visibility）ことで、
+   場所そのものは常に残す。 --- */
+.tutorial-title {
+  margin: 4px 0 0;
+  min-height: 22px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.tutorial-body {
+  margin: 8px 0 0;
+  min-height: 68px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: oklch(22% 0.012 55 / 0.85);
+}
+
+/* --- 「動いてもらう」場面の指示文（一・三）。円相の由来を語る文（.tutorial-body
+   既定）と混ざらないよう、太字とアクセント色ではっきり区別する
+   （ユーザー指摘：ポエムが続き、何をすればいいか分かりにくい）。 --- */
+.tutorial-body--instruction {
+  font-weight: 700;
+  color: oklch(45% 0.03 55);
+}
+
+.tutorial-note {
+  margin: 8px 0 0;
+  min-height: 34px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: oklch(22% 0.012 55 / 0.5);
+}
+
+.tutorial-actions {
+  min-height: 40px;
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* --- ヘッダーのチュートリアル再視聴ボタン。アカウント表示の左に、道具バーとは
+   独立した小さな円相アイコンとして置く（.toolbar-btnと同じ大きさ・当たり判定）。 --- */
+.tutorial-replay-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: oklch(22% 0.012 55 / 0.6);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tutorial-replay-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.tutorial-replay-btn:hover {
+  background: oklch(93% 0.006 75);
+  color: oklch(22% 0.012 55 / 0.9);
 }

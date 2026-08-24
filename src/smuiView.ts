@@ -6,6 +6,7 @@ import { MemoStore } from "./memoStore";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
+import { ReviveInfoPill } from "./reviveInfoPill";
 import type { TemplateId } from "./templates";
 
 /** 眼鏡フレームの縁取りの色・太さ。通常キャンバスの薄い1px線より太いウェリントン
@@ -58,6 +59,7 @@ export class SmuiView {
   private canvasWrapEl!: HTMLElement;
   private canvasContainerEl!: HTMLElement;
   private statusEl!: HTMLElement;
+  private reviveInfoPill!: ReviveInfoPill;
 
   private lens: CircularCanvas;
   private roomSync: SharedRoomSync | null = null;
@@ -141,13 +143,16 @@ export class SmuiView {
     // フレームの形・色）は、眼鏡キャンバスの下に横並びで置く（ユーザー指示）。
     // main.tsがgetRoomMenuSlot()/getAppearanceSlot()経由でそれぞれの中身を
     // マウントする——このクラス自身はルーム作成・見た目設定のUIを持たず、
-    // 置き場所を提供するだけ。
+    // 置き場所を提供するだけ。「残り時間」ピルはそれらの横に並べる
+    // （ユーザー指示）——このクラス自身がlensの状態を持っているため、
+    // 他の2つと違い自分でReviveInfoPillを持ち、render()のたびに更新する。
     const roomMenuRow = document.createElement("div");
-    roomMenuRow.className = "smui-room-menu-row";
+    roomMenuRow.className = "info-row";
     this.roomMenuSlotEl = document.createElement("div");
     roomMenuRow.appendChild(this.roomMenuSlotEl);
     this.appearanceSlotEl = document.createElement("div");
     roomMenuRow.appendChild(this.appearanceSlotEl);
+    this.reviveInfoPill = new ReviveInfoPill(roomMenuRow);
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);
@@ -271,5 +276,6 @@ export class SmuiView {
   render(now: number): void {
     if (!this.active) return;
     this.lens.render(now);
+    this.reviveInfoPill.update(this.lens.getHoverRemainingMs(now));
   }
 }

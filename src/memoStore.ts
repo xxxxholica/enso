@@ -73,7 +73,6 @@ export class MemoStore {
       createdAt: now,
       lastTracedAt: now,
       traceHistory: [now],
-      reviveCooldownUntil: now,
       lifespanDays: style.lifespanDays,
       status: "active",
       tool: style.tool,
@@ -113,7 +112,6 @@ export class MemoStore {
       createdAt: now,
       lastTracedAt: now,
       traceHistory: [now],
-      reviveCooldownUntil: now,
       lifespanDays: style.lifespanDays,
       status: "active",
       color: style.color,
@@ -168,49 +166,54 @@ export class MemoStore {
   }
 
   /**
-   * なぞって復活: 以前は不透明度を無条件で100%に戻し猶予期間の起点を
-   * まるごとリセットしていたが、なぞればいつまでも際限なく復活できてしまう
-   * のは適切かという議論から（Issue #11）、1回のなぞりで戻せる量を
-   * 「寿命(lifespanDays)の15%ぶん」に制限した。当初はさらに「メモが生涯に
-   * 回復できる合計時間」にも自分自身の寿命ぶんの上限を設けていたが、
-   * 「メモの存続には継続的な関心を要する」という目的には総量制限より
-   * クールタイム制のほうが即すという判断から、そちらへ置き換えた
-   * ——1回なぞって成功すると、寿命の10%ぶんの間は次に触れても復活しない
-   * （reviveCooldownUntil）。クールタイム自体は寿命の15%（1回の回復量）
-   * より短く保つ必要がある（「継続的な関心があり続ける限りメモを存続させ
-   * 続けられる」ようにするため。10%は暫定値で、使用感を見て調整する）。
-   * 1回のなぞりで戻す量は、寿命の15%・「今との差（経過時間）」のうち
-   * 小さいほうになる。後者が必要なのは、既にほぼ100%近い状態でなぞった
-   * 場合に、経過時間が0未満に（＝まだ来ていない時刻を経過済み扱いに）
-   * ならないようにするため。
+   * なぞって復活: 1回で戻せる量は「寿命(lifespanDays)の15%ぶん・今との差
+   * （経過時間）」のうち小さいほう。後者が必要なのは、既にほぼ100%近い
+   * 状態でなぞった場合に、経過時間が0未満に（＝まだ来ていない時刻を
+   * 経過済み扱いに）ならないようにするため。
+   * 以前は「なぞればいつまでも際限なく復活できてしまう」ことへの歯止めとして
+   * クールタイムを設けていたが（Issue #11）、「消えるまでの期間」自体が
+   * 1日固定になった今（FIXED_LIFESPAN_DAYS）、そもそも1メモが生き延びられる
+   * 期間に上限があるため、復活の頻度を別途制限する理由がなくなった
+   * （ユーザー指示：制限を撤廃し、自由に時間を進める・戻すができるように）。
    */
   reviveMemo(memoId: string, now: number = Date.now()): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.status !== "active") return;
-    if (now < memo.reviveCooldownUntil) return; // クールタイム中：復活せず、クールタイムも更新しない
     const lifespanMs = (memo.lifespanDays ?? STANDARD_LIFESPAN_DAYS) * MS_PER_DAY;
     const grantMs = Math.min(lifespanMs * 0.15, Math.max(0, now - memo.lastTracedAt));
     if (grantMs <= 0) return; // 既に「今」に追いついている（これ以上経過時間を削れない）
     memo.lastTracedAt += grantMs;
-    memo.reviveCooldownUntil = now + lifespanMs * 0.1;
     memo.traceHistory.push(memo.lastTracedAt);
     this.persist();
   }
 
+  /**
+   * 選択道具でメモを掴んで振り回す操作専用: lastTracedAtをdeltaMsだけ
+   * 直接ずらす（負で過去側＝経過時間が増える＝時間を進める、正で「今」に
+   * 近づく側＝復活。canvasView.tsのupdateRotationGesture参照）。
+   * なぞって復活（reviveMemo）と違い、寿命に
+   * 対する割合ではなく絶対量（1回転=1時間、ユーザー指示）で、cap・
+   * クールタイムのどちらも設けない——振り回している間は自由に行き来できる。
+   * 振り回しは「なぞった」わけではないので、traceHistory（振り返り用の履歴、
+   * 昇順が前提）には残さない——translateMemoが位置移動をlastTracedAt/
+   * traceHistoryと無関係に扱うのと同じ考え方。
+   */
+  nudgeMemoClock(memoId: string, deltaMs: number): void {
+    const memo = this.memos.find((m) => m.id === memoId);
+    if (!memo || memo.status !== "active") return;
+    memo.lastTracedAt += deltaMs;
+    this.persist();
+  }
+
   /** なぞって復活の状態（View用）。現時点で消滅までにかかる残り時間(ms)と、
-   *  次になぞって復活できるようになるまでのクールタイム(ms、既に明けていれば0)、
    *  比率表示（バー）用の基準となる寿命そのもの(ms)を返す——「なぞる」「移動」
    *  道具でメモに触れている間・（PCでは）ホバーしている間の案内表示
    *  （canvasView.ts）に使う。存在しない/非活性なメモの場合はnull。 */
-  reviveStatusOf(
-    memoId: string,
-    now: number = Date.now()
-  ): { remainingMs: number; cooldownMs: number; lifespanMs: number } | null {
+  reviveStatusOf(memoId: string, now: number = Date.now()): { remainingMs: number; lifespanMs: number } | null {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.status !== "active") return null;
     const lifespanMs = (memo.lifespanDays ?? STANDARD_LIFESPAN_DAYS) * MS_PER_DAY;
-    const cooldownMs = Math.max(0, memo.reviveCooldownUntil - now);
-    return { remainingMs: remainingMs(now - memo.lastTracedAt, memo.lifespanDays), cooldownMs, lifespanMs };
+    return { remainingMs: remainingMs(now - memo.lastTracedAt, memo.lifespanDays), lifespanMs };
   }
 
   /**

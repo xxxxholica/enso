@@ -76,7 +76,7 @@ describe("MemoStore", () => {
     expect(store.getFaded()[0].id).toBe(memo.id);
   });
 
-  it("なぞって復活させても寿命の15%ぶんしか猶予が戻らない（無条件のフル回復ではない）", () => {
+  it("なぞって復活させても1回では寿命の15%ぶんしか猶予が戻らない（無条件のフル回復ではない）", () => {
     const store = new MemoStore();
     const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
 
@@ -89,37 +89,37 @@ describe("MemoStore", () => {
     store.reviveMemo(memo.id, threeDays);
     expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.6);
 
-    // 同じ時刻で再度なぞってもクールタイム中なので変化しない。
-    const afterFirstRevive = store.getActive()[0].lastTracedAt;
-    store.reviveMemo(memo.id, threeDays);
-    expect(store.getActive()[0].lastTracedAt).toBe(afterFirstRevive);
-
     // 復活後はそこから新たに7日でまた消える
+    const afterFirstRevive = store.getActive()[0].lastTracedAt;
     store.tick(afterFirstRevive + 7 * 24 * 60 * 60 * 1000 - 1);
     expect(store.getActive()).toHaveLength(1);
     store.tick(afterFirstRevive + 7 * 24 * 60 * 60 * 1000);
     expect(store.getActive()).toHaveLength(0);
   });
 
-  it("なぞって復活が成功すると寿命の10%ぶんのクールタイムに入り、明けるまでは何度なぞっても復活しない", () => {
+  it("クールタイムは無く、同じ時刻でも間を置かず何度でもなぞって復活できる（1日上限がある今、頻度を制限する理由がないため撤廃）", () => {
     const store = new MemoStore();
-    const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
-    const oneDayMs = 24 * 60 * 60 * 1000;
-    const cooldownMs = oneDayMs * 0.1; // 2.4時間
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    const threeDays = 3 * 24 * 60 * 60 * 1000;
+    store.tick(threeDays);
 
-    const halfDay = oneDayMs / 2;
-    store.reviveMemo(memo.id, halfDay);
-    const lastTracedAtAfterRevive = store.getActive()[0].lastTracedAt;
-    expect(store.reviveStatusOf(memo.id, halfDay)!.cooldownMs).toBe(cooldownMs);
+    store.reviveMemo(memo.id, threeDays);
+    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(0.6);
 
-    // クールタイムが明ける直前まではなぞっても復活せず、クールタイムも動かない。
-    store.reviveMemo(memo.id, halfDay + cooldownMs - 1);
-    expect(store.getActive()[0].lastTracedAt).toBe(lastTracedAtAfterRevive);
-    expect(store.reviveStatusOf(memo.id, halfDay + cooldownMs - 1)!.cooldownMs).toBe(1);
+    // 同じ時刻で間を置かずもう一度なぞっても、まだ経過時間に余裕があるぶん
+    // そのままもう15%戻り、今回はそれで100%に戻る。
+    store.reviveMemo(memo.id, threeDays);
+    expect(store.opacityOf(store.getActive()[0], threeDays)).toBe(1);
 
-    // クールタイムが明けた後は、再びなぞって復活できる。
-    store.reviveMemo(memo.id, halfDay + cooldownMs);
-    expect(store.getActive()[0].lastTracedAt).toBeGreaterThan(lastTracedAtAfterRevive);
+    // 100%表示になった後も、経過時間がまだ0でない間はなぞるたびに「今」へ
+    // 近づき続け、最終的にちょうど「今」に追いつく。
+    store.reviveMemo(memo.id, threeDays);
+    expect(store.getActive()[0].lastTracedAt).toBe(threeDays);
+
+    // 追いついた後にもう一度なぞっても、これ以上経過時間を削れないので変化しない
+    // （クールタイムではなく、単に「戻す先がもう無い」ため）。
+    store.reviveMemo(memo.id, threeDays);
+    expect(store.getActive()[0].lastTracedAt).toBe(threeDays);
   });
 
   it("今日中（lifespanDays=1）は24時間で消える", () => {
@@ -177,13 +177,13 @@ describe("MemoStore", () => {
     expect(store.getActive()[0].lastTracedAt).toBe(tinyElapsed);
   });
 
-  it("なぞって回復できる回数に総量の上限はない：クールタイムを空ければ何度でも復活できる（Issue #11の総量制限をクールタイム制に変更）", () => {
+  it("なぞって回復できる回数・頻度に上限はない：間隔を空けても詰めても何度でも復活できる（Issue #11の総量制限は撤廃）", () => {
     const store = new MemoStore();
     const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1
     const oneDayMs = 24 * 60 * 60 * 1000;
 
-    // クールタイム(10%=2.4時間)より十分に長い間隔（=1日）を空けてなぞり直すことを
-    // 20回繰り返す。総量制限が無いため、いつまでも同じように回復し続けられる。
+    // 1日ぶんの間隔を空けてなぞり直すことを20回繰り返す。総量制限もクール
+    // タイムも無いため、いつまでも同じように回復し続けられる。
     let now = 0;
     for (let i = 0; i < 20; i++) {
       now += oneDayMs; // 前回のなぞりから丸1日分の余裕を空ける
@@ -203,6 +203,72 @@ describe("MemoStore", () => {
     store.reviveMemo(memo.id, 7 * 24 * 60 * 60 * 1000 + 1);
     expect(store.getActive()).toHaveLength(0);
     expect(store.getFaded()).toHaveLength(1);
+  });
+
+  describe("nudgeMemoClock（選択道具でメモを掴んで振り回す操作専用）", () => {
+    it("deltaMsぶんlastTracedAtを直接ずらす。負なら経過時間が増える（進める）", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
+      const fourHoursMs = 4 * 60 * 60 * 1000;
+
+      store.nudgeMemoClock(memo.id, -fourHoursMs);
+      expect(store.getActive()[0].lastTracedAt).toBe(-fourHoursMs);
+      // 4時間経過/24時間 = 1/6 > 1/7(60%へ落ちる境界)なので一段階(0.6)まで進む
+      expect(store.opacityOf(store.getActive()[0], 0)).toBe(0.6);
+    });
+
+    it("正なら「今」に近づく側（復活）", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
+      const oneHourMs = 60 * 60 * 1000;
+
+      store.nudgeMemoClock(memo.id, -oneHourMs);
+      store.nudgeMemoClock(memo.id, oneHourMs);
+      expect(store.getActive()[0].lastTracedAt).toBe(0);
+    });
+
+    it("cap・クールタイムは無く、間を置かず何度でも呼べる（1日上限がある今、頻度を制限する理由がないため撤廃）", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
+      const oneHourMs = 60 * 60 * 1000;
+
+      store.nudgeMemoClock(memo.id, -oneHourMs);
+      const afterFirst = store.getActive()[0].lastTracedAt;
+      store.nudgeMemoClock(memo.id, -oneHourMs);
+      expect(store.getActive()[0].lastTracedAt).toBe(afterFirst - oneHourMs);
+    });
+
+    it("なぞった履歴（traceHistory）には残さない（振り回しは『なぞった』わけではない）", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0);
+      store.nudgeMemoClock(memo.id, -60 * 60 * 1000);
+      expect(store.getActive()[0].traceHistory).toEqual([0]);
+    });
+
+    it("繰り返して寿命に到達させると、tickでfadedになる", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, TODAY, 0); // lifespanDays=1（24時間）
+      const oneHourMs = 60 * 60 * 1000;
+
+      for (let i = 0; i < 25; i++) {
+        store.nudgeMemoClock(memo.id, -oneHourMs);
+      }
+      store.tick(0);
+      expect(store.getActive()).toHaveLength(0);
+      expect(store.getFaded()).toHaveLength(1);
+      expect(store.getFaded()[0].id).toBe(memo.id);
+    });
+
+    it("faded済みメモをnudgeMemoClockしても何も起きない", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.tick(7 * 24 * 60 * 60 * 1000);
+      expect(store.getFaded()).toHaveLength(1);
+
+      store.nudgeMemoClock(memo.id, 60 * 60 * 1000);
+      expect(store.getActive()).toHaveLength(0);
+      expect(store.getFaded()).toHaveLength(1);
+    });
   });
 
   describe("createTextMemo（テキストメモ）", () => {

@@ -10,6 +10,7 @@ const STORAGE_KEY = "memos";
 const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
 const CUSTOM_TEMPLATES_KEY = "customTemplates";
+const TUTORIAL_SEEN_KEY = "tutorialSeen";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
@@ -56,10 +57,6 @@ function migrate(raw: Record<string, unknown>): Memo {
     createdAt,
     lastTracedAt,
     traceHistory,
-    // 古いデータ（クールタイム制を導入する前のもの）にはこの項目が無いため、
-    // 直近のなぞり（lastTracedAt）時点でクールタイムは明けていた扱いで補う
-    // （どのみち過去の絶対時刻なので、読み込み直後から復活操作が可能になる）。
-    reviveCooldownUntil: typeof raw.reviveCooldownUntil === "number" ? raw.reviveCooldownUntil : lastTracedAt,
     lifespanDays: raw.lifespanDays as Memo["lifespanDays"],
     status: raw.status as Memo["status"],
     color: typeof raw.color === "string" ? raw.color : DEFAULT_COLOR,
@@ -171,4 +168,18 @@ export function loadCustomTemplates(): TemplateDef[] {
 
 export function saveCustomTemplates(templates: TemplateDef[]): void {
   localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
+}
+
+/** 初回チュートリアル（円相の由来と基本操作を紹介する全画面ガイド）を、
+ *  既に見終えたかどうか。 */
+export function loadTutorialSeen(): boolean {
+  try {
+    return localStorage.getItem(TUTORIAL_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markTutorialSeen(): void {
+  localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
 }

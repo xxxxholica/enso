@@ -68,24 +68,6 @@ describe("storage migration（道具・色・なぞり履歴を持たない古�
     expect(loaded[0].traceHistory).toEqual([1000, 5000]);
   });
 
-  it("reviveCooldownUntilが無い古いデータ（クールタイム制導入前）は、直近のなぞり時点で明けていた扱いで補う", () => {
-    const legacy = {
-      id: "memo_legacy_cooldown",
-      x: 0,
-      y: 0,
-      strokes: [[{ x: 0, y: 0 }]],
-      createdAt: 1000,
-      lastTracedAt: 5000,
-      lifespanDays: null,
-      status: "active",
-      // reviveCooldownUntilは無い（クールタイム制導入前の古い保存形式）
-    };
-    localStorage.setItem("memos", JSON.stringify([legacy]));
-
-    const loaded = loadMemos();
-    expect(loaded[0].reviveCooldownUntil).toBe(5000);
-  });
-
   it("形が壊れているデータは読み飛ばす", () => {
     localStorage.setItem("memos", JSON.stringify([{ garbage: true }, null, "x"]));
     expect(loadMemos()).toEqual([]);
@@ -106,7 +88,6 @@ describe("storage migration（道具・色・なぞり履歴を持たない古�
       createdAt: 100,
       lastTracedAt: 200,
       traceHistory: [100, 200],
-      reviveCooldownUntil: 200,
       lifespanDays: 7,
       status: "active",
       tool: "marker",
@@ -130,7 +111,6 @@ describe("storage migration（道具・色・なぞり履歴を持たない古�
       createdAt: 100,
       lastTracedAt: 100,
       traceHistory: [100],
-      reviveCooldownUntil: 100,
       lifespanDays: null,
       status: "active",
       color: "#2f2a26",

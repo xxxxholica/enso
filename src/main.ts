@@ -7,13 +7,23 @@ import { RewindSelector } from "./rewindSelector";
 import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { setupControlPanelPages } from "./controlPanelPages";
+import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
-import { loadFramePattern, loadFrameShape, saveFramePattern, saveFrameShape } from "./storage";
+import {
+  loadFramePattern,
+  loadFrameShape,
+  loadTutorialSeen,
+  markTutorialSeen,
+  saveFramePattern,
+  saveFrameShape,
+} from "./storage";
 import { TemplatePicker } from "./templatePicker";
+import { openTutorialOverlay } from "./tutorial/tutorialOverlay";
+import { ICONS } from "./icons";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -26,11 +36,15 @@ app.innerHTML = `
       </nav>
     </div>
     <div class="app-header-right">
+      <button type="button" id="tutorial-replay-btn" class="tutorial-replay-btn" aria-label="円相のチュートリアルを見る"></button>
       <div id="account-slot"></div>
     </div>
   </header>
   <main class="app-main">
-    <div id="canvas-panel" class="view-panel fade-visible"></div>
+    <div id="canvas-panel" class="view-panel fade-visible">
+      <div id="canvas-wrap"></div>
+      <div id="canvas-info-row" class="info-row"></div>
+    </div>
     <div id="shared-panel" class="view-panel fade-visible" hidden></div>
   </main>
   <footer class="app-footer">
@@ -81,9 +95,14 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
 });
 
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
+const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
 const primarySlot = document.querySelector<HTMLDivElement>("#primary-slot")!;
 const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
+// 「残り時間」ピル（キャンバスタブ）: ツールバー直上の行に、共有タブの
+// 「＋ルームを作成」等と同じ見た目で置く（ユーザー指示）。共有タブ側は
+// smuiView自身が同じ行の中で持つ（getRoomMenuSlot()の横）。
+const canvasReviveInfoPill = new ReviveInfoPill(document.querySelector<HTMLDivElement>("#canvas-info-row")!);
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
@@ -128,7 +147,23 @@ setupControlPanelPages(
 // ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
 // 変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-const openTemplatePicker = () => templatePicker.open();
+// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介するチュートリアルを
+// 挟む（仮想キャンバス上で完結し、実キャンバスのメモ・振り返り機構には触れない）。
+// 見終えた／スキップした後は、これまで通りテンプレート選択へ続く。
+const openTemplatePicker = () => {
+  if (!loadTutorialSeen()) {
+    openTutorialOverlay(() => {
+      markTutorialSeen();
+      templatePicker.open();
+    });
+    return;
+  }
+  templatePicker.open();
+};
+
+const tutorialReplayBtn = document.querySelector<HTMLButtonElement>("#tutorial-replay-btn")!;
+tutorialReplayBtn.innerHTML = ICONS.guide;
+tutorialReplayBtn.addEventListener("click", () => openTutorialOverlay(() => {}));
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
@@ -139,7 +174,7 @@ const getToolState = () => ({
   eraserRadius: toolbar.getEraserRadius(),
 });
 
-const canvasView = new CircularCanvas(canvasPanel, store, getToolState, {
+const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   onRequestTemplatePicker: openTemplatePicker,
 });
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
@@ -259,7 +294,10 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
 function frame(): void {
   const now = Date.now();
   store.tick(now);
-  if (currentView === "canvas") canvasView.render(now);
+  if (currentView === "canvas") {
+    canvasView.render(now);
+    canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
+  }
   if (currentView === "shared") smuiView.render(now);
   requestAnimationFrame(frame);
 }

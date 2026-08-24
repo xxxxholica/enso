@@ -9,7 +9,7 @@ import { circleIntersectsBox, pointNearStrokes } from "./geometry";
 import { renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
-import { renderReviveInfoBox } from "./reviveInfoBox";
+import { currentReviveInfoTarget } from "./reviveInfoTarget";
 import { getTemplateText } from "./templates";
 import type { TemplateId } from "./templates";
 import {
@@ -41,6 +41,31 @@ const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
 const HIT_THRESHOLD_PX = 12;
+/** 掴んだ地点（回転の軸）から半径がこれ未満の間は、なぞる操作扱いの微小な
+ *  手ブレでも回転角が暴れてしまうため、回転の積算自体を行わない。 */
+const ROTATE_MIN_RADIUS_PX = 24;
+/** 選択道具でメモを掴んで振り回す操作の「1段」にあたる回転量（1回転）。
+ *  これ未満の回転は普通のドラッグ移動の揺れとみなし、何も起きない
+ *  （ユーザー指示：1回転させるごとに1段ぶん進む/戻る、なるべく誤発火しない値）。 */
+const ROTATE_STEP_RAD = Math.PI * 2;
+/** 1段（1回転）ぶんの基準となる時間量。以前は寿命(1日)の15%（=3.6時間）だったが、
+ *  復活しすぎるとの指摘を受け、寿命に対する割合ではなく絶対量の1時間に
+ *  変更した（ユーザー指示：1周1時間にして）。同じ向きに連続で振り回すほど
+ *  ROTATE_ACCEL_PER_STEPぶんずつ加速し、ROTATE_MAX_STEP_MSで打ち止める
+ *  （ユーザー指示：連続で回されたら段々加速するように）。 */
+const ROTATE_STEP_MS = 60 * 60 * 1000;
+/** 同じ向きに連続する段（rotateStreak）が1つ増えるごとに、1段あたりの時間量に
+ *  上乗せする量。streak=1（1段目）はROTATE_STEP_MSそのまま、streak=2で+0.5時間
+ *  …と線形に増える。 */
+const ROTATE_ACCEL_PER_STEP_MS = ROTATE_STEP_MS * 0.5;
+/** 1段あたりの時間量の上限（ROTATE_STEP_MSの4倍=4時間）。加速し続けても
+ *  1回の振り回しで寿命(1日)を大きく超えて飛ばないよう頭打ちにする。 */
+const ROTATE_MAX_STEP_MS = ROTATE_STEP_MS * 4;
+
+/** 同じ向きに連続してstreak段発火した時点での、1段あたりの時間量（ms）。 */
+function rotateStepAmountMs(streak: number): number {
+  return Math.min(ROTATE_MAX_STEP_MS, ROTATE_STEP_MS + (streak - 1) * ROTATE_ACCEL_PER_STEP_MS);
+}
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
@@ -85,6 +110,25 @@ interface DrawState {
   movingMemoId: string | null;
   idleTimer: number | null;
   lastPoint: Point | null;
+  /** 移動道具で掴んだ瞬間の座標（固定）。ドラッグ中、この点を中心に
+   *  ポインタがどれだけ振り回されたか（rotateAccumRad）を測る基準にする
+   *  ——メモ自体は従来通りポインタに追従して動くが、回転の軸はこの掴んだ
+   *  瞬間の座標に固定し続ける（ユーザー指示）。movingMemoIdがnullの間は無効。 */
+  rotateAnchor: Point | null;
+  /** rotateAnchorを中心に積算した符号付き回転角（ラジアン、時計回りが正——
+   *  toNormalizedはy-down座標系なのでatan2の増加＝時計回り）。振り回している
+   *  間ずっと積算し続け、逆に回せば減る（＝進める/戻すを行き来できる）。 */
+  rotateAccumRad: number;
+  /** rotateAccumRadのうち、既にnudgeMemoClockとして発火し終えた1回転分の
+   *  段数（symmetric、負にもなる）。新しい段（1回転ぶんの整数部分）に達する
+   *  たびに差分ぶんだけ発火し、クールタイムなしで何度でも・逆回転すれば
+   *  即座に打ち消せるようにする（ユーザー指示：復活の制限を撤廃し、
+   *  自由に時間を進める・戻すができるように）。 */
+  rotateFiredSteps: number;
+  /** 同じ向きに連続で発火した段数（符号付き、正=時計回り・負=反時計回り）。
+   *  向きを変えた瞬間に±1へ振り直す——連続で同じ向きに振り回し続けるほど
+   *  1段あたりの効果が加速する（ユーザー指示）。 */
+  rotateStreak: number;
 }
 
 /**
@@ -149,6 +193,10 @@ export class CircularCanvas {
     movingMemoId: null,
     idleTimer: null,
     lastPoint: null,
+    rotateAnchor: null,
+    rotateAccumRad: 0,
+    rotateFiredSteps: 0,
+    rotateStreak: 0,
   };
 
   public getToolState: () => ToolState;
@@ -193,12 +241,7 @@ export class CircularCanvas {
     this.getToolState = getToolState;
     this.interactive = options.interactive ?? true;
     this.canvas = document.createElement("canvas");
-    // frameKind:"single"（個人キャンバス）は形状が常に丸固定なので、要素自体に
-    // border-radius:50%を与えてbox-shadowを円形に沿わせられる（ユーザー指摘：
-    // 初回の第一印象が弱い＝紙が背景に対して浮いて見えない）。SMUI側
-    // （frameKind:"glasses"、楕円/長方形もあり得る）は形状が揃わないため対象外。
-    this.canvas.className =
-      (options.frameKind ?? "single") === "single" ? "circle-canvas circle-canvas--paper" : "circle-canvas";
+    this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
     const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas context is not available");
@@ -262,6 +305,10 @@ export class CircularCanvas {
       this.state.tracingMemoId = null;
       this.state.movingMemoId = null;
       this.state.lastPoint = null;
+      this.state.rotateAnchor = null;
+      this.state.rotateAccumRad = 0;
+      this.state.rotateFiredSteps = 0;
+      this.state.rotateStreak = 0;
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
     }
@@ -425,6 +472,10 @@ export class CircularCanvas {
         this.state.mode = "moving";
         this.state.movingMemoId = hitMemo.id;
         this.state.lastPoint = p;
+        this.state.rotateAnchor = p;
+        this.state.rotateAccumRad = 0;
+        this.state.rotateFiredSteps = 0;
+        this.state.rotateStreak = 0;
       }
       return;
     }
@@ -527,6 +578,10 @@ export class CircularCanvas {
     this.state.tracingMemoId = null;
     this.state.movingMemoId = null;
     this.state.lastPoint = null;
+    this.state.rotateAnchor = null;
+    this.state.rotateAccumRad = 0;
+    this.state.rotateFiredSteps = 0;
+    this.state.rotateStreak = 0;
     this.tracedMemoIdsThisGesture.clear();
   }
 
@@ -761,6 +816,7 @@ export class CircularCanvas {
         }
       }
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
+      this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
       this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
@@ -770,6 +826,48 @@ export class CircularCanvas {
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
+
+  /**
+   * 選択道具でメモを掴んで振り回す操作: 掴んだ瞬間の座標（rotateAnchor、固定）を
+   * 軸に、prev→curの符号付き回転角を積算する。半径がROTATE_MIN_RADIUS_PX未満の
+   * 間は、なぞっている最中の小さな手ブレでも角度が暴れる（原点に近いほど僅かな
+   * 位置ズレが大きな角度差になる）ため積算しない。
+   * 積算角（rotateAccumRad）を1回転（ROTATE_STEP_RAD）単位の「段」に換算し
+   * （rotateFiredSteps）、前回との差分ぶんだけnudgeMemoClockでlastTracedAtを
+   * 動かす——時計回りは過去側（進める）、反時計回りは「今」に近い側（復活）。
+   * 1段あたりの時間量は固定ではなく、同じ向きに連続で振り回すほど
+   * rotateStreak（連続段数）が積み上がりrotateStepAmountMsで加速する
+   * （ユーザー指示：連続で回されたら段々加速するように）。向きを変えた
+   * 瞬間はstreakを1へ振り直し、その新しい向きでまた1段目から加速し直す
+   * ——「逆に回せば減速して戻る」という直感的な操作感になる。
+   * クールタイムや1ジェスチャー1回という制限は設けないため、振り回している
+   * 間は自由に時間を行き来できる。
+   */
+  private updateRotationGesture(memoId: string, prev: Point, cur: Point): void {
+    if (!this.state.rotateAnchor) return;
+    const anchor = this.state.rotateAnchor;
+    const prevVec = { x: prev.x - anchor.x, y: prev.y - anchor.y };
+    const curVec = { x: cur.x - anchor.x, y: cur.y - anchor.y };
+    const minRadius = ROTATE_MIN_RADIUS_PX / this.effectiveScale();
+    if (Math.hypot(prevVec.x, prevVec.y) < minRadius || Math.hypot(curVec.x, curVec.y) < minRadius) return;
+
+    let delta = Math.atan2(curVec.y, curVec.x) - Math.atan2(prevVec.y, prevVec.x);
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta <= -Math.PI) delta += Math.PI * 2;
+    this.state.rotateAccumRad += delta;
+
+    const targetSteps = Math.trunc(this.state.rotateAccumRad / ROTATE_STEP_RAD);
+    while (this.state.rotateFiredSteps < targetSteps) {
+      this.state.rotateStreak = this.state.rotateStreak > 0 ? this.state.rotateStreak + 1 : 1;
+      this.store.nudgeMemoClock(memoId, -rotateStepAmountMs(this.state.rotateStreak)); // 時計回りに1回転進むごと: 寿命を進める
+      this.state.rotateFiredSteps++;
+    }
+    while (this.state.rotateFiredSteps > targetSteps) {
+      this.state.rotateStreak = this.state.rotateStreak < 0 ? this.state.rotateStreak - 1 : -1;
+      this.store.nudgeMemoClock(memoId, rotateStepAmountMs(-this.state.rotateStreak)); // 反時計回りに1回転戻るごと: 復活
+      this.state.rotateFiredSteps--;
+    }
+  }
 
   /** 何も操作していない間（mode==="idle"）だけ呼ばれる。マウスが「なぞる」「移動」
    *  道具でメモの上に来たら、実際に触れなくても残り時間・回復できる時間の案内を
@@ -831,6 +929,17 @@ export class CircularCanvas {
     // fromBlindTyping=true: 同期的にfocusする（詳しくはopenTextEditorのコメント参照）。
     this.openTextEditor({ x: 0, y: 0 }, null, ev.key, true);
   };
+
+  /**
+   * 「残り時間」表示（main.ts/smuiView.tsが持つ、ツールバー直上のピル）用。
+   * なぞる/移動で実際に触れている、またはPCでホバーしている対象の残り時間
+   * (ms)を返す。対象が無ければnull——呼び出し側はnullでピルを隠す。
+   */
+  getHoverRemainingMs(now: number = Date.now()): number | null {
+    const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
+    if (!target) return null;
+    return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
 
   render(now: number): void {
     const { ctx } = this;
@@ -928,12 +1037,6 @@ export class CircularCanvas {
       ctx.fill();
     }
 
-    // なぞる/移動で実際に触れている間、またはPCでその道具にホバーしている間、
-    // 残り時間・次に復活できるまでの時間を背景つきのボックスで表示する
-    // （ユーザー指示）。なぞって復活にはクールタイムがある（Issue #11、
-    // memoStore.tsのreviveMemo参照）ので、「次にいつなぞれるか」が見えないと
-    // 利用者が分からないため。表示のロジック自体はreviveInfoBox.tsに切り出してある。
-    renderReviveInfoBox(ctx, this.store, r, this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
 
     // 消しゴムの当たり範囲を示すカーソル
     if (this.state.mode === "erasing" && this.state.lastPoint) {
