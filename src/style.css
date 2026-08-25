@@ -81,6 +81,27 @@
   display: none !important;
 }
 
+/* アプリ全体（タイトル・ボタン・道具バー等）で、長押し・ドラッグ操作中に
+   OS標準の文字選択ハイライトやiOSのコールアウトメニュー（コピー等）が
+   誤って反応することがあったため、全要素で無効化する（ユーザー指摘）。
+   input/textarea（ルーム名入力・メモのテキスト編集など、実際に文字を
+   選択・編集する場面）だけは元の挙動に戻す——ブラウザの仕様上、
+   user-selectはフォームコントロールの編集中テキストには本来効かないが、
+   -webkit-touch-callout（iOSの長押しメニュー）は明示的に戻さないと
+   ペースト等ができなくなるため、両方を書き戻す。 */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 html,
 body {
   height: 100%;
@@ -90,8 +111,15 @@ body {
      window全体のポインタを監視して独自にピンチズームを実装しているため
      （ユーザー指示：「画面のどこでもズームを実行可能にしたい」）。
      pan-x/pan-yは残すことで、一覧のスクロール（.shared-room-list等）や
-     ページ全体のスクロールは従来通り効く。 */
+     ページ内の各スクロール領域は従来通り効く。 */
   touch-action: pan-x pan-y;
+  /* ページ自体（html/body）はスクロール・バウンスさせない——中身が
+     100dvhにきっちり収まる設計なので、ページ全体がスクロール可能になる
+     必要は無い（ユーザー指摘：キャンバスのある画面でスクロールが発生
+     しないようにしたい）。一覧・使い方シート等、個別にスクロールが必要な
+     領域はそれぞれ自分の要素にoverflow-y:auto＋高さの上限を持っているため、
+     ここでhtml/body自体を止めても影響しない。 */
+  overflow: hidden;
 }
 
 /* 初回起動時、キャンバス（円）が真っ平らな単色の上に浮いて見えないよう、
@@ -110,12 +138,17 @@ body {
   color: var(--ink-solid);
 }
 
+/* --- ヘッダー・フッターがposition:fixedの半透明オーバーレイになったため、
+   上下左右のpaddingはここでは持たない（キャンバス（.app-main）を画面の
+   真の上端〜下端・左端〜右端まで広げ、ズーム・パンした絵がヘッダー/フッターは
+   もちろん左右の端まで見えるようにするため——ユーザー指示）。左右の余白・
+   セーフエリアも.app-header/.app-footer自身のpaddingに移した。 --- */
 #app {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  padding: 0;
   gap: 14px;
 }
 
@@ -123,13 +156,35 @@ body {
    （未ログイン時はログイン/新規登録リンク、ログイン時はClerkのUserButton）を置く帯。
    画面の切り替え（ナビゲーション）と、選んだ画面の中でのツール操作は役割が違うため、
    ここで上下に分けている。以前はナビも下の操作パネル(.control-panel)に同居していたが、
-   その分の幅がなくなったことで、道具・色・テンプレートが1行に収まりやすくなった。 --- */
+   その分の幅がなくなったことで、道具・色・テンプレートが1行に収まりやすくなった。
+   position:fixedで画面の真の上端に張り付く半透明+ぼかしの帯にし、キャンバス
+   （.app-main）はその下まで含めた画面全体に広げる——ズーム・パンした絵が
+   ヘッダーの下まで透けて見えるようにするため（ユーザー指示）。左右の余白・
+   セーフエリアは、以前#appが持っていた分をここに移した。 --- */
 .app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   width: 100%;
+  /* html/bodyのtouch-actionだけでは、position:fixedのこの帯の上で
+     iOS Safari純正のピンチズームが発動してしまう不具合があったため
+     （ユーザー報告）、同じ値をここにも明示的に持たせる。 */
+  touch-action: pan-x pan-y;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  /* 中身（ワードマーク・ナビ文字・アカウントボタン）はどれも背景を持たない
+     プレーンな要素で、下に敷く色を近似しても色浮きが起きていた
+     （ユーザー指摘）。ツールバー側の各ブロック（.control-block）が個別に
+     不透明な背景を持っているのと同じ発想で、背景・ぼかし自体を持たせず、
+     下のキャンバスをそのまま透かす（ユーザー指示）。ズーム中はopacity 0.4の
+     減光で目立たなくなる。 */
+  transition: opacity 180ms ease;
 }
 
 .app-header-left {
@@ -237,18 +292,18 @@ body {
   justify-content: center;
 }
 
-/* --- キャンバスタブ本体。以前は円だけを中央に置く単純な箱だったが、
-   共有タブ（.smui-view）と同じく「ツールバー直上」に情報行(#canvas-info-row、
-   残り時間ピル)を置きたいため、縦積みのflexにして円側(#canvas-wrap)に
-   残りの高さを埋めさせる（align-items:stretchに切り替え、.smui-viewと
-   同じ考え方）。 --- */
+/* --- キャンバスタブ本体。#canvas-info-row（残り時間ピル）はflexの並びから
+   外し、position:absoluteで自分（position:relative）の下端に重ねて置く
+   （.info-row参照）——flexの並びのままだと、キャンバス要素が画面全体に
+   広がった後もこの行の分だけ#canvas-wrap（＝実際のcanvas要素）の高さが
+   狭いままになり、その透明な隙間からbodyの背景色が覗いて色が浮いて見える
+   不具合があった（ユーザー指摘）。 --- */
 #canvas-panel {
+  position: relative;
   width: 100%;
-  padding: 4px 4px 12px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
 }
 
 #canvas-wrap {
@@ -371,11 +426,35 @@ body {
   align-items: stretch;
 }
 
+/* --- .app-headerと同じ理由でposition:fixedの半透明+ぼかしの帯にし、画面の
+   真の下端に張り付ける（ユーザー指示）。左右の余白は以前#appが持っていた分を
+   ここに移した。 --- */
 .app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   width: 100%;
+  /* .app-headerと同じ理由（ユーザー報告：ツールバー上でiOS純正のピンチズームが
+     発動してしまう）。 */
+  touch-action: pan-x pan-y;
   display: flex;
   justify-content: center;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  /* .app-footer自体は背景を持たない——中身の3ブロック（.control-block）が
+     それぞれ個別に不透明な背景（var(--paper-1)）を持っているため、コンテナ
+     側で重ねて背景を敷くと色浮きするだけで意味が無かった（ユーザー指摘）。 */
+  transition: opacity 180ms ease;
+}
+
+/* --- ズーム中（1倍より拡大、main.tsのcanvasView.isZoomed()/smuiView.isZoomed()
+   参照）は、画面全体に広がったキャンバスの上に乗るヘッダーを薄くし、下の絵が
+   見えるようにする（ユーザー指示）。ツールバー（.app-footer）は操作の対象
+   そのものなので薄くしない（ユーザー指示：ツールバー自体は薄くならなくて
+   良い）。ボタン自体は押せるままにするためpointer-eventsは変えない。 --- */
+#app.is-zoomed .app-header {
+  opacity: 0.4;
 }
 
 /* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの
@@ -587,17 +666,26 @@ body {
     padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
   }
 
-  /* 折り返した分だけ下部バーの縦幅が増えるため、#app・.app-footer側の余白を
-     詰めて、その分をキャンバス（.app-main、flex:1で残り高さを取る）に回す
-     （ユーザー報告：キャンバスがデフォルトで小さい）。 */
+  /* ヘッダー・フッターはposition:fixedの固定オーバーレイで、自前でpadding・
+     セーフエリアを持つため、#appはpaddingを持たない（以前は上下左右の
+     paddingもここで詰めていたが、その役割は.app-header/.app-footer自身に
+     移った——ユーザー指示：左右の余白も詰めたい）。折り返した分だけ下部バーの
+     縦幅が増えるため、.app-footer側の余白も詰めて、その分をキャンバス
+     （.app-main、flex:1で残り高さを取る）に回す（ユーザー報告：キャンバスが
+     デフォルトで小さい）。 */
   #app {
-    padding: clamp(8px, 2.5vw, 10px);
-    padding-bottom: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-bottom, 0px));
+    padding: 0;
     gap: clamp(6px, 2vw, 8px);
   }
 
+  .app-header {
+    padding: clamp(8px, 2.5vw, 10px);
+    padding-top: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-top, 0px));
+  }
+
   .app-footer {
-    padding-bottom: calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
+    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 10px)
+      calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -1393,32 +1481,55 @@ body {
    frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
    （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
    (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
-   高さいっぱいまで育つ。 --- */
+   高さいっぱいまで育つ。.info-row（ルーム作成・見た目設定・残り時間ピル）は
+   #canvas-panelと同じ理由でflexの並びから外し、position:absoluteで重ねる
+   （.info-row参照）。 --- */
 .smui-view {
+  position: relative;
   width: 100%;
   height: 100%;
-  padding: 4px 4px 12px;
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
 /* --- ツールバー直上の情報行。共有タブでは眼鏡キャンバスの下にルーム作成・
    選択（SharedRoomMenu）、見た目の設定（AppearanceSelector）、残り時間ピルを
    中央寄せで横並びに置く（ユーザー指示）。キャンバスタブでは残り時間ピルだけを
    同じ見た目で置く（#canvas-info-row、main.ts）。
+   親（#canvas-panel/.smui-view、いずれもposition:relative）の下端に
+   position:absoluteで重ねる——flexの並びのままだと、この行の分だけ実際の
+   キャンバス要素（#canvas-wrap/.smui-canvas-wrap）が画面の真の下端まで
+   届かず、その隙間からbodyの背景色が透けて見える不具合があった
+   （ユーザー指摘：ツールバーは半透明でブロックの間に隙間があるため、
+   その隙間から色が浮いて見えていた）。中身が無い間（ピル非表示時）は
+   キャンバスへのタップ・描画を妨げないよう、この行自体はpointer-events:noneに
+   し、実際に見えているボタン・ピル（直接の子要素）にだけpointer-events:auto
+   で戻す。
    min-heightは中身の見た目上の高さに固定しておく——中身（「+ルームを作成」
    ⇔選択中のルームID、ピルの表示/非表示）が変わってもこの行の高さ自体は
-   変わらないようにし、共有キャンバス（.smui-canvas-wrap、flex:1 1 auto）の
-   実際の高さがそのたびに変わってフレームの太さ（frameStrokeWidthは高さに
-   比例）まで変化して見えてしまう、という事態を避ける。 --- */
+   変わらないようにするため（以前はこれが共有キャンバスの実際の高さの変化＝
+   フレームの太さの変化に繋がっていたが、position:absolute化した今も、
+   見た目の高さが変わらない方が望ましい動作のため踏襲する）。 --- */
 .info-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* .app-footer（position:fixed、高さはcontrol-panelの72px＋自身のpadding＋
+     セーフエリアでおおよそ80〜90px）の裏に隠れないよう、その高さぶん＋
+     見た目の隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずが
+     bottom:0だとツールバーの裏＝画面の真下に来てしまい隠れていた）。 */
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 10px;
-  flex: 0 0 auto;
   min-height: 34px;
+  pointer-events: none;
+}
+
+.info-row > * {
+  pointer-events: auto;
 }
 
 .smui-canvas-wrap {
@@ -1887,7 +1998,15 @@ body {
    している（ユーザー指示：ウィンドウのサイズを変えないでほしい）。以前は
    「みる」手順（スライダーが出る前）だけを基準に600pxにしていたため、
    その後スライダーが追加表示される瞬間に床面を超えてわずかに伸びていた
-   （ユーザー報告）。 */
+   （ユーザー報告）。
+   固定の700pxのままだと、画面の低い端末では.usage-guide-sheet（max-height:
+   calc(100dvh - 48px)）に収まりきらず、シート内でスクロールが発生してしまう
+   （ユーザー指摘：使い方タブでもスクロールが起きないようサイズ調整したい／
+   固定pxは比率に直したい）。min()でdvh基準の上限を足し、画面が低い時は
+   700pxより縮めて必ず収まるようにする——200pxは.usage-guide-sheetの上下
+   padding(72px)・.usage-guide-headの高さ・.usage-guide-pagesのmargin-top
+   (24px)・.usage-guideの上下padding(48px)を合わせた、ページ本体以外に
+   必要な縦幅の見積もり。 */
 .usage-guide-page {
   display: flex;
   flex-direction: column;
@@ -1895,7 +2014,7 @@ body {
   justify-content: center;
   gap: var(--space-5);
   text-align: center;
-  min-height: 700px;
+  min-height: min(700px, calc(100dvh - 200px));
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
 }
@@ -1980,7 +2099,7 @@ body {
     height: 108px;
   }
   .usage-guide-page {
-    min-height: 680px;
+    min-height: min(680px, calc(100dvh - 200px));
   }
 }
 

@@ -512,4 +512,10 @@ export class SmuiView {
     this.reviveInfoPill.update(this.lens.getHoverRemainingMs(now));
     this.sessionPanel.update(now, this.isRoomMaster(), this.session);
   }
+
+  /** キャンバスタブと同じく、共有タブでもズーム中はヘッダー/ツールバーを
+   *  薄くするための判定（main.ts参照）。 */
+  isZoomed(): boolean {
+    return this.lens.isZoomed();
+  }
 }

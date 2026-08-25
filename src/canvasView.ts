@@ -69,9 +69,12 @@ function rotateStepAmountMs(streak: number): number {
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
- *  意味がないため許可しない。 */
+ *  意味がないため許可しない。上限は、キャンバス要素がヘッダー/ツールバーの
+ *  下まで広がった（issue #83）後、最大までズーム+パンした時にその下まで
+ *  確実に絵が届くよう2倍から引き上げた（ユーザー指摘：2倍だとギリギリ
+ *  届かないことがある）。 */
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 2;
+const MAX_ZOOM = 3;
 
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -610,20 +613,37 @@ export class CircularCanvas {
    *  できるよう、windowレベルですべてのpointerdownを監視する。今表示中の
    *  インタラクティブなキャンバスだけが反応する——非表示のタブ・
    *  interactive:falseのプレースホルダーは無視する（ユーザー指示：
-   *  「どこを2本指でしてもキャンバスのみをズームしたい」）。 */
+   *  「どこを2本指でしてもキャンバスのみをズームしたい」）。
+   *
+   *  2本目の指が乗った瞬間にev.preventDefault()する——style.cssのtouch-action
+   *  だけでは、iOS Safariでヘッダー/ツールバー（position:fixedの帯）の上だと
+   *  純正のピンチズームが発動してしまう不具合があった（ユーザー報告）。
+   *  canvas自身の単指描画（onPointerDown）は最初からpreventDefault()で
+   *  純正ジェスチャーを止めており実際に機能しているため、同じ考え方を
+   *  2本指検知にも適用する——1本目だけの間は呼ばない（通常のタップ・
+   *  ボタン操作を妨げないため）。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.pinchPointers.size === 2) this.beginPinch();
+    if (this.pinchPointers.size === 2) {
+      ev.preventDefault();
+      this.beginPinch();
+    }
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
+   *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
+   *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
+   *  （onGlobalPointerDownのコメント参照）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
     if (!this.pinchPointers.has(ev.pointerId)) return;
     this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.state.mode === "pinching") this.updatePinch();
+    if (this.state.mode === "pinching") {
+      ev.preventDefault();
+      this.updatePinch();
+    }
   };
 
   /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
@@ -1137,6 +1157,13 @@ export class CircularCanvas {
     const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
     if (!target) return null;
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
+
+  /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
+   *  広がったキャンバスの上に固定オーバーレイとして乗る）を薄くするかどうかの
+   *  判定に使う（ユーザー指示：ズーム中は下の絵が見えるよう薄くしたい）。 */
+  isZoomed(): boolean {
+    return this.viewZoom > MIN_ZOOM;
   }
 
   render(now: number): void {
