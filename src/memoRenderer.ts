@@ -2,6 +2,48 @@ import { fontPxForRender, LINE_HEIGHT_MULTIPLIER, TEXT_FONT_FAMILY } from "./tex
 import { toolRenderStyle } from "./toolStyle";
 import type { Memo } from "./types";
 
+const HEAT_GLOW_COLOR = "oklch(70% 0.18 35 / 0.45)";
+const HEAT_GLOW_MAX_RADIUS_PX = 60;
+
+/**
+ * 中心(cx, cy)・半径radiusPxの放射グラデーションの円を描く共通ヘルパー。
+ * なぞり中/移動中のかすかなグロー（canvasView.ts）と、投票フェーズの熱量グロー
+ * （renderHeatGlow）が同じ「中心から色→透明へのグラデーションの円」という
+ * 描き方を共有するため、ここに1つだけ持つ。
+ */
+export function drawRadialGlow(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radiusPx: number,
+  color: string
+): void {
+  const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radiusPx);
+  grad.addColorStop(0, color);
+  grad.addColorStop(1, "transparent");
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/**
+ * 共同アイデア出しの投票フェーズ(voting)中、およびフェーズ終了後(fadeExempt)に、
+ * メモの相対密度(0..1)を暖色のグローとして描画する。relativeDensityが0以下
+ * なら何も描かない。
+ */
+export function renderHeatGlow(
+  ctx: CanvasRenderingContext2D,
+  memo: Memo,
+  radius: number,
+  relativeDensity: number
+): void {
+  if (relativeDensity <= 0) return;
+  drawRadialGlow(ctx, memo.x * radius, memo.y * radius, HEAT_GLOW_MAX_RADIUS_PX * Math.min(1, relativeDensity), HEAT_GLOW_COLOR);
+}
+
 /**
  * 1つのメモを円のローカル座標系（中心が原点、半径がradius px）に描画する。
  * 呼び出し側であらかじめ円の中心へtranslate済みのコンテキストに対して呼ぶこと。

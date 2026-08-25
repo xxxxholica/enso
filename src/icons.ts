@@ -27,7 +27,9 @@ export const ICONS: Record<
   | "patternTortoiseshell"
   | "patternClear"
   | "patternWood"
-  | "trash",
+  | "trash"
+  | "timer"
+  | "room",
   string
 > = {
   pen: `
@@ -198,5 +200,22 @@ export const ICONS: Record<
       <path d="M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>`,
+  // 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン用。
+  timer: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M9 2h6" />
+      <path d="M12 5v3" />
+      <circle cx="12" cy="14" r="7" />
+      <path d="M12 14V10" />
+      <path d="M12 14l3.2 1.8" />
+    </svg>`,
+  // 接続中のルーム（sharedRoomMenu.ts）を表す小さな家のアイコン。IDの文字列
+  // だけでは何を表しているボタンか分かりにくい、というユーザー指摘のため。
+  room: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M4 11.5l8-7 8 7" />
+      <path d="M6 10.2V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.8" />
+      <path d="M10 20v-5h4v5" />
     </svg>`,
 };
