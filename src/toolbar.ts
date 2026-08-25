@@ -17,14 +17,15 @@ const COLOR_INPUT_SEED = "#2f2a26";
  *  defaultの16pxは、その旧固定値と同じ。 */
 const ERASER_RADIUS_RANGE = { min: 8, max: 40, step: 1, default: 16 } as const;
 
-/** すぐ選べる固定インク3色（GoodNotesの黒/赤/青のような定番色、ユーザー指示）。
- *  「黒」は既存の既定インク色（DEFAULT_INK）をそのまま使う——見た目・初期状態を
- *  変えないため。赤・青は罫線紙の上でも視認しやすいよう、黒と同じくらいの
- *  明度感（暗め）で彩度を持たせた値にしている。 */
-const PRESET_INKS: { id: "black" | "red" | "blue"; label: string; color: string }[] = [
-  { id: "black", label: "黒", color: DEFAULT_INK },
-  { id: "red", label: "赤", color: "oklch(52% 0.2 25)" },
-  { id: "blue", label: "青", color: "oklch(48% 0.16 258)" },
+/** すぐ選べる固定インク3色。以前は黒/赤/青（GoodNotes風の定番色）だったが、
+ *  マーカーではまず使わない黒を外し、色の三原色（CMY：シアン・マゼンタ・
+ *  イエロー）に総入れ替えした（ユーザー指示）。罫線紙の上でも視認しやすい
+ *  よう、既存の赤・青と同じ考え方で暗め・彩度高めの値にしている——イエローだけは
+ *  暗くすると黄色に見えなくなる（オリーブ色化する）ため、明度をやや高めにした。 */
+const PRESET_INKS: { id: "cyan" | "magenta" | "yellow"; label: string; color: string }[] = [
+  { id: "cyan", label: "シアン", color: "oklch(58% 0.13 210)" },
+  { id: "magenta", label: "マゼンタ", color: "oklch(52% 0.22 340)" },
+  { id: "yellow", label: "イエロー", color: "oklch(68% 0.15 95)" },
 ];
 
 /** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
@@ -334,13 +335,16 @@ export class Toolbar {
 
   /** 今の色がどのスワッチと一致するかで、その1つだけにリングを付けて選択中を示す
    *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー入力の
-   *  表記ゆれを考慮する必要がない）。 */
+   *  表記ゆれを考慮する必要がない）。既定のインク色（DEFAULT_INK、黒系）は
+   *  固定スワッチから黒を外した都合上どのプリセットとも一致しないため、
+   *  「好きな色」スワッチは実際に一度選んだ（customColorがある）ときだけ
+   *  アクティブにする——単に一致するプリセットが無いというだけで、まだ選んで
+   *  いない虹色のスワッチにリングが付いてしまうのを防ぐ。 */
   private syncSwatch(): void {
-    const isPresetActive = PRESET_INKS.some((preset) => preset.color === this.color);
     for (const preset of PRESET_INKS) {
       this.presetButtons.get(preset.id)!.dataset.active = String(preset.color === this.color);
     }
-    this.customSwatchBtn.dataset.active = String(!isPresetActive);
+    this.customSwatchBtn.dataset.active = String(this.customColor !== null && this.customColor === this.color);
     if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
     }
