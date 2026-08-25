@@ -82,7 +82,9 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
     const realtime = connectRealtimeSync(
       session,
       () => void refreshFromCloud(store),
-      (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId)
+      (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
+      (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
+      (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat)
     );
     disconnectRealtime = realtime.disconnect;
     subscribeToRoom = realtime.subscribeToRoom;
@@ -187,7 +189,7 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
 // 個別のフェード処理は不要。
 let frameShapeId = loadFrameShape();
 let framePatternId = loadFramePattern();
-const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, openTemplatePicker);
+const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, toolbar, openTemplatePicker);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // 画面切り替え時、道具バー・振り返りスライダーをふわっとフェードイン／

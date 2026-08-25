@@ -1,13 +1,33 @@
 import { CircularCanvas } from "./canvasView";
 import type { CircularCanvasOptions, ToolState } from "./canvasView";
-import { getSharedCanvas } from "./sharedCanvas";
+import {
+  addMemoHeat,
+  advanceSession,
+  endSession as endSessionApi,
+  extendSession,
+  getSharedCanvas,
+  startSession,
+  type SessionState,
+  type StartSessionOptions,
+} from "./sharedCanvas";
 import { SharedRoomSync } from "./sharedCanvasSync";
 import { MemoStore } from "./memoStore";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
 import { ReviveInfoPill } from "./reviveInfoPill";
+import { SessionPanel } from "./sessionPanel";
 import type { TemplateId } from "./templates";
+import { DEFAULT_INK, type Toolbar } from "./toolbar";
+import { getCurrentUser } from "./authState";
+
+/** フェーズ①(ideation)の色プール。参加者ごとに割り当てられたcolor_indexから、
+ *  黄金角で均等に色相を割り振って生成する——上限人数(maxParticipants)が
+ *  何人でも、固定の配列を使い切る心配がなく均等に見分けやすい色になる。 */
+function colorForIndex(index: number): string {
+  const hue = (index * 137.508) % 360;
+  return `oklch(58% 0.15 ${hue.toFixed(1)})`;
+}
 
 /** 眼鏡フレームの縁取りの色・太さ。通常キャンバスの薄い1px線より太いウェリントン
  *  風の見た目にする。太さはキャンバスの実サイズ（px）に対する比率で持たせる
@@ -64,6 +84,15 @@ export class SmuiView {
   private lens: CircularCanvas;
   private roomSync: SharedRoomSync | null = null;
   private selectedRoomId: string | null = null;
+  /** selectRoom()で読み込んだ実体（プレースホルダーでない）のMemoStore。
+   *  投票フェーズの熱量をnotifyHeatChanged/handleRotationVoteから直接
+   *  書き換えるために保持しておく。 */
+  private sharedStore: MemoStore | null = null;
+  private toolbar: Toolbar;
+  private sessionPanel!: SessionPanel;
+  /** ルームの作成者=ルームマスター。セッションの開始・進行操作の可否判定に使う。 */
+  private ownerId: string | null = null;
+  private session: SessionState | null = null;
   /** selectRoom()の多重呼び出し（招待リンク自動参加と手動クリックが競合する
    *  等）に対するレース対策。呼び出しごとに採番し、awaitから戻った時点で
    *  自分がまだ最新かを確認する——古い方はSharedRoomSyncのsetIntervalを
@@ -79,12 +108,14 @@ export class SmuiView {
     getToolState: () => ToolState,
     initialFrameShapeId: FrameShapeId,
     initialFramePatternId: FramePatternId,
+    toolbar: Toolbar,
     onRequestTemplatePicker?: () => void
   ) {
     this.getToolState = getToolState;
     this.onRequestTemplatePicker = onRequestTemplatePicker;
     this.frameShapeId = initialFrameShapeId;
     this.framePatternId = initialFramePatternId;
+    this.toolbar = toolbar;
 
     this.buildDom(container);
 
@@ -109,6 +140,92 @@ export class SmuiView {
    *  置く（ユーザー指示）。main.tsがここにAppearanceSelectorをマウントする。 */
   getAppearanceSlot(): HTMLElement {
     return this.appearanceSlotEl;
+  }
+
+  /** 共同アイデア出しセッションのフェーズ①②の間、実際に使われる色を上書きする
+   *  （Toolbar自体はいじらず、こちらのラッパーだけが返す値を差し替える——
+   *  Toolbarは「キャンバス」タブとも共有する単一インスタンスのため）。 */
+  private effectiveToolState = (): ToolState => {
+    const base = this.getToolState();
+    const forced = this.forcedColor();
+    return forced ? { ...base, color: forced } : base;
+  };
+
+  private isRoomMaster(): boolean {
+    return this.ownerId !== null && getCurrentUser()?.id === this.ownerId;
+  }
+
+  /** 今のセッションフェーズに応じて強制すべき色。無ければnull(通常どおり
+   *  Toolbarで選んだ色を使う)。 */
+  private forcedColor(): string | null {
+    if (!this.session) return null;
+    if (this.session.phase === "discussion") return this.isRoomMaster() ? DEFAULT_INK : null;
+    if (this.session.phase === "ideation") {
+      return this.session.myColorIndex !== null ? colorForIndex(this.session.myColorIndex) : null;
+    }
+    return null;
+  }
+
+  /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効)と
+   *  実際のキャンバスの書き込み可否(CircularCanvas.setLocked)を揃える。
+   *  フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする——
+   *  「話し合いの時間」であって、書き込むための時間ではないため。 */
+  private applyRestrictions(): void {
+    if (!this.active || !this.session) {
+      this.toolbar.setEnabled(true);
+      this.toolbar.setColorLocked(false);
+      this.lens.setLocked(false);
+      return;
+    }
+    const isMaster = this.isRoomMaster();
+    if (this.session.phase === "discussion") {
+      this.toolbar.setEnabled(isMaster);
+      this.toolbar.setColorLocked(true);
+      this.lens.setLocked(!isMaster);
+    } else if (this.session.phase === "ideation") {
+      this.toolbar.setEnabled(true);
+      this.toolbar.setColorLocked(this.session.myColorIndex !== null);
+      this.lens.setLocked(false);
+    } else {
+      this.toolbar.setEnabled(true);
+      this.toolbar.setColorLocked(false);
+      this.lens.setLocked(false);
+    }
+  }
+
+  /** セッション状態が変わるたびに呼ぶ(selectRoom/session系コールバック/
+   *  notifySessionChanged共通)。道具バー・書き込み制限・投票フェーズの
+   *  回転ジェスチャーの意味づけをまとめて更新する。 */
+  private applySession(session: SessionState | null): void {
+    const wasVoting = this.session?.phase === "voting";
+    this.session = session;
+    this.applyRestrictions();
+    this.lens.setRotationVoteHandler(session?.phase === "voting" ? (memoId) => this.handleRotationVote(memoId) : null);
+    // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
+    // fadeExempt/frozenDensityを確定させた直後なので、次のポーリングを待たず
+    // すぐ取得し直す——待つと、確定したはずのメモが最大SHARED_POLL_INTERVAL_MSの
+    // 間、古いlastTracedAtのままフェードし続けてしまう。
+    if (wasVoting && !session) this.roomSync?.pollNow();
+  }
+
+  /** フェーズ③(voting)専用: メモを1回転させるたびにcanvasView.tsから呼ばれる。
+   *  楽観的にローカルの熱量を+1しておき、サーバーの確定値で追って合わせ直す
+   *  （他の参加者の同時加算と多少ズレても、次のheat-changed通知/ポーリングで
+   *  自然に収束する）。熱量は単調増加のはずなので、ネットワークの遅延で
+   *  レスポンスが前後しても、受け取った値が今の値より小さければ無視する
+   *  （古いレスポンスで新しい値を巻き戻さないため）。 */
+  private handleRotationVote(memoId: string): void {
+    const roomId = this.selectedRoomId;
+    const store = this.sharedStore;
+    if (!roomId || !store) return;
+    const memo = store.getAll().find((m) => m.id === memoId);
+    store.setMemoHeat(memoId, (memo?.heat ?? 0) + 1);
+    void addMemoHeat(roomId, memoId)
+      .then(({ heat }) => {
+        const current = store.getAll().find((m) => m.id === memoId)?.heat ?? 0;
+        if (heat > current) store.setMemoHeat(memoId, heat);
+      })
+      .catch((e) => console.error("[smuiView] heat post failed", e));
   }
 
   /** 共有キャンバス（プレースホルダー/実体）に共通するCircularCanvasオプション。 */
@@ -153,6 +270,12 @@ export class SmuiView {
     this.appearanceSlotEl = document.createElement("div");
     roomMenuRow.appendChild(this.appearanceSlotEl);
     this.reviveInfoPill = new ReviveInfoPill(roomMenuRow);
+    this.sessionPanel = new SessionPanel(roomMenuRow, {
+      onStart: (options) => this.startSessionForCurrentRoom(options),
+      onAdvance: () => this.advanceSessionForCurrentRoom(),
+      onExtend: (addMs) => this.extendSessionForCurrentRoom(addMs),
+      onEnd: () => this.endSessionForCurrentRoom(),
+    });
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);
@@ -194,7 +317,7 @@ export class SmuiView {
     return new CircularCanvas(
       this.canvasContainerEl,
       inertStore,
-      this.getToolState,
+      this.effectiveToolState,
       this.lensOptions({ interactive: false })
     );
   }
@@ -207,6 +330,10 @@ export class SmuiView {
     this.roomSync?.stop();
     this.roomSync = null;
     this.selectedRoomId = id;
+    this.sharedStore = null;
+    this.sessionPanel.reset();
+    this.applySession(null);
+    this.ownerId = null;
     this.lens = this.buildPlaceholderCanvas();
     this.setStatus("読み込み中…");
 
@@ -222,14 +349,61 @@ export class SmuiView {
       sync.markSynced(detail.memos);
       sync.start();
       this.roomSync = sync;
+      this.sharedStore = sharedStore;
+      this.ownerId = detail.ownerId || null;
       this.lens.destroy();
       this.canvasContainerEl.innerHTML = "";
-      this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.getToolState, this.lensOptions());
+      this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.effectiveToolState, this.lensOptions());
+      this.applySession(detail.session); // 新しいlensに書き込み制限・投票ハンドラを適用する
       this.setStatus("");
     } catch (e) {
       if (mySeq !== this.roomRequestSeq) return;
       this.setStatus(e instanceof Error ? e.message : "取得に失敗しました");
     }
+  }
+
+  /** realtimeSync.tsが{type:"session-changed", canvasId, session}を受け取る
+   *  たびに呼ぶ。メモ内容を伴わないため、GETし直さずこの状態をそのまま適用する。 */
+  notifySessionChanged(canvasId: string, session: SessionState | null): void {
+    if (this.selectedRoomId === canvasId) this.applySession(session);
+  }
+
+  /** realtimeSync.tsが{type:"heat-changed", ...}を受け取るたびに呼ぶ。
+   *  フルGETを挟まず、手元のメモの熱量だけをその場で書き換える。 */
+  notifyHeatChanged(canvasId: string, memoId: string, heat: number): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoHeat(memoId, heat);
+  }
+
+  private startSessionForCurrentRoom(options: StartSessionOptions): void {
+    const id = this.selectedRoomId;
+    if (!id) return;
+    void startSession(id, options)
+      .then((session) => this.applySession(session))
+      .catch((e) => console.error("[smuiView] session start failed", e));
+  }
+
+  private advanceSessionForCurrentRoom(): void {
+    const id = this.selectedRoomId;
+    if (!id) return;
+    void advanceSession(id)
+      .then((session) => this.applySession(session))
+      .catch((e) => console.error("[smuiView] session advance failed", e));
+  }
+
+  private extendSessionForCurrentRoom(addMs: number): void {
+    const id = this.selectedRoomId;
+    if (!id) return;
+    void extendSession(id, addMs)
+      .then((session) => this.applySession(session))
+      .catch((e) => console.error("[smuiView] session extend failed", e));
+  }
+
+  private endSessionForCurrentRoom(): void {
+    const id = this.selectedRoomId;
+    if (!id) return;
+    void endSessionApi(id)
+      .then(() => this.applySession(null))
+      .catch((e) => console.error("[smuiView] session end failed", e));
   }
 
   /** realtimeSync.tsが{type:"changed", canvasId}を受け取るたびに呼ぶ。
@@ -259,6 +433,7 @@ export class SmuiView {
     this.active = active;
     if (active) this.roomSync?.resumePolling();
     else this.roomSync?.pausePolling();
+    this.applyRestrictions();
   }
 
   closeWritingSessions(): void {
@@ -277,5 +452,6 @@ export class SmuiView {
     if (!this.active) return;
     this.lens.render(now);
     this.reviveInfoPill.update(this.lens.getHoverRemainingMs(now));
+    this.sessionPanel.update(now, this.isRoomMaster(), this.session);
   }
 }

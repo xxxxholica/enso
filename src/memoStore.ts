@@ -51,6 +51,16 @@ export class MemoStore {
     return this.memos;
   }
 
+  /** 共有キャンバスの投票フェーズ専用: 1件のメモのheatだけをサーバー側の値
+   *  （楽観的な+1、またはheat-changed通知/APIレスポンスでの確定値）で直接
+   *  書き換える。replaceAllと同じく、取り込んだ内容をそのまま押し戻す必要は
+   *  ないためpersist/onChangeは経由しない。 */
+  setMemoHeat(memoId: string, heat: number): void {
+    const memo = this.memos.find((m) => m.id === memoId);
+    if (!memo) return;
+    memo.heat = heat;
+  }
+
   getActive(): Memo[] {
     return this.memos.filter((m) => m.status === "active");
   }
@@ -295,7 +305,9 @@ export class MemoStore {
   tick(now: number = Date.now()): boolean {
     let changed = false;
     for (const memo of this.memos) {
-      if (memo.status !== "active") continue;
+      // 投票が確定(fadeExempt)したメモは、時間経過フェードの対象から恒久的に外れる
+      // ——確定した濃さのまま留まるという仕様のため。
+      if (memo.status !== "active" || memo.fadeExempt) continue;
       const elapsed = now - memo.lastTracedAt;
       const opacity = computeOpacity(elapsed, memo.lifespanDays);
       if (opacity === 0) {
@@ -309,6 +321,7 @@ export class MemoStore {
 
   /** 現在時刻を基準にした、アクティブメモの不透明度スナップショット。描画専用。 */
   opacityOf(memo: Memo, now: number = Date.now()): number {
+    if (memo.fadeExempt) return memo.frozenDensity ?? 1;
     return computeOpacity(now - memo.lastTracedAt, memo.lifespanDays);
   }
 

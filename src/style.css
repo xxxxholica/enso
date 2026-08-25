@@ -778,6 +778,13 @@ body {
       var(--ink-12);
 }
 
+/* 共同アイデア出しセッション中(setColorLocked)、色がフェーズによって強制されている間、
+   触っても意味が無いことを示す——押せなくした上で薄くする。 */
+.toolbar-swatch:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
 /* 4つ目（好きな色）のスワッチ。まだ一度も選んでいない間は虹色のグラデーションで
    「好きな色を選べる」ことを示す——一度選ぶとtoolbar.tsがインラインstyleで
    その色を背景に敷くので、このグラデーションは自然に隠れる（インラインstyleが
@@ -1226,6 +1233,32 @@ body {
 .appearance-popover {
   min-width: 220px;
   padding: 14px 16px;
+}
+
+/* --- 共同アイデア出しセッション(sessionPanel.ts)のポップアップ。開始フォームの
+   数値入力・進行中の操作ボタンを縦に並べる。 --- */
+.session-panel-popover {
+  min-width: 240px;
+  padding: 14px 16px;
+}
+
+.session-start-form,
+.session-active-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.85em;
+}
+
+.session-form-row input[type="number"] {
+  width: 4.5em;
 }
 
 .shared-room-menu-main {

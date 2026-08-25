@@ -7,7 +7,7 @@ import type { DrawTool } from "./types";
 
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 
-const DEFAULT_INK = "oklch(22% 0.012 55)";
+export const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
@@ -407,5 +407,17 @@ export class Toolbar {
    */
   setEnabled(enabled: boolean): void {
     this.el.classList.toggle("toolbar-disabled", !enabled);
+  }
+
+  /**
+   * 共同アイデア出しセッションのフェーズ①②の間、色がセッション側から強制される
+   * （実際に使われる色の上書きはsmuiView.tsが行う）。ここではスワッチ・カラー
+   * ピッカーを押せなくして、触っても実際の色には反映されないことを示すだけ
+   * （誤操作防止、ユーザーが「押したのに変わらない」と混乱しないため）。
+   */
+  setColorLocked(locked: boolean): void {
+    for (const btn of this.presetButtons) btn.disabled = locked;
+    this.customSwatchBtn.disabled = locked;
+    this.colorInput.disabled = locked;
   }
 }
