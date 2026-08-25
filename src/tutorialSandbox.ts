@@ -88,6 +88,10 @@ export class TutorialSandbox {
   private setRewindVisible: (show: boolean) => void;
   private nextBtn: HTMLButtonElement;
   private skipBtn: HTMLButtonElement;
+  private doneNextBtn: HTMLButtonElement;
+  /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
+   *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
+  private onComplete: (() => void) | null;
 
   private store: MemoStore | null = null;
   private canvasView: CircularCanvas | null = null;
@@ -114,7 +118,8 @@ export class TutorialSandbox {
    *  見えてしまうことはない。 */
   private rewindNowRef: number | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, onComplete?: () => void) {
+    this.onComplete = onComplete ?? null;
     container.className = "tutorial-sandbox";
 
     this.canvasWrap = document.createElement("div");
@@ -140,7 +145,13 @@ export class TutorialSandbox {
     this.skipBtn.className = "text-link tutorial-sandbox-skip";
     this.skipBtn.textContent = "この体験をスキップ";
     this.skipBtn.addEventListener("click", () => this.advanceTo("done"));
-    actions.append(this.nextBtn, this.skipBtn);
+    this.doneNextBtn = document.createElement("button");
+    this.doneNextBtn.type = "button";
+    this.doneNextBtn.className = "pill-btn";
+    this.doneNextBtn.textContent = "つぎへ";
+    this.doneNextBtn.hidden = true;
+    this.doneNextBtn.addEventListener("click", () => this.onComplete?.());
+    actions.append(this.nextBtn, this.skipBtn, this.doneNextBtn);
 
     container.append(this.canvasWrap, this.messageEl, this.rewindWrap, actions);
   }
@@ -270,6 +281,7 @@ export class TutorialSandbox {
     this.messageEl.textContent = MESSAGES[this.step];
     this.nextBtn.hidden = this.step !== "watch";
     this.skipBtn.hidden = this.step === "done";
+    this.doneNextBtn.hidden = this.step !== "done";
   }
 
   /** 振り返りスライダーは「遡る」手順に入って初めて出す（一度に全部の道具を

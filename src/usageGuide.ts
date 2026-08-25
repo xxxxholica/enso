@@ -2,11 +2,14 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { TutorialSandbox } from "./tutorialSandbox";
 
 /**
- * 使い方ページ：円相の由来と基本操作を、序・練・結の一続きの読み物＋体験として
- * 見せる全画面の静的ページ。序と結は読み物のまま、中間の「練」だけは本物の
- * CircularCanvasを再利用した練習用サンドボックス（tutorialSandbox.ts）——
- * 掴んで回す・振り返りスライダーの2つの時間操作を、実際に手を動かして
- * 体験できる。
+ * 使い方ページ：円相の由来と基本操作を、序・練・結の3画面をページ送りで見せる
+ * 全画面モーダル。1画面につき1ページで、スクロールでたどる必要はない
+ * （ユーザー指示）——序で「つぎへ」を押すと練が始まり、練の中はさらに
+ * みる・残す・消す・振り返るの4手順を「つぎへ」ボタンとジェスチャーの成功で
+ * 順に進み、最後の「つぎへ」で結に移る。序と結は読み物のまま、中間の「練」
+ * だけは本物のCircularCanvasを再利用した練習用サンドボックス
+ * （tutorialSandbox.ts）——掴んで回す・振り返りスライダーの2つの時間操作を、
+ * 実際に手を動かして体験できる。
  *
  * 以前は本物のキャンバス・本物のstoreをそのまま流用してチュートリアルにしていたが、
  * ①本物のCircularCanvasは外からrequestAnimationFrameでrender()を呼び続けないと
@@ -66,6 +69,10 @@ class UsageGuide {
   private raf = 0;
   private onClose: (() => void) | null = null;
   private sandbox: TutorialSandbox | null = null;
+  /** 序・練・結の3画面。1つだけhidden=falseにして、スクロールではなく
+   *  ページ送りで切り替える（ユーザー指示）。 */
+  private pages: HTMLElement[] = [];
+  private pageIndex = 0;
 
   constructor() {
     this.root = document.createElement("div");
@@ -90,9 +97,8 @@ class UsageGuide {
   }
 
   private buildContent(): void {
-    // ✕ボタンをheadの中に入れ、head自体をスクロール中も上部に固定する
-    // （template-picker.tsのbuildHeadと同じ構成——ユーザー指摘：下へスクロール
-    // した後、閉じるのに上まで戻らないといけないのはUI/UX上良くない）。
+    // ✕ボタンをheadの中に入れ、head自体は全ページ共通で常に上部に置く
+    // （template-picker.tsのbuildHeadと同じ構成）。
     const head = document.createElement("header");
     head.className = "usage-guide-head";
 
@@ -103,8 +109,6 @@ class UsageGuide {
     title.textContent = "円相";
     const lede = document.createElement("p");
     lede.className = "usage-guide-lede";
-    lede.textContent =
-      "書いたものが、ゆっくり消えていく円のキャンバスです。消えることは不具合ではなく、このアプリの考え方そのものです。";
     heading.append(title, lede);
 
     const closeBtn = document.createElement("button");
@@ -117,76 +121,113 @@ class UsageGuide {
     head.append(heading, closeBtn);
     this.sheet.appendChild(head);
 
-    const storyboard = document.createElement("div");
-    storyboard.className = "usage-guide-storyboard";
-    storyboard.appendChild(this.buildStage(INTRO_STAGE));
-    storyboard.appendChild(this.buildPracticeStage());
-    storyboard.appendChild(this.buildStage(CLOSING_STAGE));
-    this.sheet.appendChild(storyboard);
+    const pagesEl = document.createElement("div");
+    pagesEl.className = "usage-guide-pages";
+    this.pages = [this.buildIntroPage(), this.buildPracticePage(), this.buildClosingPage()];
+    this.pages.forEach((page, i) => {
+      page.hidden = i !== 0;
+      pagesEl.appendChild(page);
+    });
+    this.sheet.appendChild(pagesEl);
+  }
+
+  /** ページ送りで次の画面へ進める（後戻りはしない——序/練/結は一方通行）。
+   *  以前は1つの長いスクロールページに序・練・結を並べていたが、スクロール
+   *  無しで1画面ずつ進めたいという指示のため、hidden属性の付け替えだけで
+   *  切り替える単純なページ送りにした。 */
+  private showPage(index: number): void {
+    if (index === this.pageIndex || !this.pages[index]) return;
+    this.pages[this.pageIndex].hidden = true;
+    this.pageIndex = index;
+    this.pages[index].hidden = false;
+    this.sheet.scrollTop = 0;
+    this.sheet.focus();
+  }
+
+  private buildIntroPage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+    el.appendChild(this.buildStageContent(INTRO_STAGE));
 
     const actions = document.createElement("div");
-    actions.className = "usage-guide-actions";
+    actions.className = "usage-guide-page-actions";
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "pill-btn";
+    nextBtn.textContent = "つぎへ";
+    // サンドボックスの仮想時計は、練の画面に実際に進んだ瞬間から動かし始める
+    // ——モーダルを開いた時点で動かし始めると、序を読んでいる間（人によって
+    // かかる時間が大きく違う）ぶん盤面が勝手に進んでしまう。
+    nextBtn.addEventListener("click", () => {
+      this.sandbox?.start();
+      this.showPage(1);
+    });
+    actions.appendChild(nextBtn);
+    el.appendChild(actions);
+    return el;
+  }
+
+  private buildPracticePage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+
+    const marker = document.createElement("div");
+    marker.className = "usage-guide-marker";
+    marker.textContent = "練";
+
+    const title = document.createElement("h3");
+    title.className = "usage-guide-stage-title";
+    title.textContent = "手を動かしてみましょう";
+
+    const sandboxRoot = document.createElement("div");
+    // サンドボックス側が「みる→残す→消す→振り返る」を全て終えると、この
+    // コールバックで結のページへ進める（tutorialSandbox.tsの「つぎへ」ボタン、
+    // スキップのどちらから終えても同じ経路）。
+    this.sandbox = new TutorialSandbox(sandboxRoot, () => this.showPage(2));
+
+    el.append(marker, title, sandboxRoot);
+    return el;
+  }
+
+  private buildClosingPage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+    el.appendChild(this.buildStageContent(CLOSING_STAGE));
+
+    const actions = document.createElement("div");
+    actions.className = "usage-guide-page-actions";
     const startBtn = document.createElement("button");
     startBtn.type = "button";
     startBtn.className = "pill-btn";
     startBtn.textContent = "はじめる";
     startBtn.addEventListener("click", () => this.close());
     actions.appendChild(startBtn);
-    this.sheet.appendChild(actions);
+    el.appendChild(actions);
+    return el;
   }
 
-  private buildStage(stage: Stage): HTMLElement {
+  /** 序・結それぞれの中身（マーカー・挿絵・タイトル・本文）。 */
+  private buildStageContent(stage: Stage): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-stage";
+    el.className = "usage-guide-page-content";
 
     const marker = document.createElement("div");
     marker.className = "usage-guide-marker";
     marker.textContent = stage.marker;
 
-    const canvasCol = document.createElement("div");
-    canvasCol.className = "usage-guide-canvas-col";
     const canvas = document.createElement("canvas");
     canvas.className = "usage-guide-canvas";
     canvas.dataset.anim = stage.anim;
-    canvasCol.appendChild(canvas);
     this.canvases.push(canvas);
 
-    const text = document.createElement("div");
     const title = document.createElement("h3");
     title.className = "usage-guide-stage-title";
     title.textContent = stage.title;
     const body = document.createElement("p");
     body.className = "usage-guide-stage-body";
     body.textContent = stage.body;
-    text.append(title, body);
 
-    el.append(marker, canvasCol, text);
-    return el;
-  }
-
-  /** 序・結と同じ縦の時系列レール（.usage-guide-storyboard::before）に沿って
-   *  マーカー「練」を置きつつ、右側の列全体を練習用サンドボックス
-   *  （tutorialSandbox.ts）にあてる——挿絵1枚ぶんの96px幅では実際に操作できる
-   *  キャンバスを収められないため、他のstageの3カラム(48px 96px 1fr)ではなく
-   *  2カラム(48px 1fr)の専用レイアウトにする（style.cssの
-   *  .usage-guide-stage--practice参照）。 */
-  private buildPracticeStage(): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "usage-guide-stage usage-guide-stage--practice";
-
-    const marker = document.createElement("div");
-    marker.className = "usage-guide-marker";
-    marker.textContent = "練";
-
-    const text = document.createElement("div");
-    const title = document.createElement("h3");
-    title.className = "usage-guide-stage-title";
-    title.textContent = "手を動かしてみましょう";
-    const sandboxRoot = document.createElement("div");
-    this.sandbox = new TutorialSandbox(sandboxRoot);
-    text.append(title, sandboxRoot);
-
-    el.append(marker, text);
+    el.append(marker, canvas, title, body);
     return el;
   }
 
@@ -200,11 +241,13 @@ class UsageGuide {
     this.opened = true;
     this.onClose = onClose ?? null;
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // 開き直すたびに序へ戻す——前回結まで進んでいても、次に開いた時は
+    // 最初からやり直せるように。
+    this.showPage(0);
     this.setVisible(true);
     window.addEventListener("keydown", this.onKeyDown, true);
     requestAnimationFrame(() => this.sheet.focus());
     this.startAnimations();
-    this.sandbox?.start();
   }
 
   close(): void {

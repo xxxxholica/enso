@@ -1683,23 +1683,19 @@ body {
   transform: none;
 }
 
-/* ✕ボタンを含む見出しを、本文をスクロールしても常に上部へ固定する
-   （template-picker.tsの.template-picker-headと同じ考え方——ユーザー指摘：
-   下へスクロールした後、閉じるのに上まで戻らないといけないのはUI/UX上
-   良くない）。負のmarginでsheetの上端パディング(40px 36px)ぶんを打ち消し、
-   同じ値をpaddingとして付け直すことで、固定時に背景がsheetの角丸・幅
-   いっぱいまで途切れなく続くようにしている。 */
+/* 以前は本文をスクロールさせていたため、✕ボタンを含む見出しを
+   position:stickyで上部に固定していた（負のmarginでsheetの上端パディングを
+   打ち消し、同じ値をpaddingとして付け直す、というtemplate-picker.tsと同じ
+   トリック）。今はページ送り（.usage-guide-pages参照）でスクロール自体が
+   発生しないため、このトリックは不要——それどころか、sticky要素の隣接
+   マージンの扱いが通常のブロックと微妙に異なり、直後の.usage-guide-pagesとの
+   間に意図しない負のすき間（マーカーがheadに数px重なる）ができてしまって
+   いた（ユーザー報告）。普通のブロック要素に戻すだけで両方解決する。 */
 .usage-guide-head {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: -40px -36px 0;
-  padding: 40px 36px 10px;
-  background: var(--paper-1);
-  border-radius: 24px 24px 0 0;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--ink-08);
 }
 
@@ -1738,38 +1734,44 @@ body {
   color: var(--ink-60);
 }
 
-.usage-guide-storyboard {
-  position: relative;
+/* --- 序・練・結のページ送り。以前は1つの長いスクロールページに3つとも
+   並べていたが、スクロール無しで1画面ずつ進めたいという指示のため、
+   .usage-guide-pagesの直接の子である.usage-guide-pageのうち1つだけを
+   hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
+   ため、レイアウトにも一切残らない）——usageGuide.tsのshowPage参照。 --- */
+.usage-guide-pages {
   margin-top: var(--space-6);
 }
 
-.usage-guide-storyboard::before {
-  content: "";
-  position: absolute;
-  left: 23px;
-  top: 4px;
-  bottom: 4px;
-  width: 1px;
-  background: var(--ink-20);
+/* min-heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
+   出た後の「振り返る」「done」手順）の実測ぶんの高さ。これを全ページ・
+   全手順共通の下限に揃え、それより低い序・結・練の他の手順では
+   justify-content:centerで余った縦のすき間にコンテンツを中央寄せすることで、
+   ページや手順を切り替えるたびにモーダル自体の高さが伸び縮みしないように
+   している（ユーザー指示：ウィンドウのサイズを変えないでほしい）。以前は
+   「みる」手順（スライダーが出る前）だけを基準に600pxにしていたため、
+   その後スライダーが追加表示される瞬間に床面を超えてわずかに伸びていた
+   （ユーザー報告）。 */
+.usage-guide-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  text-align: center;
+  min-height: 700px;
+  padding: var(--space-3) 0 var(--space-2);
+  box-sizing: border-box;
 }
 
-.usage-guide-stage {
-  position: relative;
-  display: grid;
-  grid-template-columns: 48px 96px 1fr;
-  column-gap: var(--space-5);
-  align-items: start;
-  padding: var(--space-5) 0;
-  border-bottom: 1px solid var(--ink-08);
-}
-
-.usage-guide-stage:last-of-type {
-  border-bottom: none;
+.usage-guide-page-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 .usage-guide-marker {
-  position: relative;
-  z-index: 1;
   width: 48px;
   height: 48px;
   border-radius: var(--radius-full);
@@ -1783,14 +1785,9 @@ body {
   color: var(--accent-red);
 }
 
-.usage-guide-canvas-col {
-  width: 96px;
-  height: 96px;
-}
-
 .usage-guide-canvas {
-  width: 96px;
-  height: 96px;
+  width: 140px;
+  height: 140px;
   display: block;
 }
 
@@ -1798,30 +1795,21 @@ body {
   font-family: "Klee One", "Noto Sans JP", sans-serif;
   font-size: var(--text-lg);
   font-weight: 600;
-  margin: 2px 0 8px;
+  margin: 0;
 }
 
 .usage-guide-stage-body {
   font-size: var(--text-sm);
   line-height: 1.85;
-  max-width: 50ch;
+  max-width: 46ch;
   margin: 0;
   color: var(--ink-85);
 }
 
-.usage-guide-stage-note {
-  display: block;
-  margin-top: 8px;
-  font-size: var(--text-xs);
-  color: var(--ink-50);
-}
-
-.usage-guide-actions {
-  margin-top: var(--space-6);
-  padding-top: var(--space-5);
-  border-top: 1px solid var(--ink-12);
+.usage-guide-page-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
+  margin-top: var(--space-2);
 }
 
 /* --- ヘッダーの使い方ページ再視聴ボタン。アイコンだと何のボタンか伝わり
@@ -1844,32 +1832,17 @@ body {
 }
 
 @media (max-width: 560px) {
-  .usage-guide-stage {
-    grid-template-columns: 36px 1fr;
-  }
-  .usage-guide-canvas-col {
-    display: none;
-  }
   .usage-guide-marker {
     width: 36px;
     height: 36px;
     font-size: var(--text-md);
   }
-  .usage-guide-storyboard::before {
-    left: 17px;
+  .usage-guide-canvas {
+    width: 108px;
+    height: 108px;
   }
-}
-
-/* --- 使い方ページの「練」パート：序・結の挿絵付き3カラム(48px 96px 1fr)と違い、
-   実際に操作できるキャンバスを収めるため2カラム(48px 1fr)にする（マーカーだけは
-   他のstageと同じ縦レールに揃える）。 --- */
-.usage-guide-stage--practice {
-  grid-template-columns: 48px 1fr;
-}
-
-@media (max-width: 560px) {
-  .usage-guide-stage--practice {
-    grid-template-columns: 36px 1fr;
+  .usage-guide-page {
+    min-height: 680px;
   }
 }
 
