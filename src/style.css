@@ -110,12 +110,18 @@ body {
   color: var(--ink-solid);
 }
 
+/* --- ヘッダー・フッターがposition:fixedの半透明オーバーレイになったため、
+   上下のpaddingはここでは持たない（キャンバス（.app-main）を画面の真の上端
+   〜下端まで広げ、その下までズーム・パンした絵が見えるようにするため——
+   ユーザー指示）。左右の余白（16px）だけ、キャンバス側の見た目の幅を保つために
+   引き続きここで持つ。上下の余白・セーフエリアは.app-header/.app-footer自身の
+   paddingに移した。 --- */
 #app {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  padding: 0 16px;
   gap: 14px;
 }
 
@@ -123,13 +129,27 @@ body {
    （未ログイン時はログイン/新規登録リンク、ログイン時はClerkのUserButton）を置く帯。
    画面の切り替え（ナビゲーション）と、選んだ画面の中でのツール操作は役割が違うため、
    ここで上下に分けている。以前はナビも下の操作パネル(.control-panel)に同居していたが、
-   その分の幅がなくなったことで、道具・色・テンプレートが1行に収まりやすくなった。 --- */
+   その分の幅がなくなったことで、道具・色・テンプレートが1行に収まりやすくなった。
+   position:fixedで画面の真の上端に張り付く半透明+ぼかしの帯にし、キャンバス
+   （.app-main）はその下まで含めた画面全体に広げる——ズーム・パンした絵が
+   ヘッダーの下まで透けて見えるようにするため（ユーザー指示）。左右の余白・
+   セーフエリアは、以前#appが持っていた分をここに移した。 --- */
 .app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 12px 16px;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  background: oklch(98% 0.005 75 / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .app-header-left {
@@ -371,11 +391,22 @@ body {
   align-items: stretch;
 }
 
+/* --- .app-headerと同じ理由でposition:fixedの半透明+ぼかしの帯にし、画面の
+   真の下端に張り付ける（ユーザー指示）。左右の余白は以前#appが持っていた分を
+   ここに移した。 --- */
 .app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   width: 100%;
   display: flex;
   justify-content: center;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: oklch(98% 0.005 75 / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 /* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの
@@ -587,17 +618,25 @@ body {
     padding: clamp(4px, 1.5vw, 6px) clamp(8px, 3vw, 12px);
   }
 
-  /* 折り返した分だけ下部バーの縦幅が増えるため、#app・.app-footer側の余白を
-     詰めて、その分をキャンバス（.app-main、flex:1で残り高さを取る）に回す
-     （ユーザー報告：キャンバスがデフォルトで小さい）。 */
+  /* ヘッダー・フッターはposition:fixedの固定オーバーレイで、自前でpadding・
+     セーフエリアを持つため、#appは左右の余白だけモバイル幅用に詰める
+     （以前は上下paddingもここで詰めていたが、その役割は.app-header/
+     .app-footer自身に移った）。折り返した分だけ下部バーの縦幅が増えるため、
+     .app-footer側の余白も詰めて、その分をキャンバス（.app-main、flex:1で
+     残り高さを取る）に回す（ユーザー報告：キャンバスがデフォルトで小さい）。 */
   #app {
-    padding: clamp(8px, 2.5vw, 10px);
-    padding-bottom: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-bottom, 0px));
+    padding: 0 clamp(8px, 2.5vw, 10px);
     gap: clamp(6px, 2vw, 8px);
   }
 
+  .app-header {
+    padding: clamp(8px, 2.5vw, 10px);
+    padding-top: calc(clamp(8px, 2.5vw, 10px) + env(safe-area-inset-top, 0px));
+  }
+
   .app-footer {
-    padding-bottom: calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
+    padding: clamp(4px, 1.5vw, 6px) clamp(8px, 2.5vw, 10px)
+      calc(clamp(2px, 1vw, 4px) + env(safe-area-inset-bottom, 0px));
   }
 }
 
