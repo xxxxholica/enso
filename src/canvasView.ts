@@ -632,7 +632,8 @@ export class CircularCanvas {
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
     const align = editingMemo?.align ?? "center";
     const lineHeight = editingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
-    const fontPx = fontPxForRender(fontSize, this.effectiveScale());
+    const scaleAtOpen = this.effectiveScale();
+    const fontPx = fontPxForRender(fontSize, scaleAtOpen);
 
     const el = document.createElement("textarea");
     el.className = "text-editor-overlay";
@@ -648,13 +649,23 @@ export class CircularCanvas {
     // （ユーザー報告・実機で再現確認）。モバイルでは実際のfontPx（基準文字サイズ
     // ×実効スケール）が16pxを大きく下回るため常に発火していた。表示上の
     // font-sizeだけ16px以上に底上げしてズームそのものを起こさせないようにする
-    // ——実際にメモとして確定される文字サイズ・折り返し幅はcanvas側の計測
+    // ——確定後にメモとして保存される文字サイズ・折り返し幅はcanvas側の計測
     // （fontSize・measureTextBoxWidthPx、共にこのDOM要素のstyleとは独立）で
     // 決まるため、ここでの底上げは編集中の見た目だけに影響し、確定後の見た目には
     // 影響しない。
-    el.style.fontSize = `${Math.max(fontPx, 16)}px`;
+    const displayFontPx = Math.max(fontPx, 16);
+    el.style.fontSize = `${displayFontPx}px`;
     el.style.lineHeight = `${lineHeight}`;
     el.style.textAlign = align;
+    // resizeToContent内の幅測定(measureTextBoxWidthPx)にfontSizeをそのまま渡すと、
+    // 上の底上げが効くケース（scaleAtOpenがREFERENCE_RADIUSより小さい典型的な
+    // モバイル画面）で、実際にdisplayFontPxで描画される文字より狭い幅で計算されて
+    // しまい、1行に収まるはずの文章が編集中だけtextarea内で折り返される／はみ出して
+    // 見える不具合になる（PRレビュー指摘）。measureTextBoxWidthPxは基準円スケールの
+    // 値を受け取りresizeToContent側で実際のscaleを掛けて画面px化する仕組みのため、
+    // displayFontPx（画面px）をその逆変換で基準円スケール相当に戻した値を使うことで、
+    // 編集中の幅計算と実際の描画フォントサイズを一致させる。
+    const widthMeasureFontSize = Math.max(fontSize, (displayFontPx * REFERENCE_RADIUS) / scaleAtOpen);
     document.body.appendChild(el);
     this.textEditor = el;
 
@@ -708,7 +719,7 @@ export class CircularCanvas {
       const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
       const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
 
-      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, fontSize));
+      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize));
       el.style.width = `${boxWidthPx}px`;
       el.style.left = `${screenX - boxWidthPx / 2}px`;
       el.style.height = "auto";
