@@ -1,74 +1,54 @@
 import { createFadeVisibility } from "./fadeVisibility";
+import { TutorialSandbox } from "./tutorialSandbox";
 
 /**
- * 使い方ページ：円相の由来と基本操作を、序・一・二・三・四・結の一続きの
- * 読み物として見せる全画面の静的ページ。
+ * 使い方ページ：円相の由来と基本操作を、序・練・結の3画面をページ送りで見せる
+ * 全画面モーダル。1画面につき1ページで、スクロールでたどる必要はない
+ * （ユーザー指示）——序で「つぎへ」を押すと練が始まり、練の中はさらに
+ * みる・残す・消す・振り返るの4手順を「つぎへ」ボタンとジェスチャーの成功で
+ * 順に進み、最後の「つぎへ」で結に移る。序と結は読み物のまま、中間の「練」
+ * だけは本物のCircularCanvasを再利用した練習用サンドボックス
+ * （tutorialSandbox.ts）——掴んで回す・振り返りスライダーの2つの時間操作を、
+ * 実際に手を動かして体験できる。
  *
- * 以前は本物のキャンバスを使って実際に書く・消える・生き返らせるを体験させる
- * インタラクティブなチュートリアルだったが、本物のキャンバスと道具バーを
- * 共存させたことで、①本物のCircularCanvasは外からrequestAnimationFrameで
- * render()を呼び続けないと何も描かれない、②裏に隠れているだけの本物の
- * キャンバスがwindow単位のブラインドタイピングを拾って実データに書き込んで
- * しまう、といった不具合が繰り返し起き、実装・保守のコストがリターンに
- * 見合わなくなったため撤廃した。代わりに、操作を要求しない読み物に切り替える
- * ——挿絵のcanvasアニメーションはループ再生されるだけの飾りで、ポインタも
- * キーボードも一切受け付けない（本物のstore・道具バーには一切触れない）。
+ * 以前は本物のキャンバス・本物のstoreをそのまま流用してチュートリアルにしていたが、
+ * ①本物のCircularCanvasは外からrequestAnimationFrameでrender()を呼び続けないと
+ * 何も描かれない、②裏に隠れているだけの本物のキャンバスがwindow単位の
+ * ブラインドタイピングを拾って実データに書き込んでしまう、といった不具合が
+ * 繰り返し起き、実装・保守のコストがリターンに見合わなくなったため一度撤廃した
+ * （読み物だけの静的ページに置き換えた経緯）。今回の「練」は、この2つの不具合を
+ * 構造的に防げる形で作り直したもの——CircularCanvasクラス自体は再利用しつつ、
+ * 専用の使い捨てMemoStore・自前のrequestAnimationFrameループを持たせ（①の対策）、
+ * このページ自身がcapture段で全キー入力をstopPropagationして本物のonGlobalKeyDown
+ * （ブラインドタイピング）に一切渡さない（②の対策。詳しくはtutorialSandbox.tsの
+ * クラスコメント参照）。
  *
  * 全画面モーダルの骨格・フォーカスの作法はtemplatePicker.tsに揃える。
  * Escapeキーを含む全キー入力をcapture段でstopPropagationするのも
- * templatePicker.tsと同じ理由——このページ自身はテキスト入力を一切持たない
- * ため安全に全キーを止められ、かつそうしないと背後の本物のキャンバスの
- * ブラインドタイピングにキー入力が漏れてしまう（canvasView.onGlobalKeyDown）。
+ * templatePicker.tsと同じ理由——このページ自身（練のサンドボックスを含む）は
+ * テキスト入力を一切持たないため安全に全キーを止められる。
  */
 
 interface Stage {
   marker: string;
   title: string;
   body: string;
-  note?: string;
-  anim: "intro" | "write" | "fade" | "revive" | "release" | "close";
+  anim: "intro" | "close";
 }
 
-const STAGES: Stage[] = [
-  {
-    marker: "序",
-    title: "円相（えんそう）",
-    anim: "intro",
-    body: "一筆で描く円相。禅の書画で、悟りやその瞬間の完全性を表すとされます。この一枚も、同じように一筆で生まれ、同じように消えていきます。",
-  },
-  {
-    marker: "一",
-    title: "思いつきを、そのまま",
-    anim: "write",
-    body: "気になったことを、そのまま書きなぐるだけ。フォルダも、タグも、保存ボタンもありません。書ける場所は、円の内側だけです。",
-  },
-  {
-    marker: "二",
-    title: "完成を、目指さない",
-    anim: "fade",
-    body: "円相は、完成を目指しません。消えていくことも、この一枚のうちです。書いたものは、自然に薄れて消えていきます。",
-    note: "※実際には約1日をかけて、ゆっくり薄れていきます。",
-  },
-  {
-    marker: "三",
-    title: "もう一度、円を描く",
-    anim: "revive",
-    body: "本当に手放したくない一枚だけ、「選択」で掴んで、指で円を描くように動かしてください。反時計回りになぞれば、また今日に留まります。",
-    note: "※時計回りに回すと、逆に早く薄れていきます。",
-  },
-  {
-    marker: "四",
-    title: "残った一枚",
-    anim: "release",
-    body: "全部は残せません。だからこそ、そうやって選び続けた一枚には意味があります。",
-  },
-  {
-    marker: "結",
-    title: "円相",
-    anim: "close",
-    body: "一筆の円は、悟りでも完成でもなく、その瞬間だけの完全さ。今、本当に大事なものだけが、ここに残ります。",
-  },
-];
+const INTRO_STAGE: Stage = {
+  marker: "序",
+  title: "円相（えんそう）",
+  anim: "intro",
+  body: "一筆で描く円相。禅の書画で、悟りやその瞬間の完全性を表すとされます。この一枚も、同じように一筆で生まれ、同じように消えていきます。",
+};
+
+const CLOSING_STAGE: Stage = {
+  marker: "結",
+  title: "円相",
+  anim: "close",
+  body: "一筆の円は、悟りでも完成でもなく、その瞬間だけの完全さ。今、本当に大事なものだけが、ここに残ります。",
+};
 
 let overlay: UsageGuide | null = null;
 
@@ -88,6 +68,11 @@ class UsageGuide {
   private canvases: HTMLCanvasElement[] = [];
   private raf = 0;
   private onClose: (() => void) | null = null;
+  private sandbox: TutorialSandbox | null = null;
+  /** 序・練・結の3画面。1つだけhidden=falseにして、スクロールではなく
+   *  ページ送りで切り替える（ユーザー指示）。 */
+  private pages: HTMLElement[] = [];
+  private pageIndex = 0;
 
   constructor() {
     this.root = document.createElement("div");
@@ -112,9 +97,8 @@ class UsageGuide {
   }
 
   private buildContent(): void {
-    // ✕ボタンをheadの中に入れ、head自体をスクロール中も上部に固定する
-    // （template-picker.tsのbuildHeadと同じ構成——ユーザー指摘：下へスクロール
-    // した後、閉じるのに上まで戻らないといけないのはUI/UX上良くない）。
+    // ✕ボタンをheadの中に入れ、head自体は全ページ共通で常に上部に置く
+    // （template-picker.tsのbuildHeadと同じ構成）。
     const head = document.createElement("header");
     head.className = "usage-guide-head";
 
@@ -125,8 +109,6 @@ class UsageGuide {
     title.textContent = "円相";
     const lede = document.createElement("p");
     lede.className = "usage-guide-lede";
-    lede.textContent =
-      "書いたものが、ゆっくり消えていく円のキャンバスです。消えることは不具合ではなく、このアプリの考え方そのものです。";
     heading.append(title, lede);
 
     const closeBtn = document.createElement("button");
@@ -139,54 +121,113 @@ class UsageGuide {
     head.append(heading, closeBtn);
     this.sheet.appendChild(head);
 
-    const storyboard = document.createElement("div");
-    storyboard.className = "usage-guide-storyboard";
-    for (const stage of STAGES) storyboard.appendChild(this.buildStage(stage));
-    this.sheet.appendChild(storyboard);
+    const pagesEl = document.createElement("div");
+    pagesEl.className = "usage-guide-pages";
+    this.pages = [this.buildIntroPage(), this.buildPracticePage(), this.buildClosingPage()];
+    this.pages.forEach((page, i) => {
+      page.hidden = i !== 0;
+      pagesEl.appendChild(page);
+    });
+    this.sheet.appendChild(pagesEl);
+  }
+
+  /** ページ送りで次の画面へ進める（後戻りはしない——序/練/結は一方通行）。
+   *  以前は1つの長いスクロールページに序・練・結を並べていたが、スクロール
+   *  無しで1画面ずつ進めたいという指示のため、hidden属性の付け替えだけで
+   *  切り替える単純なページ送りにした。 */
+  private showPage(index: number): void {
+    if (index === this.pageIndex || !this.pages[index]) return;
+    this.pages[this.pageIndex].hidden = true;
+    this.pageIndex = index;
+    this.pages[index].hidden = false;
+    this.sheet.scrollTop = 0;
+    this.sheet.focus();
+  }
+
+  private buildIntroPage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+    el.appendChild(this.buildStageContent(INTRO_STAGE));
 
     const actions = document.createElement("div");
-    actions.className = "usage-guide-actions";
+    actions.className = "usage-guide-page-actions";
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "pill-btn";
+    nextBtn.textContent = "つぎへ";
+    // サンドボックスの仮想時計は、練の画面に実際に進んだ瞬間から動かし始める
+    // ——モーダルを開いた時点で動かし始めると、序を読んでいる間（人によって
+    // かかる時間が大きく違う）ぶん盤面が勝手に進んでしまう。
+    nextBtn.addEventListener("click", () => {
+      this.sandbox?.start();
+      this.showPage(1);
+    });
+    actions.appendChild(nextBtn);
+    el.appendChild(actions);
+    return el;
+  }
+
+  private buildPracticePage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+
+    const marker = document.createElement("div");
+    marker.className = "usage-guide-marker";
+    marker.textContent = "練";
+
+    const title = document.createElement("h3");
+    title.className = "usage-guide-stage-title";
+    title.textContent = "手を動かしてみましょう";
+
+    const sandboxRoot = document.createElement("div");
+    // サンドボックス側が「みる→残す→消す→振り返る」を全て終えると、この
+    // コールバックで結のページへ進める（tutorialSandbox.tsの「つぎへ」ボタン、
+    // スキップのどちらから終えても同じ経路）。
+    this.sandbox = new TutorialSandbox(sandboxRoot, () => this.showPage(2));
+
+    el.append(marker, title, sandboxRoot);
+    return el;
+  }
+
+  private buildClosingPage(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page";
+    el.appendChild(this.buildStageContent(CLOSING_STAGE));
+
+    const actions = document.createElement("div");
+    actions.className = "usage-guide-page-actions";
     const startBtn = document.createElement("button");
     startBtn.type = "button";
     startBtn.className = "pill-btn";
     startBtn.textContent = "はじめる";
     startBtn.addEventListener("click", () => this.close());
     actions.appendChild(startBtn);
-    this.sheet.appendChild(actions);
+    el.appendChild(actions);
+    return el;
   }
 
-  private buildStage(stage: Stage): HTMLElement {
+  /** 序・結それぞれの中身（マーカー・挿絵・タイトル・本文）。 */
+  private buildStageContent(stage: Stage): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-stage";
+    el.className = "usage-guide-page-content";
 
     const marker = document.createElement("div");
     marker.className = "usage-guide-marker";
     marker.textContent = stage.marker;
 
-    const canvasCol = document.createElement("div");
-    canvasCol.className = "usage-guide-canvas-col";
     const canvas = document.createElement("canvas");
     canvas.className = "usage-guide-canvas";
     canvas.dataset.anim = stage.anim;
-    canvasCol.appendChild(canvas);
     this.canvases.push(canvas);
 
-    const text = document.createElement("div");
     const title = document.createElement("h3");
     title.className = "usage-guide-stage-title";
     title.textContent = stage.title;
     const body = document.createElement("p");
     body.className = "usage-guide-stage-body";
     body.textContent = stage.body;
-    text.append(title, body);
-    if (stage.note) {
-      const note = document.createElement("span");
-      note.className = "usage-guide-stage-note";
-      note.textContent = stage.note;
-      text.appendChild(note);
-    }
 
-    el.append(marker, canvasCol, text);
+    el.append(marker, canvas, title, body);
     return el;
   }
 
@@ -200,6 +241,9 @@ class UsageGuide {
     this.opened = true;
     this.onClose = onClose ?? null;
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // 開き直すたびに序へ戻す——前回結まで進んでいても、次に開いた時は
+    // 最初からやり直せるように。
+    this.showPage(0);
     this.setVisible(true);
     window.addEventListener("keydown", this.onKeyDown, true);
     requestAnimationFrame(() => this.sheet.focus());
@@ -212,6 +256,7 @@ class UsageGuide {
     window.removeEventListener("keydown", this.onKeyDown, true);
     this.setVisible(false);
     this.stopAnimations();
+    this.sandbox?.stop();
     this.lastFocused?.focus();
     this.lastFocused = null;
     const onClose = this.onClose;
@@ -252,7 +297,6 @@ function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 }
 
 const INK = "oklch(22% 0.012 55)";
-const ACCENT = "oklch(52% 0.2 25)";
 
 /** 一筆書きの円相を、生成的な筆致（太さのむら・わずかな歪み）で描く
  *  （tutorial/tutorialCanvas.tsで使っていたのと同じ数式）。 */
@@ -290,22 +334,6 @@ function strokeEnso(
   ctx.restore();
 }
 
-/** 手描きの走り書き一本を模した、短い曲線。 */
-function memoDash(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, angle: number, opacity: number, color: string): void {
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  ctx.strokeStyle = color;
-  ctx.lineCap = "round";
-  ctx.lineWidth = 2.4;
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.beginPath();
-  ctx.moveTo(-w / 2, 0);
-  ctx.quadraticCurveTo(0, -w * 0.4, w / 2, w * 0.1);
-  ctx.stroke();
-  ctx.restore();
-}
-
 function drawStageAnim(ctx: CanvasRenderingContext2D, kind: Stage["anim"], t: number, reduceMotion: boolean): void {
   const w = ctx.canvas.width / (window.devicePixelRatio || 1);
   const h = ctx.canvas.height / (window.devicePixelRatio || 1);
@@ -319,26 +347,6 @@ function drawStageAnim(ctx: CanvasRenderingContext2D, kind: Stage["anim"], t: nu
     const p = reduceMotion ? 1 : Math.min(1, t / 2200);
     const eased = 1 - (1 - p) ** 3;
     strokeEnso(ctx, cx, cy, r, -100, 328 * eased, 1, INK, 1);
-  } else if (kind === "write") {
-    strokeEnso(ctx, cx, cy, r, -100, 320, 1, INK, 2);
-    memoDash(ctx, cx - r * 0.32, cy - r * 0.1, r * 0.5, -0.15, 1, INK);
-    memoDash(ctx, cx + r * 0.15, cy + r * 0.35, r * 0.4, 0.3, 1, INK);
-  } else if (kind === "fade") {
-    strokeEnso(ctx, cx, cy, r, -100, 320, 1, INK, 3);
-    const breathe = reduceMotion ? 0.28 : 0.28 + 0.16 * (0.5 + 0.5 * Math.sin(t / 900));
-    memoDash(ctx, cx - r * 0.32, cy - r * 0.1, r * 0.5, -0.15, breathe, INK);
-    memoDash(ctx, cx + r * 0.15, cy + r * 0.35, r * 0.4, 0.3, breathe * 0.7, INK);
-  } else if (kind === "revive") {
-    strokeEnso(ctx, cx, cy, r, -100, 320, 0.9, INK, 4);
-    const ax = cx - r * 0.32;
-    const ay = cy - r * 0.1;
-    memoDash(ctx, ax, ay, r * 0.5, -0.15, 1, INK);
-    const ang = reduceMotion ? 0 : t / 700;
-    strokeEnso(ctx, ax, ay, r * 0.34, (ang * 180) / Math.PI, 210, 0.9, ACCENT, 5);
-  } else if (kind === "release") {
-    strokeEnso(ctx, cx, cy, r, -100, 300, 1, INK, 6);
-    const drift = reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(t / 1400);
-    memoDash(ctx, cx + r * (0.1 + drift * 0.55), cy - r * (0.5 + drift * 0.35), r * 0.34, -0.5, Math.max(0.15, 1 - drift * 0.6), INK);
   } else if (kind === "close") {
     strokeEnso(ctx, cx, cy, r, -95, 342, 1, INK, 7);
   }

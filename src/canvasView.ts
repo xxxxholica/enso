@@ -170,6 +170,15 @@ export interface CircularCanvasOptions {
    *  省略した場合はボタンを作らず、「ドラッグで書き始める」の案内だけを出す
    *  ——interactive:falseのプレースホルダーではそもそも空状態の案内自体を作らない。 */
   onRequestTemplatePicker?: () => void;
+  /** 選択道具で掴んで振り回す操作の判定を、既定（ROTATE_MIN_RADIUS_PX/
+   *  ROTATE_STEP_RAD、本物のキャンバス相当）より緩めたい呼び出し元向け。
+   *  使い方ページの練習用サンドボックス（tutorialSandbox.ts）は、本物より
+   *  ひとまわり小さい円の中でこのジェスチャーを初めて教える場面のため、
+   *  1回転まるごと・半径24px以上という本物の基準のままだと、慣れていない
+   *  ユーザーには難しすぎることがある（ユーザー報告：手順で止まってしまう）。
+   *  省略時はいずれも本物と同じ値になり、既存の呼び出し元の挙動は変わらない。 */
+  rotateStepRad?: number;
+  rotateMinRadiusPx?: number;
   /** 共有キャンバスの投票フェーズ(voting)専用: 指定された間はupdateRotationGestureが
    *  nudgeMemoClock(時間巻き戻し)を呼ぶ代わりにこちらを呼ぶ（回転方向・連続回数を
    *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
@@ -253,6 +262,11 @@ export class CircularCanvas {
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
+   *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
+   *  ROTATE_MIN_RADIUS_PXになる。 */
+  private rotateStepRad: number;
+  private rotateMinRadiusPx: number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -271,6 +285,8 @@ export class CircularCanvas {
     this.store = store;
     this.getToolState = getToolState;
     this.interactive = options.interactive ?? true;
+    this.rotateStepRad = options.rotateStepRad ?? ROTATE_STEP_RAD;
+    this.rotateMinRadiusPx = options.rotateMinRadiusPx ?? ROTATE_MIN_RADIUS_PX;
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
@@ -1006,7 +1022,7 @@ export class CircularCanvas {
     const anchor = this.state.rotateAnchor;
     const prevVec = { x: prev.x - anchor.x, y: prev.y - anchor.y };
     const curVec = { x: cur.x - anchor.x, y: cur.y - anchor.y };
-    const minRadius = ROTATE_MIN_RADIUS_PX / this.effectiveScale();
+    const minRadius = this.rotateMinRadiusPx / this.effectiveScale();
     if (Math.hypot(prevVec.x, prevVec.y) < minRadius || Math.hypot(curVec.x, curVec.y) < minRadius) return;
 
     let delta = Math.atan2(curVec.y, curVec.x) - Math.atan2(prevVec.y, prevVec.x);
@@ -1014,7 +1030,7 @@ export class CircularCanvas {
     if (delta <= -Math.PI) delta += Math.PI * 2;
     this.state.rotateAccumRad += delta;
 
-    const targetSteps = Math.trunc(this.state.rotateAccumRad / ROTATE_STEP_RAD);
+    const targetSteps = Math.trunc(this.state.rotateAccumRad / this.rotateStepRad);
     while (this.state.rotateFiredSteps < targetSteps) {
       this.state.rotateStreak = this.state.rotateStreak > 0 ? this.state.rotateStreak + 1 : 1;
       if (this.rotationVoteHandler) {

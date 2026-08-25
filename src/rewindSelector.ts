@@ -57,9 +57,18 @@ export class RewindSelector {
 
   /** 遡り先の絶対時刻（ms）。「たった今」（=末尾の目盛り）ならnull＝ライブ表示。 */
   getRewindAt(): number | null {
-    const ms = this.msAtPosition(this.position);
+    const ms = this.getRewindMs();
     if (ms <= 0) return null;
     return Date.now() - ms;
+  }
+
+  /** 現在の目盛り位置が表す「何ms前か」を、Date.now()と無関係な生の値で返す。
+   *  使い方ページの練習用サンドボックス（tutorialSandbox.ts）は本物の壁時計
+   *  ではなく加速した仮想時計で動くため、絶対時刻への変換はDate.now()基準の
+   *  getRewindAt()ではなく、ここで得たmsを呼び出し側の仮想「今」から引いて
+   *  自前で行う。 */
+  getRewindMs(): number {
+    return this.msAtPosition(this.position);
   }
 
   private build(): void {
