@@ -1,6 +1,7 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { formatDurationJa } from "./fade";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
+import { ICONS } from "./icons";
 import type { SessionState, StartSessionOptions } from "./sharedCanvas";
 
 const PHASE_LABEL: Record<SessionState["phase"], string> = {
@@ -11,6 +12,10 @@ const PHASE_LABEL: Record<SessionState["phase"], string> = {
 
 /** 延長ボタン1回あたりの延長量。 */
 const EXTEND_MS = 5 * 60 * 1000;
+
+/** フェーズの長さ・参加人数上限のスライダー範囲。 */
+const MINUTES_RANGE = { min: 1, max: 30, step: 1, default: 5 } as const;
+const MAX_PARTICIPANTS_RANGE = { min: 1, max: 20, step: 1, default: 8 } as const;
 
 export interface SessionPanelCallbacks {
   onStart: (options: StartSessionOptions) => void;
@@ -25,25 +30,27 @@ export interface SessionPanelCallbacks {
  * render()のたびに呼ぶ形にし、開閉はSharedRoomMenu/AppearanceSelectorと
  * 同じ.icon-anchor/.icon-popoverパターンをそのまま使う。
  *
- * ルームマスターでない参加者には、フェーズ名+残り時間だけを見せる静的な
- * 表示にする（操作ボタンは出さない）——セッションの開始・進行はルーム
- * マスターだけの操作という仕様のため。
+ * トリガーボタンは常に表示しておき、操作できない間（ルームマスターでない、
+ * またはセッション未開始でマスターでもない）は.pill-btn:disabledの薄い表示に
+ * する——招待リンク欄などこのアプリの既存の「隠すのではなく無効表示」という
+ * 慣習に合わせる（ユーザー指示）。
  */
 export class SessionPanel {
   private callbacks: SessionPanelCallbacks;
 
   private anchor!: HTMLElement;
   private trigger!: HTMLButtonElement;
+  private triggerLabelEl!: HTMLElement;
   private popover!: HTMLElement;
   private popoverFade!: (show: boolean) => void;
   private readonly closeRef = () => this.close();
   private open = false;
 
   private startForm!: HTMLElement;
-  private phase1Input!: HTMLInputElement;
-  private phase2Input!: HTMLInputElement;
-  private phase3Input!: HTMLInputElement;
-  private maxParticipantsInput!: HTMLInputElement;
+  private phase1Slider!: HTMLInputElement;
+  private phase2Slider!: HTMLInputElement;
+  private phase3Slider!: HTMLInputElement;
+  private maxParticipantsSlider!: HTMLInputElement;
 
   private activeControls!: HTMLElement;
   private phaseLabelEl!: HTMLElement;
@@ -58,11 +65,13 @@ export class SessionPanel {
   private buildDom(container: HTMLElement): void {
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
-    this.anchor.hidden = true;
 
     this.trigger = document.createElement("button");
     this.trigger.type = "button";
     this.trigger.className = "pill-btn session-panel-trigger";
+    this.trigger.innerHTML = ICONS.timer;
+    this.triggerLabelEl = document.createElement("span");
+    this.trigger.appendChild(this.triggerLabelEl);
     this.trigger.addEventListener("click", () => this.toggle());
     this.anchor.appendChild(this.trigger);
 
@@ -75,23 +84,24 @@ export class SessionPanel {
     this.phaseLabelEl.className = "shared-section-label";
     this.popover.appendChild(this.phaseLabelEl);
 
-    // 未開始時: フェーズの長さ・上限人数を決めて開始する。
+    // 未開始時: フェーズの長さ・上限人数をスライダーで決めて開始する。
     this.startForm = document.createElement("div");
     this.startForm.className = "session-start-form";
-    this.phase1Input = this.buildMinutesField(this.startForm, "①アイデア出し(分)", 5);
-    this.phase2Input = this.buildMinutesField(this.startForm, "②議論(分)", 5);
-    this.phase3Input = this.buildMinutesField(this.startForm, "③採択・絞り込み(分)", 5);
-    this.maxParticipantsInput = this.buildNumberField(this.startForm, "参加人数の上限", 8, 1, 50);
+    this.phase1Slider = this.buildSlider(this.startForm, "①アイデア出し", MINUTES_RANGE, "分");
+    this.phase2Slider = this.buildSlider(this.startForm, "②議論", MINUTES_RANGE, "分");
+    this.phase3Slider = this.buildSlider(this.startForm, "③採択・絞り込み", MINUTES_RANGE, "分");
+    this.maxParticipantsSlider = this.buildSlider(this.startForm, "参加人数の上限", MAX_PARTICIPANTS_RANGE, "人");
     const startBtn = document.createElement("button");
     startBtn.type = "button";
     startBtn.className = "pill-btn pill-btn--primary";
     startBtn.textContent = "セッションを開始";
     startBtn.addEventListener("click", () => {
-      const phase1Ms = this.minutesToMs(this.phase1Input);
-      const phase2Ms = this.minutesToMs(this.phase2Input);
-      const phase3Ms = this.minutesToMs(this.phase3Input);
-      const maxParticipants = Math.max(1, Math.round(Number(this.maxParticipantsInput.value) || 1));
-      this.callbacks.onStart({ phase1Ms, phase2Ms, phase3Ms, maxParticipants });
+      this.callbacks.onStart({
+        phase1Ms: Number(this.phase1Slider.value) * 60 * 1000,
+        phase2Ms: Number(this.phase2Slider.value) * 60 * 1000,
+        phase3Ms: Number(this.phase3Slider.value) * 60 * 1000,
+        maxParticipants: Number(this.maxParticipantsSlider.value),
+      });
       this.close();
     });
     this.startForm.appendChild(startBtn);
@@ -125,28 +135,37 @@ export class SessionPanel {
     container.appendChild(this.anchor);
   }
 
-  private buildMinutesField(parent: HTMLElement, label: string, defaultMinutes: number): HTMLInputElement {
-    return this.buildNumberField(parent, label, defaultMinutes, 1, 180);
-  }
-
-  private buildNumberField(parent: HTMLElement, label: string, defaultValue: number, min: number, max: number): HTMLInputElement {
-    const row = document.createElement("label");
+  /** ツールバーの太さスライダー（toolbar.ts buildThicknessSlider）と同じ
+   *  「ラベル＋現在値」の並びで1本のスライダー行を作る。 */
+  private buildSlider(
+    parent: HTMLElement,
+    label: string,
+    range: { min: number; max: number; step: number; default: number },
+    unit: string
+  ): HTMLInputElement {
+    const row = document.createElement("div");
     row.className = "session-form-row";
-    const span = document.createElement("span");
-    span.textContent = label;
+    const labelEl = document.createElement("span");
+    labelEl.className = "session-form-label";
+    const valueEl = document.createElement("span");
+    valueEl.className = "session-form-value";
     const input = document.createElement("input");
-    input.type = "number";
-    input.min = String(min);
-    input.max = String(max);
-    input.value = String(defaultValue);
-    row.append(span, input);
+    input.type = "range";
+    input.className = "session-slider";
+    input.min = String(range.min);
+    input.max = String(range.max);
+    input.step = String(range.step);
+    input.value = String(range.default);
+    input.setAttribute("aria-label", label);
+    const sync = () => {
+      labelEl.textContent = label;
+      valueEl.textContent = `${input.value}${unit}`;
+    };
+    input.addEventListener("input", sync);
+    sync();
+    row.append(labelEl, input, valueEl);
     parent.appendChild(row);
     return input;
-  }
-
-  private minutesToMs(input: HTMLInputElement): number {
-    const minutes = Math.max(1, Number(input.value) || 1);
-    return minutes * 60 * 1000;
   }
 
   private toggle(): void {
@@ -179,18 +198,19 @@ export class SessionPanel {
     this.isMaster = isMaster;
 
     if (!session) {
-      // 未開始: マスターだけがトリガーを持つ(=セッションを開始できる)。
-      this.anchor.hidden = !isMaster;
-      this.trigger.textContent = "セッションを開始";
+      // 未開始: 誰でも見えるが、マスターでなければ押せない（招待リンク欄などと
+      // 同じ、隠すのではなく無効表示にする慣習）。
+      this.trigger.disabled = !isMaster;
+      this.triggerLabelEl.textContent = "セッションを開始";
       this.startForm.hidden = false;
       this.activeControls.hidden = true;
       this.phaseLabelEl.hidden = true;
       return;
     }
 
-    this.anchor.hidden = false;
     const remaining = formatDurationJa(Math.max(0, session.phaseEndsAt - now));
-    this.trigger.textContent = `${PHASE_LABEL[session.phase]} 残り${remaining}`;
+    this.triggerLabelEl.textContent = `${PHASE_LABEL[session.phase]} 残り${remaining}`;
+    this.trigger.disabled = !isMaster;
     if (!isMaster) {
       // 非マスターは静的な表示のみ——ポップオーバーは開かせない。
       if (this.open) this.close();

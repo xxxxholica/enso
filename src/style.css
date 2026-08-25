@@ -684,7 +684,8 @@ body {
    GoodNotesのような「意図して作られた道具」に見えるよう、細い軌道の上に
    インクの一滴のようなつまみを置く形に作り直した（UI再設計）。 --- */
 .thickness-slider,
-.duration-seekbar-slider {
+.duration-seekbar-slider,
+.session-slider {
   appearance: none;
   width: 100%;
   min-width: 64px;
@@ -695,21 +696,24 @@ body {
 }
 
 .thickness-slider::-webkit-slider-runnable-track,
-.duration-seekbar-slider::-webkit-slider-runnable-track {
+.duration-seekbar-slider::-webkit-slider-runnable-track,
+.session-slider::-webkit-slider-runnable-track {
   height: 3px;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
 
 .thickness-slider::-moz-range-track,
-.duration-seekbar-slider::-moz-range-track {
+.duration-seekbar-slider::-moz-range-track,
+.session-slider::-moz-range-track {
   height: 3px;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
 
 .thickness-slider::-webkit-slider-thumb,
-.duration-seekbar-slider::-webkit-slider-thumb {
+.duration-seekbar-slider::-webkit-slider-thumb,
+.session-slider::-webkit-slider-thumb {
   appearance: none;
   width: 15px;
   height: 15px;
@@ -722,7 +726,8 @@ body {
 }
 
 .thickness-slider::-moz-range-thumb,
-.duration-seekbar-slider::-moz-range-thumb {
+.duration-seekbar-slider::-moz-range-thumb,
+.session-slider::-moz-range-thumb {
   width: 15px;
   height: 15px;
   border: 2px solid var(--paper-1);
@@ -733,12 +738,14 @@ body {
 }
 
 .thickness-slider:active::-webkit-slider-thumb,
-.duration-seekbar-slider:active::-webkit-slider-thumb {
+.duration-seekbar-slider:active::-webkit-slider-thumb,
+.session-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
 .thickness-slider:active::-moz-range-thumb,
-.duration-seekbar-slider:active::-moz-range-thumb {
+.duration-seekbar-slider:active::-moz-range-thumb,
+.session-slider:active::-moz-range-thumb {
   transform: scale(1.2);
 }
 
@@ -1235,8 +1242,22 @@ body {
   padding: 14px 16px;
 }
 
+/* --- 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン。
+   見た目の設定(.appearance-trigger)と同じくアイコン＋文字を横並びにする。 --- */
+.session-panel-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-panel-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 /* --- 共同アイデア出しセッション(sessionPanel.ts)のポップアップ。開始フォームの
-   数値入力・進行中の操作ボタンを縦に並べる。 --- */
+   スライダー・進行中の操作ボタンを縦に並べる。 --- */
 .session-panel-popover {
   min-width: 240px;
   padding: 14px 16px;
@@ -1246,19 +1267,25 @@ body {
 .session-active-controls {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* フェーズの長さ・参加人数上限を選ぶスライダー1本の行。ツールバーの太さ
+   スライダー(.thickness-control)と同じ「ラベル＋現在値」の考え方だが、
+   ここは横並びでラベル・スライダー・現在値を並べる（ポップアップ内で
+   縦に何本も並ぶため、行の高さを抑えたい）。 */
 .session-form-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 6.5em 1fr 3em;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   font-size: 0.85em;
 }
 
-.session-form-row input[type="number"] {
-  width: 4.5em;
+.session-form-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-70);
+  text-align: right;
 }
 
 .shared-room-menu-main {
