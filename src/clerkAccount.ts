@@ -103,17 +103,11 @@ export async function mountAccountWidget(
       renderSignedOut();
     }
 
-    // コラボ機能などの他モジュールが、Clerkの詳細を知らずに「今のユーザー」を読めるようにする。
-    _setCurrentUser(
-      clerk.user
-        ? {
-            id: clerk.user.id,
-            name: clerk.user.fullName ?? clerk.user.username ?? "名前未設定",
-            imageUrl: clerk.user.imageUrl,
-          }
-        : null
-    );
-
+    // onAuthChangeを先に呼び、setTokenGetter経由でapiClient.tsのトークン取得関数を
+    // 用意してから_setCurrentUserで他モジュールに通知する。逆順だと、_setCurrentUser
+    // が同期的に呼ぶリスナー（SharedRoomMenuの招待リンク自動参加など）がその場で
+    // authFetchを呼んだ時、まだtokenGetterが設定されておらず「未ログインです」で
+    // 失敗する——ログイン済みで開いた招待リンクの自動参加が効かない不具合の原因だった。
     if (isSignedIn !== wasSignedIn) {
       wasSignedIn = isSignedIn;
       onAuthChange?.(
@@ -127,6 +121,17 @@ export async function mountAccountWidget(
           : null
       );
     }
+
+    // コラボ機能などの他モジュールが、Clerkの詳細を知らずに「今のユーザー」を読めるようにする。
+    _setCurrentUser(
+      clerk.user
+        ? {
+            id: clerk.user.id,
+            name: clerk.user.fullName ?? clerk.user.username ?? "名前未設定",
+            imageUrl: clerk.user.imageUrl,
+          }
+        : null
+    );
   }
 
   clerk.addListener(() => sync());

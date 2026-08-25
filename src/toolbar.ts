@@ -7,15 +7,25 @@ import type { DrawTool } from "./types";
 
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 
-const DEFAULT_INK = "oklch(22% 0.012 55)";
+export const DEFAULT_INK = "oklch(22% 0.012 55)";
 /** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
 const COLOR_INPUT_SEED = "#2f2a26";
 
 /** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）の
- *  スライダー範囲。以前は固定16px（旧ERASER_RADIUS_PX）だったが、GoodNotesの
- *  ようにバーで変えられるようにしたいというユーザー指示で調整可能にした。
- *  defaultの16pxは、その旧固定値と同じ。 */
-const ERASER_RADIUS_RANGE = { min: 8, max: 40, step: 1, default: 16 } as const;
+ *  小/中/大の3段階。以前はペンの太さと同じくバーで連続的に選べるようにして
+ *  いたが、「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」
+ *  というユーザー指示を受け、細かい調整よりも一目で選べることを優先して
+ *  3段階のボタン選択に変更した（ペンの太さは連続スライダーのまま）。
+ *  値は変更前の連続スライダーのmin/default/maxをそのまま踏襲している。 */
+const ERASER_SIZE_STEPS = { small: 8, medium: 16, large: 40 } as const;
+type EraserSizeStep = keyof typeof ERASER_SIZE_STEPS;
+const ERASER_SIZE_STEP_ORDER: EraserSizeStep[] = ["small", "medium", "large"];
+const ERASER_SIZE_STEP_LABEL: Record<EraserSizeStep, string> = { small: "小", medium: "中", large: "大" };
+const ERASER_SIZE_STEP_ICON: Record<EraserSizeStep, string> = {
+  small: ICONS.eraserSizeSmall,
+  medium: ICONS.eraserSizeMedium,
+  large: ICONS.eraserSizeLarge,
+};
 
 interface InkPreset {
   id: string;
@@ -80,10 +90,12 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
  *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
  *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない（ユーザー指示：
  *     太さのスライダーが増えた分、サイズ選択のステッパー表示は不要）。
- *     ペンの太さ・消しゴムの大きさは、GoodNotesのようにバーで連続的に
- *     選べるようにしたいというユーザー指示で1本のスライダー
- *     （buildThicknessSlider）にしており、選んでいる道具がペンなら太さ、
- *     消しゴムなら大きさを表す（他の道具の間は無効化）。
+ *     ペンの太さは、GoodNotesのようにバーで連続的に選べるようにしたい
+ *     というユーザー指示でスライダー（buildThicknessSlider）にしている。
+ *     消しゴムの大きさは、当初はこのスライダーをペンと共有していたが、
+ *     「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」という
+ *     ユーザー指示を受け、小/中/大の3段階のボタン選択（buildEraserSizeSteps）
+ *     に分けた——選んでいる道具に応じて、この2つは同じ位置で片方だけを表示する。
  * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
@@ -109,13 +121,18 @@ export class Toolbar {
   /** マーカーで使う色。既定はMARKER_PRESET_INKSの1つ目（シアン）。 */
   private markerColor: string = MARKER_PRESET_INKS[0].color;
   private penWidth: number = PEN_WIDTH_RANGE.default;
-  private eraserRadius: number = ERASER_RADIUS_RANGE.default;
+  private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
   private thicknessWrap!: HTMLElement;
   private thicknessLabel!: HTMLElement;
   private thicknessSlider!: HTMLInputElement;
+  /** 消しゴムの大きさ（小/中/大）を選ぶボタン。太さスライダーとは同じ
+   *  .toolbar-details内の同じ位置を奪い合う形で、道具が消しゴムの時だけこちらを
+   *  表示し、ペンの時だけスライダーを表示する（buildEraserSizeSteps参照）。 */
+  private eraserSizeWrap!: HTMLElement;
+  private eraserSizeButtons = new Map<EraserSizeStep, HTMLButtonElement>();
 
   /** 固定3スワッチのボタン本体。IDでなく位置（0〜2）で持つ——道具が
    *  マーカーかどうかでPEN_PRESET_INKS/MARKER_PRESET_INKSのどちらを表示するか
@@ -179,8 +196,9 @@ export class Toolbar {
     return this.penWidth;
   }
 
-  /** 消しゴムの当たり判定半径(画面px)。buildThicknessSliderの同じスライダーで
-   *  選ぶ（道具が消しゴムの間だけ有効）。canvasView.tsのeraseAt呼び出しで使う。 */
+  /** 消しゴムの当たり判定半径(画面px)。buildEraserSizeStepsの小/中/大の
+   *  3段階から選ぶ（道具が消しゴムの間だけ表示・有効）。canvasView.tsの
+   *  eraseAt呼び出しで使う。 */
   getEraserRadius(): number {
     return this.eraserRadius;
   }
@@ -265,17 +283,19 @@ export class Toolbar {
     this.el.appendChild(details);
 
     this.buildThicknessSlider(details);
+    this.buildEraserSizeSteps(details);
     this.buildSwatch(details);
   }
 
-  /** ペンの太さ・消しゴムの大きさを1本のスライダーで共有する（ユーザー指示：
-   *  GoodNotesのようにバーで変えたい）。物理量が違う2つの値を同じUI位置で
-   *  切り替えるだけで、状態（penWidth/eraserRadius）はツールごとに別々に持つ
-   *  ——ペンを太くしてから消しゴムに切り替えても、消しゴムの大きさは覚えたまま
-   *  残る。ペン・消しゴム以外の道具の間は無効化する（DurationSelectorの
-   *  setEnabledと同じ考え方——「サイズ」の文字ステッパーは道具を問わず常に
-   *  有効なままにしているのとは対照的に、こちらは意味を持つ道具が2つしかない
-   *  ため無効化する）。 */
+  /** ペンの太さをバーで連続的に選ぶ（ユーザー指示：GoodNotesのようにバーで
+   *  変えたい）。消しゴムは別のUI（buildEraserSizeSteps、3段階のボタン選択）に
+   *  分けている——「消しゴムはGoodNotesのように3段階の大きさから選ぶ形にしたい」
+   *  というユーザー指示により、以前は太さスライダーをペン・消しゴムで共有して
+   *  いたのをやめた。ペン以外（マーカー・テキスト・選択・消しゴム）の間は
+   *  非表示にする——以前はグレーアウトして残していたが、「触れないバーが
+   *  常に居座っているのは分かりにくい」という指摘を受け、意味を持つ道具が
+   *  ペンだけになった今、消しゴムのカラーパレット非表示（syncSwatch参照）と
+   *  同じ考え方で道具を問わず非表示にした。 */
   private buildThicknessSlider(details: HTMLElement): void {
     this.thicknessWrap = document.createElement("div");
     this.thicknessWrap.className = "thickness-control";
@@ -287,13 +307,12 @@ export class Toolbar {
     this.thicknessSlider = document.createElement("input");
     this.thicknessSlider.type = "range";
     this.thicknessSlider.className = "thickness-slider";
+    this.thicknessSlider.min = String(PEN_WIDTH_RANGE.min);
+    this.thicknessSlider.max = String(PEN_WIDTH_RANGE.max);
+    this.thicknessSlider.step = String(PEN_WIDTH_RANGE.step);
+    this.thicknessSlider.setAttribute("aria-label", "ペンの太さ");
     this.thicknessSlider.addEventListener("input", () => {
-      const value = Number(this.thicknessSlider.value);
-      if (this.tool === "eraser") {
-        this.eraserRadius = value;
-      } else {
-        this.penWidth = value;
-      }
+      this.penWidth = Number(this.thicknessSlider.value);
       this.syncThicknessSlider();
       this.onChange?.();
     });
@@ -303,19 +322,51 @@ export class Toolbar {
   }
 
   private syncThicknessSlider(): void {
-    const isEraser = this.tool === "eraser";
-    const enabled = isEraser || this.tool === "pen";
-    const range = isEraser ? ERASER_RADIUS_RANGE : PEN_WIDTH_RANGE;
-    const value = isEraser ? this.eraserRadius : this.penWidth;
+    // ペン以外（マーカー・テキスト・選択・消しゴム）では意味を持たないため
+    // 表示しない——以前はグレーアウトして残していたが、「触れないバーが
+    // 常に居座っているのは分かりにくい」という指摘を受け、消しゴムの
+    // カラーパレット非表示（syncSwatch参照）と同じ考え方で道具を問わず
+    // 非表示にした。
+    this.thicknessWrap.hidden = this.tool !== "pen";
+    this.thicknessSlider.value = String(this.penWidth);
+    this.thicknessLabel.textContent = `${this.penWidth}px`;
+  }
 
-    this.thicknessSlider.min = String(range.min);
-    this.thicknessSlider.max = String(range.max);
-    this.thicknessSlider.step = String(range.step);
-    this.thicknessSlider.value = String(value);
-    this.thicknessSlider.disabled = !enabled;
-    this.thicknessSlider.setAttribute("aria-label", isEraser ? "消しゴムの大きさ" : "ペンの太さ");
-    this.thicknessWrap.classList.toggle("thickness-control-disabled", !enabled);
-    this.thicknessLabel.textContent = `${value}px`;
+  /** 消しゴムの大きさを小/中/大の3段階のボタンから選ぶ（ユーザー指示：GoodNotes
+   *  のように3段階から選ぶ形にしたい——以前はペンと同じ連続スライダーを共有して
+   *  いた）。フレーム形状・柄の選択（appearanceSelector.ts）と同じ.toolbar-pill/
+   *  .toolbar-btnの見た目を流用し、選択中のボタンだけ塗りつぶしの丸が濃く見える
+   *  ようdata-activeでハイライトする。道具が消しゴムの時だけ表示し、それ以外は
+   *  隠す（syncThicknessSlider参照）。 */
+  private buildEraserSizeSteps(details: HTMLElement): void {
+    this.eraserSizeWrap = document.createElement("div");
+    this.eraserSizeWrap.className = "toolbar-pill";
+
+    for (const step of ERASER_SIZE_STEP_ORDER) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toolbar-btn";
+      btn.setAttribute("aria-label", `消しゴムの大きさ: ${ERASER_SIZE_STEP_LABEL[step]}`);
+      btn.innerHTML = ERASER_SIZE_STEP_ICON[step];
+      btn.addEventListener("click", () => {
+        this.eraserRadius = ERASER_SIZE_STEPS[step];
+        this.syncEraserSizeSteps();
+        this.onChange?.();
+      });
+      this.eraserSizeButtons.set(step, btn);
+      this.eraserSizeWrap.appendChild(btn);
+    }
+
+    details.appendChild(this.eraserSizeWrap);
+  }
+
+  private syncEraserSizeSteps(): void {
+    this.eraserSizeWrap.hidden = this.tool !== "eraser";
+    for (const [step, btn] of this.eraserSizeButtons) {
+      const active = ERASER_SIZE_STEPS[step] === this.eraserRadius;
+      btn.dataset.active = String(active);
+      btn.setAttribute("aria-pressed", String(active));
+    }
   }
 
   /**
@@ -411,6 +462,7 @@ export class Toolbar {
   private syncAll(): void {
     this.syncPill();
     this.syncThicknessSlider();
+    this.syncEraserSizeSteps();
     this.syncSwatch();
   }
 
@@ -422,5 +474,17 @@ export class Toolbar {
    */
   setEnabled(enabled: boolean): void {
     this.el.classList.toggle("toolbar-disabled", !enabled);
+  }
+
+  /**
+   * 共同アイデア出しセッションのフェーズ①②の間、色がセッション側から強制される
+   * （実際に使われる色の上書きはsmuiView.tsが行う）。ここではスワッチ・カラー
+   * ピッカーを押せなくして、触っても実際の色には反映されないことを示すだけ
+   * （誤操作防止、ユーザーが「押したのに変わらない」と混乱しないため）。
+   */
+  setColorLocked(locked: boolean): void {
+    for (const btn of this.presetButtons) btn.disabled = locked;
+    this.customSwatchBtn.disabled = locked;
+    this.colorInput.disabled = locked;
   }
 }
