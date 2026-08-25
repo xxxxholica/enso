@@ -18,14 +18,29 @@ export interface CanvasGeometry {
 
 /**
  * コンテナの利用可能な幅・高さのうち小さい方いっぱいまで正方形として広げた時の
- * 一辺（px）。上下限（MIN/MAX_CANVAS_SIZE）だけ設ける。SMUIの右レンズ
- * プレースホルダー（smuiView.ts）が、実際にCircularCanvasが無い間も同じ大きさの
- * 円に見えるよう、この計算だけを単独で使えるようにexportしている。
+ * 一辺（px）。上下限（MIN/MAX_CANVAS_SIZE）だけ設ける。frameKind==="single"では
+ * キャンバス要素自体の大きさではなく、フレーム（円/楕円/長方形）の描画基準サイズ
+ * （contentScaleFactorを掛ける前の値）としてだけ使う——computeContainerSize参照。
  */
 export function computeSquareSize(container: HTMLElement): number {
   const rect = container.getBoundingClientRect();
   const available = Math.min(rect.width, rect.height || rect.width);
   return Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, available));
+}
+
+/**
+ * コンテナの利用可能な幅・高さを、正方形に制限せずそのまま返す（下限だけ
+ * MIN_CANVAS_SIZEで保証し、極端に狭いレイアウトでの退化を防ぐ。上限は設けない
+ * ——キャンバス要素の領域を画面いっぱいに使うのが目的のため）。frameKind==="single"の
+ * キャンバス要素の実サイズ（style幅高さ・描画バッファ）に使う。フレームの描画基準
+ * サイズ（computeSquareSize）とは別の値で、両者はfitCanvasToContainerで
+ * 組み合わせる。
+ */
+export function computeContainerSize(container: HTMLElement): { width: number; height: number } {
+  const rect = container.getBoundingClientRect();
+  const width = Math.max(MIN_CANVAS_SIZE, rect.width);
+  const height = Math.max(MIN_CANVAS_SIZE, rect.height || rect.width);
+  return { width, height };
 }
 
 /**
@@ -84,26 +99,33 @@ export function computeRectSize(container: HTMLElement, aspectRatio: number): { 
 }
 
 /**
- * コンテナの利用可能な幅・高さのうち小さい方いっぱいまで正方形として広げ、
- * 上下限だけ設ける。canvas要素の実サイズ（style幅高さ・描画バッファ）を
- * このタイミングで適用し、以後の座標計算に使う半径・中心を返す。
- * contentScaleFactorは固定の割合（数値）のほか、キャンバスの一辺（px）を
+ * canvas要素の実サイズ（style幅高さ・描画バッファ）をcontainerSize（既定は
+ * コンテナいっぱい、正方形に限らない矩形——computeContainerSize参照）に合わせ、
+ * 以後の座標計算に使うscale・中心を返す。scale自体はcontainerSizeとは別の
+ * referenceSize（既定はcomputeSquareSize(container)、正方形基準の値）に
+ * contentScaleFactorを掛けて決める——キャンバス要素の領域を画面いっぱいに
+ * 広げても、フレーム（円/楕円/長方形）の見た目の大きさ自体は変えないため、
+ * この2つを独立させている。
+ * contentScaleFactorは固定の割合（数値）のほか、referenceSize（px）を
  * 受け取ってその都度の割合を返す関数も渡せる（SMUIレンズの動的マージン計算、
- * computeAutoScale参照）。呼び出し元がすでにcomputeSquareSize(container)を
- * 計算済みなら、getBoundingClientRect()の二重呼び出しを避けるためsizeで渡せる。
+ * computeAutoScale参照）。呼び出し元がすでにcomputeSquareSize(container)/
+ * computeContainerSize(container)を計算済みなら、getBoundingClientRect()の
+ * 二重呼び出しを避けるためreferenceSize/containerSizeで渡せる。
  */
 export function fitCanvasToContainer(
   canvas: HTMLCanvasElement,
   container: HTMLElement,
   dpr: number,
   contentScaleFactor: number | ((size: number) => number) = 0.43,
-  size: number = computeSquareSize(container)
+  referenceSize: number = computeSquareSize(container),
+  containerSize: { width: number; height: number } = computeContainerSize(container)
 ): CanvasGeometry {
-  const factor = typeof contentScaleFactor === "function" ? contentScaleFactor(size) : contentScaleFactor;
-  const scale = size * factor;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
-  return { width: size, height: size, scale, centerPx: { x: size / 2, y: size / 2 } };
+  const factor = typeof contentScaleFactor === "function" ? contentScaleFactor(referenceSize) : contentScaleFactor;
+  const scale = referenceSize * factor;
+  const { width, height } = containerSize;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  return { width, height, scale, centerPx: { x: width / 2, y: height / 2 } };
 }

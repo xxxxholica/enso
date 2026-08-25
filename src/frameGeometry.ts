@@ -1,4 +1,4 @@
-import { computeAutoScale, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
+import { computeAutoScale, computeContainerSize, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
 import {
   getFrameShape,
   getGlassesFrameShape,
@@ -118,10 +118,13 @@ export class FrameGeometry {
     return this.frameKindValue === "glasses" ? getGlassesFrameShape(this.frameShapeId) : getFrameShape(this.frameShapeId);
   }
 
-  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける
-   *  （frameKind==="single"）。frameKind==="glasses"の場合は、正方形ではなく
-   *  GLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の横長矩形として
-   *  広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
+  /** キャンバス要素自体は、利用可能な幅・高さいっぱいの矩形として広げる
+   *  （frameKind==="single"）。フレーム（円/楕円/長方形）の描画基準サイズは
+   *  これとは別に、利用可能な幅・高さのうち小さい方（上下限だけ設ける）を
+   *  そのまま使う——キャンバス領域を画面いっぱいに広げても、フレームの見た目の
+   *  大きさ自体は変えないため（issue #83、ユーザー指示）。frameKind==="glasses"の
+   *  場合は、正方形ではなくGLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の
+   *  横長矩形として広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
    *  computeAutoScaleした小さい方をscaleとして採用する。 */
   resize(): void {
     // #app（style.css）はmin-height:100dvhで最低限のみ保証しており、キャンバスの
@@ -155,14 +158,16 @@ export class FrameGeometry {
       this.scaleValue = scale;
       this.centerPxValue = { x: width / 2, y: height / 2 };
     } else {
-      const size = computeSquareSize(this.container);
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(size);
+      const referenceSize = computeSquareSize(this.container);
+      const containerSize = computeContainerSize(this.container);
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(
         this.canvas,
         this.container,
         this.dpr,
         this.contentScaleFactor,
-        size
+        referenceSize,
+        containerSize
       );
       this.scaleValue = scale;
       this.centerPxValue = centerPx;
