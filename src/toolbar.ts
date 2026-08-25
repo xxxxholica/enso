@@ -17,14 +17,31 @@ const COLOR_INPUT_SEED = "#2f2a26";
  *  defaultの16pxは、その旧固定値と同じ。 */
 const ERASER_RADIUS_RANGE = { min: 8, max: 40, step: 1, default: 16 } as const;
 
-/** すぐ選べる固定インク3色（GoodNotesの黒/赤/青のような定番色、ユーザー指示）。
- *  「黒」は既存の既定インク色（DEFAULT_INK）をそのまま使う——見た目・初期状態を
- *  変えないため。赤・青は罫線紙の上でも視認しやすいよう、黒と同じくらいの
- *  明度感（暗め）で彩度を持たせた値にしている。 */
-const PRESET_INKS: { id: "black" | "red" | "blue"; label: string; color: string }[] = [
+interface InkPreset {
+  id: string;
+  label: string;
+  color: string;
+}
+
+/** すぐ選べる固定インク3色（GoodNotes風の定番色、ユーザー指示）。ペン・
+ *  テキストなど、マーカー以外の道具で使う。「黒」は既存の既定インク色
+ *  （DEFAULT_INK）をそのまま使う——見た目・初期状態を変えないため。 */
+const PEN_PRESET_INKS: InkPreset[] = [
   { id: "black", label: "黒", color: DEFAULT_INK },
   { id: "red", label: "赤", color: "oklch(52% 0.2 25)" },
   { id: "blue", label: "青", color: "oklch(48% 0.16 258)" },
+];
+
+/** マーカー専用の固定インク3色。マーカーでは黒はまず使わないだろう、という
+ *  ユーザー指示により、ペン等とは別に色の三原色（CMY：シアン・マゼンタ・
+ *  イエロー）を用意した。当初はペンの赤・青と同じ暗め・高彩度の値にしていたが、
+ *  「濃すぎる、GoodNotesのようにもう少しパステル寄りにしたい」という指摘を
+ *  受け、明度を上げ彩度を落として蛍光ペン・ハイライター寄りの淡い発色に
+ *  調整した。 */
+const MARKER_PRESET_INKS: InkPreset[] = [
+  { id: "cyan", label: "シアン", color: "oklch(85% 0.08 210)" },
+  { id: "magenta", label: "マゼンタ", color: "oklch(82% 0.11 340)" },
+  { id: "yellow", label: "イエロー", color: "oklch(90% 0.1 95)" },
 ];
 
 /** 鉛筆とペンはほぼ同じ機能（線を描くだけ）だったため1つに統合した（ユーザー指示）。
@@ -84,7 +101,13 @@ export class Toolbar {
   private onChange?: () => void;
   private onInsertTemplate?: (id: TemplateId) => void;
   private tool: ToolbarTool = "pen";
-  private color: string = DEFAULT_INK;
+  /** マーカー以外（ペン・テキスト等）で使う色。ペンの太さ・消しゴムの大きさが
+   *  ツールごとに別々の値を覚えているのと同じ考え方で、マーカーの色
+   *  （markerColor）とは独立して覚えておく——マーカーで色を変えても、
+   *  ペンに戻したときの色は変わらない。 */
+  private drawColor: string = DEFAULT_INK;
+  /** マーカーで使う色。既定はMARKER_PRESET_INKSの1つ目（シアン）。 */
+  private markerColor: string = MARKER_PRESET_INKS[0].color;
   private penWidth: number = PEN_WIDTH_RANGE.default;
   private eraserRadius: number = ERASER_RADIUS_RANGE.default;
 
@@ -94,11 +117,16 @@ export class Toolbar {
   private thicknessLabel!: HTMLElement;
   private thicknessSlider!: HTMLInputElement;
 
-  private presetButtons = new Map<string, HTMLButtonElement>();
+  /** 固定3スワッチのボタン本体。IDでなく位置（0〜2）で持つ——道具が
+   *  マーカーかどうかでPEN_PRESET_INKS/MARKER_PRESET_INKSのどちらを表示するか
+   *  が変わるため、ボタン自体は使い回し、中身（背景色・ラベル）をsyncSwatchで
+   *  差し替える。 */
+  private presetButtons: HTMLButtonElement[] = [];
   private customSwatchBtn!: HTMLButtonElement;
   private colorInput!: HTMLInputElement;
   /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
-   *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。 */
+   *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
+   *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
 
   constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
@@ -122,7 +150,19 @@ export class Toolbar {
   }
 
   getColor(): string {
-    return this.color;
+    return this.tool === "marker" ? this.markerColor : this.drawColor;
+  }
+
+  /** 今の道具に応じて表示すべき固定3色（マーカーだけ色の三原色、それ以外は
+   *  黒/赤/青）。 */
+  private activePresetInks(): InkPreset[] {
+    return this.tool === "marker" ? MARKER_PRESET_INKS : PEN_PRESET_INKS;
+  }
+
+  /** 今の道具用の色を更新する（マーカーならmarkerColor、それ以外はdrawColor）。 */
+  private setActiveColor(color: string): void {
+    if (this.tool === "marker") this.markerColor = color;
+    else this.drawColor = color;
   }
 
   /** 基準円(半径340px)におけるフォントサイズ(px)。選べる仕様をやめ常にDEFAULT_FONT_SIZE_STEP
@@ -278,28 +318,27 @@ export class Toolbar {
   }
 
   /**
-   * インクの色: すぐ選べる黒/赤/青の3スワッチ＋4つ目の「好きな色」スワッチを
-   * 横に並べる（ユーザー指示：GoodNotesのように定番色をすぐ選べるようにし、
-   * 4つ目でRGBの好きな色を選べるようにしたい）。以前は1個のスワッチ（クリックで
-   * ネイティブのカラーピッカーを開くだけ）だったが、その1個をそのまま「好きな色」
-   * スワッチとして残し、前に固定3色を並べる形にした。
+   * インクの色: すぐ選べる固定3スワッチ＋4つ目の「好きな色」スワッチを横に
+   * 並べる（ユーザー指示：GoodNotesのように定番色をすぐ選べるようにし、4つ目
+   * でRGBの好きな色を選べるようにしたい）。固定3色は道具によって中身が変わる
+   * （マーカーだけ色の三原色、それ以外は黒/赤/青——ユーザー指示：マーカーで
+   * 黒はまず使わない）ため、ボタン自体は3つ作って使い回し、背景色・ラベルは
+   * syncSwatchで今の道具に合わせて差し替える。
    */
   private buildSwatch(details: HTMLElement): void {
     const row = document.createElement("div");
     row.className = "toolbar-swatches";
 
-    for (const preset of PRESET_INKS) {
+    for (let i = 0; i < 3; i++) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "toolbar-swatch";
-      btn.style.background = preset.color;
-      btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
       btn.addEventListener("click", () => {
-        this.color = preset.color;
+        this.setActiveColor(this.activePresetInks()[i].color);
         this.syncSwatch();
         this.onChange?.();
       });
-      this.presetButtons.set(preset.id, btn);
+      this.presetButtons.push(btn);
       row.appendChild(btn);
     }
 
@@ -310,7 +349,7 @@ export class Toolbar {
     this.colorInput.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
     this.colorInput.addEventListener("input", () => {
       this.customColor = this.colorInput.value;
-      this.color = this.customColor;
+      this.setActiveColor(this.customColor);
       this.syncSwatch();
       this.onChange?.();
     });
@@ -332,14 +371,22 @@ export class Toolbar {
     details.appendChild(row);
   }
 
-  /** 今の色がどのスワッチと一致するかで、その1つだけにリングを付けて選択中を示す
-   *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー入力の
-   *  表記ゆれを考慮する必要がない）。 */
+  /** 今の道具の固定3色（activePresetInks）をスワッチの背景・ラベルに反映し、
+   *  今の色（getColor）と一致するスワッチだけにリングを付けて選択中を示す
+   *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー
+   *  入力の表記ゆれを考慮する必要がない）。 */
   private syncSwatch(): void {
-    const isPresetActive = PRESET_INKS.some((preset) => preset.color === this.color);
-    for (const preset of PRESET_INKS) {
-      this.presetButtons.get(preset.id)!.dataset.active = String(preset.color === this.color);
-    }
+    const presets = this.activePresetInks();
+    const color = this.getColor();
+    let isPresetActive = false;
+    presets.forEach((preset, i) => {
+      const btn = this.presetButtons[i];
+      btn.style.background = preset.color;
+      btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
+      const active = preset.color === color;
+      btn.dataset.active = String(active);
+      if (active) isPresetActive = true;
+    });
     this.customSwatchBtn.dataset.active = String(!isPresetActive);
     if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;

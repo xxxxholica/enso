@@ -21,10 +21,15 @@ export const REFERENCE_RADIUS = 340;
  */
 export const PEN_WIDTH_RANGE = { min: 1, max: 10, step: 0.5, default: 3 } as const;
 
+/** マーカーの太さ（基準円=半径340pxでのpx値、固定・調整不可）。以前は15pxで
+ *  実際の画面上では太すぎるとの指摘（体感で約6px相当）があったため、体感で
+ *  4〜5px程度になるよう約3分の2の11pxへ縮小した（ユーザー指示）。 */
+const MARKER_LINE_WIDTH = 11;
+
 function baseStyle(tool: DrawTool, penLineWidth: number): ToolRenderStyle {
   switch (tool) {
     case "marker":
-      return { lineWidth: 15, alphaMultiplier: 0.4, composite: "multiply" };
+      return { lineWidth: MARKER_LINE_WIDTH, alphaMultiplier: 0.4, composite: "multiply" };
     case "pen":
     default:
       return { lineWidth: penLineWidth, alphaMultiplier: 1, composite: "source-over" };
