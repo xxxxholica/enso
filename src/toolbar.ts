@@ -379,9 +379,14 @@ export class Toolbar {
    *  入力の表記ゆれを考慮する必要がない）。
    *  色を使わない道具（選択・消しゴム）を選んでいる間は、太さスライダー
    *  （syncThicknessSlider）と同じ考え方でパレット全体を無効化する——押しても
-   *  意味を持たないボタンが常に押せる状態のままなのは分かりにくい（issue #68）。 */
+   *  意味を持たないボタンが常に押せる状態のままなのは分かりにくい（issue #68）。
+   *  消しゴムの間はさらに一歩進めて非表示にする——消しゴムの大きさ選択
+   *  （buildEraserSizeSteps）が同じ.toolbar-details内の見た目上の位置を使う
+   *  ため、グレーアウトのまま残すと3段階ボタンの隣に無意味な色パレットが
+   *  居座って見える（ユーザー指摘：消しゴムでは色の固定部分を表示しないでほしい）。 */
   private syncSwatch(): void {
     const enabled = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
+    this.swatchRow.hidden = this.tool === "eraser";
     const presets = this.activePresetInks();
     const color = this.getColor();
     let isPresetActive = false;
