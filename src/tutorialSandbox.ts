@@ -5,7 +5,7 @@ import { FIXED_LIFESPAN_DAYS } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
 import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
-import { PEN_WIDTH_RANGE } from "./toolStyle";
+import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { Memo, Point } from "./types";
 
 const INK = "oklch(22% 0.012 55)";
@@ -33,7 +33,7 @@ const SANDBOX_TOOL_STATE: ToolState = {
   color: INK,
   lifespanDays: FIXED_LIFESPAN_DAYS,
   fontSize: 24,
-  lineWidth: PEN_WIDTH_RANGE.default,
+  lineWidth: PEN_LINE_WIDTH,
   eraserRadius: 16,
 };
 

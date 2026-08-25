@@ -12,14 +12,13 @@ export interface ToolRenderStyle {
  *  線の太さと文字の大きさの相対的なスケール感を統一している。 */
 export const REFERENCE_RADIUS = 340;
 
-/**
- * ペンの太さ（基準円=半径340pxでのpx値）のスライダーの範囲。以前は文字サイズ
- * （小・中・大）と同じステッパーを共有していたが、GoodNotesのようにバーで
- * 連続的に選べるようにしたいというユーザー指示により、文字サイズとは独立した
- * 専用のスライダーに分けた（toolbar.tsのbuildThicknessSlider参照）。
- * defaultの3pxは、以前のステッパーの「中」と同じ値。
- */
-export const PEN_WIDTH_RANGE = { min: 1, max: 10, step: 0.5, default: 3 } as const;
+/** ペンの太さ（基準円=半径340pxでのpx値、固定・調整不可）。以前はGoodNotesの
+ *  ようにバーで連続的に選べるようにしていたが、「メインのターゲット層はPCを
+ *  使う人で、ペン（マウス操作）で文字を書くのは難しく、太さも都度選ぶ必要が
+ *  薄いので、固定にして見た目をスッキリさせたい」というユーザー指示により
+ *  固定値にした（マーカーのMARKER_LINE_WIDTHと同じ考え方）。値は元の
+ *  スライダーの初期値（3px）をそのまま踏襲している。 */
+export const PEN_LINE_WIDTH = 3;
 
 /** マーカーの太さ（基準円=半径340pxでのpx値、固定・調整不可）。以前は15pxで
  *  実際の画面上では太すぎるとの指摘（体感で約6px相当）があったため、体感で
@@ -38,19 +37,20 @@ function baseStyle(tool: DrawTool, penLineWidth: number): ToolRenderStyle {
 
 /**
  * ツールごとの見た目（太さ・不透明度の質感・合成方法）。
- * ペン＝標準（太さはpenLineWidthAtReferenceで可変）、マーカー＝太く半透明で
- * 下地と重なるように乗算合成する。
+ * ペン＝標準（太さはpenLineWidthAtReferenceで指定、現在は常にPEN_LINE_WIDTH
+ * 固定）、マーカー＝太く半透明で下地と重なるように乗算合成する。
  * radiusを渡すと、その円の大きさに比例して線の太さをスケールする
  * （メインキャンバスと、振り返りのサムネイル／タイムラインプレビューのように
  * サイズが大きく異なる場所で、線の相対的な太さの見た目を揃えるため）。
  * penLineWidthAtReferenceは、そのペンのストロークが作られた時点で選ばれていた
- * 太さ（StrokeMemo.lineWidth）を渡す想定——省略時（旧バージョンのデータなど）は
- * スライダーのdefault相当にフォールバックする。マーカーには使わない。
+ * 太さ（StrokeMemo.lineWidth）を渡す想定——太さがまだ可変だった頃に作られた
+ * 既存ストロークは、当時のlineWidthのまま描画され続ける。省略時（旧バージョンの
+ * データなど）はPEN_LINE_WIDTH相当にフォールバックする。マーカーには使わない。
  */
 export function toolRenderStyle(
   tool: DrawTool,
   radius: number = REFERENCE_RADIUS,
-  penLineWidthAtReference: number = PEN_WIDTH_RANGE.default
+  penLineWidthAtReference: number = PEN_LINE_WIDTH
 ): ToolRenderStyle {
   const base = baseStyle(tool, penLineWidthAtReference);
   const scale = radius / REFERENCE_RADIUS;
