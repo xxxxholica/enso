@@ -124,6 +124,44 @@ export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, cen
 }
 
 /**
+ * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
+ * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
+ * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする
+ * （clampToCircle等をmapで適用する）方式は、境界に近い点ほど個別に丸め込まれて
+ * 線全体の形が歪んでしまうため、代わりに移動そのものを制限する
+ * ——「ストローク全体が境界内に収まらない移動は行わない」という方針
+ * （ユーザー指示）。dx=dy=0、または元々1点も境界内に収まらない状態からの
+ * 呼び出しは、移動量0（{dx:0, dy:0}）を返す。
+ */
+export function restrictTranslation(
+  points: readonly Point[],
+  dx: number,
+  dy: number,
+  clamp: (p: Point) => Point
+): { dx: number; dy: number } {
+  if (dx === 0 && dy === 0) return { dx: 0, dy: 0 };
+
+  const isInside = (p: Point): boolean => {
+    const clamped = clamp(p);
+    return clamped.x === p.x && clamped.y === p.y;
+  };
+  const fits = (t: number): boolean =>
+    points.every((p) => isInside({ x: p.x + dx * t, y: p.y + dy * t }));
+
+  if (fits(1)) return { dx, dy };
+  if (!fits(0)) return { dx: 0, dy: 0 };
+
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return { dx: dx * lo, dy: dy * lo };
+}
+
+/**
  * 消しゴム: center から radius 以内にある点をストロークから取り除く。
  * 取り除いた場所でストロークが分断される場合は、複数の断片に分けて返す
  * （2点未満になった断片は消える）。全く消えなければ元と同じ内容の1本を返す。
