@@ -1189,7 +1189,16 @@ body {
    暗くして目立たせる（他の.pill-btnはクリックした瞬間だけの一時的な操作
    なのでこの状態を持たない）。 --- */
 .shared-room-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--paper-1);
+}
+
+.shared-room-trigger-icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .shared-room-trigger:hover {
@@ -1270,21 +1279,34 @@ body {
   gap: 10px;
 }
 
-/* フェーズの長さ・参加人数上限を選ぶスライダー1本の行。ツールバーの太さ
-   スライダー(.thickness-control)と同じ「ラベル＋現在値」の考え方だが、
-   ここは横並びでラベル・スライダー・現在値を並べる（ポップアップ内で
-   縦に何本も並ぶため、行の高さを抑えたい）。 */
+/* フェーズの長さ・参加人数上限を選ぶスライダー1本の行。横並び(ラベル・
+   スライダー・現在値)だとラベルが折り返して窮屈だったため（ユーザー指摘）、
+   ラベルを上・スライダー+現在値を下に積む2段構成にしている。 */
 .session-form-row {
-  display: grid;
-  grid-template-columns: 6.5em 1fr 3em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85em;
+}
+
+.session-form-label {
+  color: var(--ink-70);
+}
+
+.session-form-slider-row {
+  display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.85em;
+}
+
+.session-form-slider-row .session-slider {
+  flex: 1;
 }
 
 .session-form-value {
   font-variant-numeric: tabular-nums;
   color: var(--ink-70);
+  min-width: 3em;
   text-align: right;
 }
 

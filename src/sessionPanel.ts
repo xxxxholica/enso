@@ -147,6 +147,11 @@ export class SessionPanel {
     row.className = "session-form-row";
     const labelEl = document.createElement("span");
     labelEl.className = "session-form-label";
+    labelEl.textContent = label;
+    row.appendChild(labelEl);
+
+    const sliderRow = document.createElement("div");
+    sliderRow.className = "session-form-slider-row";
     const valueEl = document.createElement("span");
     valueEl.className = "session-form-value";
     const input = document.createElement("input");
@@ -158,12 +163,12 @@ export class SessionPanel {
     input.value = String(range.default);
     input.setAttribute("aria-label", label);
     const sync = () => {
-      labelEl.textContent = label;
       valueEl.textContent = `${input.value}${unit}`;
     };
     input.addEventListener("input", sync);
     sync();
-    row.append(labelEl, input, valueEl);
+    sliderRow.append(input, valueEl);
+    row.appendChild(sliderRow);
     parent.appendChild(row);
     return input;
   }
