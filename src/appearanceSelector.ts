@@ -176,4 +176,27 @@ export class AppearanceSelector {
       btn.dataset.active = String(active);
     }
   }
+
+  /** 共有ルームに接続中、ルームマスター以外の間だけ呼ぶ（main.tsのframe()
+   *  ループから毎フレーム呼んでよい——値が変わらない限りDOMは触らない）。
+   *  トリガー自体は開けたままにし、今の設定を見られるようにする——押しても
+   *  反映されないことはボタン自体のdisabled表示で伝える。 */
+  setLocked(locked: boolean): void {
+    for (const [, btn] of this.shapeButtons) btn.disabled = locked;
+    for (const [, btn] of this.patternButtons) btn.disabled = locked;
+  }
+
+  /** ルーム側の見た目（サーバーに保存された値）を反映する。ユーザー操作を
+   *  経ないため、onShapeChange/onPatternChangeは呼ばない——呼ぶと自分が
+   *  受け取った値をそのまま送り返すだけの無意味なPATCHが発生してしまう。 */
+  setValues(shapeId: FrameShapeId, patternId: FramePatternId): void {
+    if (shapeId !== this.shapeId) {
+      this.shapeId = shapeId;
+      this.syncShape();
+    }
+    if (patternId !== this.patternId) {
+      this.patternId = patternId;
+      this.syncPattern();
+    }
+  }
 }

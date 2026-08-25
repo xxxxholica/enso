@@ -6,7 +6,7 @@ import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, pointNearStrokes } from "./geometry";
-import { renderMemoAt } from "./memoRenderer";
+import { drawRadialGlow, renderHeatGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
 import { currentReviveInfoTarget } from "./reviveInfoTarget";
@@ -170,6 +170,11 @@ export interface CircularCanvasOptions {
    *  省略した場合はボタンを作らず、「ドラッグで書き始める」の案内だけを出す
    *  ——interactive:falseのプレースホルダーではそもそも空状態の案内自体を作らない。 */
   onRequestTemplatePicker?: () => void;
+  /** 共有キャンバスの投票フェーズ(voting)専用: 指定された間はupdateRotationGestureが
+   *  nudgeMemoClock(時間巻き戻し)を呼ぶ代わりにこちらを呼ぶ（回転方向・連続回数を
+   *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
+   *  ここでの初期値指定は必須ではない。 */
+  onRotationStep?: (memoId: string) => void;
 }
 
 export class CircularCanvas {
@@ -248,6 +253,13 @@ export class CircularCanvas {
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
+   *  熱量(投票)カウントとして扱われる。 */
+  private rotationVoteHandler: ((memoId: string) => void) | null = null;
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ②(議論)で
+   *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
+   *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
+  private locked = false;
 
   constructor(
     container: HTMLElement,
@@ -259,6 +271,7 @@ export class CircularCanvas {
     this.store = store;
     this.getToolState = getToolState;
     this.interactive = options.interactive ?? true;
+    this.rotationVoteHandler = options.onRotationStep ?? null;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -319,6 +332,11 @@ export class CircularCanvas {
       this.buildEmptyState(options.onRequestTemplatePicker);
     }
   }
+  /** 投票フェーズ(voting)の間だけ渡す。null(既定)に戻すと通常の時間巻き戻し操作に戻る。 */
+  setRotationVoteHandler(handler: ((memoId: string) => void) | null): void {
+    this.rotationVoteHandler = handler;
+  }
+
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
   setFrameShape(id: FrameShapeId): void {
     this.frame.setFrameShape(id);
@@ -351,6 +369,14 @@ export class CircularCanvas {
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
     }
+  }
+
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ②(議論)でルームマスター
+   *  以外の操作を止めるために呼ぶ（main.ts/smuiView.ts）。setRewindAtと違い、
+   *  進行中の操作を打ち切ったりはしない——ロックされるのは新しい操作の開始だけ
+   *  （onPointerDown参照）。 */
+  setLocked(locked: boolean): void {
+    this.locked = locked;
   }
 
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
@@ -474,7 +500,7 @@ export class CircularCanvas {
 
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
-    if (this.rewindAt !== null) return; // 過去を遡って見ている間は描画・操作を受け付けない
+    if (this.rewindAt !== null || this.locked) return; // 過去を遡って見ている間・ロック中は描画・操作を受け付けない
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
@@ -991,12 +1017,20 @@ export class CircularCanvas {
     const targetSteps = Math.trunc(this.state.rotateAccumRad / ROTATE_STEP_RAD);
     while (this.state.rotateFiredSteps < targetSteps) {
       this.state.rotateStreak = this.state.rotateStreak > 0 ? this.state.rotateStreak + 1 : 1;
-      this.store.nudgeMemoClock(memoId, -rotateStepAmountMs(this.state.rotateStreak)); // 時計回りに1回転進むごと: 寿命を進める
+      if (this.rotationVoteHandler) {
+        this.rotationVoteHandler(memoId); // 投票フェーズ: 方向・連続回数を問わず熱量+1
+      } else {
+        this.store.nudgeMemoClock(memoId, -rotateStepAmountMs(this.state.rotateStreak)); // 時計回りに1回転進むごと: 寿命を進める
+      }
       this.state.rotateFiredSteps++;
     }
     while (this.state.rotateFiredSteps > targetSteps) {
       this.state.rotateStreak = this.state.rotateStreak < 0 ? this.state.rotateStreak - 1 : -1;
-      this.store.nudgeMemoClock(memoId, rotateStepAmountMs(-this.state.rotateStreak)); // 反時計回りに1回転戻るごと: 復活
+      if (this.rotationVoteHandler) {
+        this.rotationVoteHandler(memoId); // 投票フェーズ: 方向・連続回数を問わず熱量+1
+      } else {
+        this.store.nudgeMemoClock(memoId, rotateStepAmountMs(-this.state.rotateStreak)); // 反時計回りに1回転戻るごと: 復活
+      }
       this.state.rotateFiredSteps--;
     }
   }
@@ -1051,7 +1085,7 @@ export class CircularCanvas {
   };
 
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.rewindAt !== null || this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
@@ -1146,10 +1180,21 @@ export class CircularCanvas {
     // renderPreviewAtと同じロジック。fade.tsのopacityAtTime参照）。
     const rewindAt = this.rewindAt;
     const memosToRender = rewindAt !== null ? this.store.getAll() : activeMemos;
+    // 投票フェーズ中に積み上がった熱量を相対密度に変換するための基準値。
+    // fadeExempt済み(既に確定済み)のメモは母集団から除く——バックエンドの
+    // endSession()と同じ考え方（多重セッションで確定済み密度を歪めないため）。
+    const maxHeat = Math.max(1, ...memosToRender.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
     for (const memo of memosToRender) {
-      const opacity =
-        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+      // 投票フェーズで確定した(fadeExempt)メモは、遡り表示中であっても常に確定した
+      // 濃さのまま——時間経過フェードから恒久的に外れているという仕様のため。
+      const opacity = memo.fadeExempt
+        ? memo.frozenDensity ?? 1
+        : rewindAt !== null
+          ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt)
+          : this.store.opacityOf(memo, now);
       if (opacity === null || opacity <= 0) continue;
+      const relativeDensity = memo.fadeExempt ? (memo.frozenDensity ?? 0) : (memo.heat ?? 0) / maxHeat;
+      if (relativeDensity > 0) renderHeatGlow(ctx, memo, r, relativeDensity);
       renderMemoAt(ctx, memo, r, opacity);
     }
     ctx.globalAlpha = 1;
@@ -1159,15 +1204,7 @@ export class CircularCanvas {
 
     // なぞっている最中・移動中のかすかなグロー
     if ((this.state.mode === "tracing" || this.state.mode === "moving") && this.state.lastPoint) {
-      const p = { x: this.state.lastPoint.x * r, y: this.state.lastPoint.y * r };
-      const glowR = 22;
-      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
-      grad.addColorStop(0, TRACE_GLOW);
-      grad.addColorStop(1, "transparent");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
-      ctx.fill();
+      drawRadialGlow(ctx, this.state.lastPoint.x * r, this.state.lastPoint.y * r, 22, TRACE_GLOW);
     }
 
 

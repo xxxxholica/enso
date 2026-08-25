@@ -37,6 +37,8 @@ export class SharedRoomMenu {
   private readonly closeRef = () => this.close();
 
   private btn!: HTMLButtonElement;
+  private btnIconEl!: HTMLElement;
+  private btnLabelEl!: HTMLElement;
   private popover!: HTMLElement;
   private popoverFade!: (show: boolean) => void;
   private signedOutEl!: HTMLElement;
@@ -87,6 +89,15 @@ export class SharedRoomMenu {
     this.btn.className = "pill-btn shared-room-trigger";
     this.btn.setAttribute("aria-label", "共有キャンバスの作成・選択");
     this.btn.addEventListener("click", () => this.toggle());
+    // ルーム接続中は家のアイコンを添える——IDの文字列だけだと何のボタンか
+    // 分かりにくい（ユーザー指摘）。未接続の「＋ルームを作成」は文字だけで
+    // 自明なため、アイコンはupdateTriggerLabelで接続中だけ表示する。
+    this.btnIconEl = document.createElement("span");
+    this.btnIconEl.className = "shared-room-trigger-icon";
+    this.btnIconEl.innerHTML = ICONS.room;
+    this.btn.appendChild(this.btnIconEl);
+    this.btnLabelEl = document.createElement("span");
+    this.btn.appendChild(this.btnLabelEl);
     anchor.appendChild(this.btn);
 
     this.popover = document.createElement("div");
@@ -224,10 +235,12 @@ export class SharedRoomMenu {
    *  接続中ならそのルームIDの先頭7文字（フルIDはtitle属性に持たせる）。 */
   private updateTriggerLabel(): void {
     if (this.selectedId) {
-      this.btn.textContent = this.selectedId.slice(0, 7);
+      this.btnIconEl.hidden = false;
+      this.btnLabelEl.textContent = this.selectedId.slice(0, 7);
       this.btn.title = this.selectedId;
     } else {
-      this.btn.textContent = "＋ルームを作成";
+      this.btnIconEl.hidden = true;
+      this.btnLabelEl.textContent = "＋ルームを作成";
       this.btn.title = "";
     }
   }
@@ -253,6 +266,10 @@ export class SharedRoomMenu {
       // ない（作成・コピーはボタン自身の文字を差し替えるだけで済ませている
       // のと対照的）。成功時は招待リンクが現れる・ルームが選ばれた状態に
       // なること自体が合図になるので、成功メッセージは出さずすぐ消す。
+      // ポップオーバーを開いておかないとこのstatusEl自体が(hidden内なので)
+      // 見えず、失敗した時にも無言のまま終わってしまう——実際に招待リンク
+      // 経由の自動参加が失敗しても気付けなかった不具合があったため。
+      this.openMenu();
       this.setStatus("参加しています…");
       try {
         await joinSharedCanvas(id);
@@ -264,6 +281,10 @@ export class SharedRoomMenu {
         this.showInviteLink(id);
         this.setStatus("");
         this.onAutoOpen();
+        // 成功時は「共有」タブに切り替わったこと自体が合図になるので、
+        // ポップオーバーは開けたままにしない（ユーザー指摘：開きっぱなしは
+        // 邪魔）。失敗時は原因が読めるよう、閉じずに残す。
+        this.close();
       } catch (e) {
         this.setStatus(e instanceof Error ? e.message : "参加に失敗しました");
       }

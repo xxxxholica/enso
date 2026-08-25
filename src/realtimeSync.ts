@@ -1,4 +1,5 @@
 import type { AuthSession } from "./clerkAccount";
+import type { SessionState } from "./sharedCanvas";
 
 /**
  * 個人キャンバス・共有キャンバスの両方で使う、単一のWebSocket接続。
@@ -54,7 +55,15 @@ export interface RealtimeSyncHandle {
 export function connectRealtimeSync(
   session: AuthSession,
   onChanged: () => void,
-  onSharedChanged: (canvasId: string) => void
+  onSharedChanged: (canvasId: string) => void,
+  // 共同アイデア出しセッションの状態変化(開始/進行/延長/終了)。メモ内容を
+  // 伴わないため、onSharedChangedのような「フルGETし直し」を挟まず、
+  // このDTOをそのまま反映すればよい。
+  onSessionChanged: (canvasId: string, session: SessionState | null) => void,
+  // 投票フェーズ中、熱量が変わるたびに届く軽量な通知。フルGETを挟まず、
+  // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
+  // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
+  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void
 ): RealtimeSyncHandle {
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -102,7 +111,26 @@ export function connectRealtimeSync(
       } catch {
         return;
       }
-      const parsed = msg as { type?: unknown; canvasId?: unknown };
+      const parsed = msg as {
+        type?: unknown;
+        canvasId?: unknown;
+        session?: unknown;
+        memoId?: unknown;
+        heat?: unknown;
+      };
+      if (parsed.type === "session-changed" && typeof parsed.canvasId === "string") {
+        onSessionChanged(parsed.canvasId, (parsed.session ?? null) as SessionState | null);
+        return;
+      }
+      if (
+        parsed.type === "heat-changed" &&
+        typeof parsed.canvasId === "string" &&
+        typeof parsed.memoId === "string" &&
+        typeof parsed.heat === "number"
+      ) {
+        onHeatChanged(parsed.canvasId, parsed.memoId, parsed.heat);
+        return;
+      }
       if (parsed.type !== "changed") return;
       if (typeof parsed.canvasId === "string") {
         console.log("[realtimeSync] shared canvas changed notification received", parsed.canvasId);
