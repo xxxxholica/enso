@@ -56,6 +56,18 @@ export async function mountAccountWidget(
     return;
   }
 
+  // Clerk本体（@clerk/ui含む）の読み込みには時間がかかるため、それを待たずに
+  // ログイン前のグレーアイコンだけ先に表示しておく（ユーザー指摘：後から
+  // ポップインして見えるのが気になる）。クリックはまだClerkの準備前なので
+  // 受け付けず、読み込み完了後にsync()が同じ見た目のボタンへ差し替える。
+  const badge = document.createElement("div");
+  badge.className = "account-badge";
+  badge.innerHTML =
+    '<button type="button" class="account-signin-btn" aria-label="ログイン" disabled>' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg>' +
+    "</button>";
+  container.appendChild(badge);
+
   await loadClerkUiBundle(PUBLISHABLE_KEY);
 
   const clerk = new Clerk(PUBLISHABLE_KEY);
@@ -66,19 +78,22 @@ export async function mountAccountWidget(
         colorPrimary: "oklch(22% 0.012 55)",
         fontFamily: '"Noto Sans JP", sans-serif',
       },
+      // .account-user-button（28px固定）と実際のアバター表示サイズを揃え、
+      // 読み込み完了時にサイズが変わってヘッダーがずれるのを防ぐ（ユーザー指摘）。
+      elements: {
+        userButtonAvatarBox: { width: "28px", height: "28px" },
+      },
     },
   } as Parameters<typeof clerk.load>[0]);
-
-  const badge = document.createElement("div");
-  badge.className = "account-badge";
-  container.appendChild(badge);
 
   function renderSignedOut(): void {
     badge.innerHTML = "";
     const signInBtn = document.createElement("button");
     signInBtn.type = "button";
-    signInBtn.className = "text-link";
-    signInBtn.textContent = "ログイン / 新規登録";
+    signInBtn.className = "account-signin-btn";
+    signInBtn.setAttribute("aria-label", "ログイン");
+    signInBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg>';
     signInBtn.addEventListener("click", () => {
       void clerk.openSignIn({});
     });
