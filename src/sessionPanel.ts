@@ -1,17 +1,28 @@
 import { createFadeVisibility } from "./fadeVisibility";
-import { formatDurationJa } from "./fade";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import type { SessionState, StartSessionOptions } from "./sharedCanvas";
 
 const PHASE_LABEL: Record<SessionState["phase"], string> = {
-  ideation: "①アイデア出し",
-  discussion: "②議論",
-  voting: "③採択・絞り込み",
+  ideation: "アイデア出し",
+  discussion: "議論",
+  voting: "採択・絞り込み",
 };
 
 /** 延長ボタン1回あたりの延長量。 */
 const EXTEND_MS = 5 * 60 * 1000;
+
+/** セッションの残り時間表示専用。fade.tsのformatDurationJaは複数日にまたがる
+ *  長い猶予期間向けに一番大きい2単位だけを見せる作りで、数分〜数十分の
+ *  フェーズの残り時間には粗すぎる（ユーザー指示：「4分20秒」のように秒まで
+ *  見せたい）ため、ここだけ分・秒に絞った専用の書式にする。 */
+function formatMinutesSeconds(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}秒`;
+  return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分`;
+}
 
 /** フェーズの長さ・参加人数上限のスライダー範囲。 */
 const MINUTES_RANGE = { min: 1, max: 30, step: 1, default: 5 } as const;
@@ -87,9 +98,9 @@ export class SessionPanel {
     // 未開始時: フェーズの長さ・上限人数をスライダーで決めて開始する。
     this.startForm = document.createElement("div");
     this.startForm.className = "session-start-form";
-    this.phase1Slider = this.buildSlider(this.startForm, "①アイデア出し", MINUTES_RANGE, "分");
-    this.phase2Slider = this.buildSlider(this.startForm, "②議論", MINUTES_RANGE, "分");
-    this.phase3Slider = this.buildSlider(this.startForm, "③採択・絞り込み", MINUTES_RANGE, "分");
+    this.phase1Slider = this.buildSlider(this.startForm, PHASE_LABEL.ideation, MINUTES_RANGE, "分");
+    this.phase2Slider = this.buildSlider(this.startForm, PHASE_LABEL.discussion, MINUTES_RANGE, "分");
+    this.phase3Slider = this.buildSlider(this.startForm, PHASE_LABEL.voting, MINUTES_RANGE, "分");
     this.maxParticipantsSlider = this.buildSlider(this.startForm, "参加人数の上限", MAX_PARTICIPANTS_RANGE, "人");
     const startBtn = document.createElement("button");
     startBtn.type = "button";
@@ -135,8 +146,9 @@ export class SessionPanel {
     container.appendChild(this.anchor);
   }
 
-  /** ツールバーの太さスライダー（toolbar.ts buildThicknessSlider）と同じ
-   *  「ラベル＋現在値」の並びで1本のスライダー行を作る。 */
+  /** ラベルと現在値を同じ行の両端に置き（左:ラベル、右:現在値）、その下に
+   *  全幅のスライダーを敷く1項目分の行を作る（ユーザー指示：現在値はスライダーの
+   *  タイトルの真横ではなく右上に見せたい）。 */
   private buildSlider(
     parent: HTMLElement,
     label: string,
@@ -145,15 +157,17 @@ export class SessionPanel {
   ): HTMLInputElement {
     const row = document.createElement("div");
     row.className = "session-form-row";
+
+    const header = document.createElement("div");
+    header.className = "session-form-header";
     const labelEl = document.createElement("span");
     labelEl.className = "session-form-label";
     labelEl.textContent = label;
-    row.appendChild(labelEl);
-
-    const sliderRow = document.createElement("div");
-    sliderRow.className = "session-form-slider-row";
     const valueEl = document.createElement("span");
     valueEl.className = "session-form-value";
+    header.append(labelEl, valueEl);
+    row.appendChild(header);
+
     const input = document.createElement("input");
     input.type = "range";
     input.className = "session-slider";
@@ -167,8 +181,7 @@ export class SessionPanel {
     };
     input.addEventListener("input", sync);
     sync();
-    sliderRow.append(input, valueEl);
-    row.appendChild(sliderRow);
+    row.appendChild(input);
     parent.appendChild(row);
     return input;
   }
@@ -213,8 +226,8 @@ export class SessionPanel {
       return;
     }
 
-    const remaining = formatDurationJa(Math.max(0, session.phaseEndsAt - now));
-    this.triggerLabelEl.textContent = `${PHASE_LABEL[session.phase]} 残り${remaining}`;
+    const remaining = formatMinutesSeconds(session.phaseEndsAt - now);
+    this.triggerLabelEl.textContent = `${PHASE_LABEL[session.phase]} ${remaining}`;
     this.trigger.disabled = !isMaster;
     if (!isMaster) {
       // 非マスターは静的な表示のみ——ポップオーバーは開かせない。

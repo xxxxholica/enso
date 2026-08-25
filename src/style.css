@@ -1251,12 +1251,20 @@ body {
   padding: 14px 16px;
 }
 
-/* --- 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン。
-   見た目の設定(.appearance-trigger)と同じくアイコン＋文字を横並びにする。 --- */
+/* --- 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン。他の
+   トリガー(.shared-room-trigger/.appearance-trigger)と同じ理由（ページの
+   地色var(--paper-2)に.pill-btnの既定背景が同化してしまう）でトーンを
+   個別に上書きする——これが無いと、隣に並ぶ2つのボタンだけ明るく浮いて
+   見え、このボタンだけ色が違って見えてしまう（ユーザー指摘）。 */
 .session-panel-trigger {
   display: flex;
   align-items: center;
   gap: 6px;
+  background: var(--paper-1);
+}
+
+.session-panel-trigger:hover {
+  background: var(--paper-2-hover);
 }
 
 .session-panel-trigger svg {
@@ -1266,41 +1274,42 @@ body {
 }
 
 /* --- 共同アイデア出しセッション(sessionPanel.ts)のポップアップ。開始フォームの
-   スライダー・進行中の操作ボタンを縦に並べる。 --- */
+   スライダー・進行中の操作ボタンを縦に並べる。項目数が多くギチギチに
+   詰まって見えていた（ユーザー指摘）ため、余白・行間とも広めに取っている。 --- */
 .session-panel-popover {
-  min-width: 240px;
-  padding: 14px 16px;
+  min-width: 260px;
+  padding: 18px 20px;
 }
 
 .session-start-form,
 .session-active-controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
-/* フェーズの長さ・参加人数上限を選ぶスライダー1本の行。横並び(ラベル・
-   スライダー・現在値)だとラベルが折り返して窮屈だったため（ユーザー指摘）、
-   ラベルを上・スライダー+現在値を下に積む2段構成にしている。 */
+/* フェーズの長さ・参加人数上限を選ぶスライダー1項目分。ラベルと現在値を
+   同じ行の両端に置き（現在値をスライダーのタイトルの真横ではなく右上に
+   見せたい、というユーザー指示）、その下に全幅のスライダーを敷く。 */
 .session-form-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   font-size: 0.85em;
+}
+
+.session-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 
 .session-form-label {
   color: var(--ink-70);
 }
 
-.session-form-slider-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.session-form-slider-row .session-slider {
-  flex: 1;
+.session-form-row .session-slider {
+  width: 100%;
 }
 
 .session-form-value {
