@@ -29,13 +29,13 @@ app.innerHTML = `
   <header class="app-header">
     <div class="app-header-left">
       <h1 class="app-wordmark">円相</h1>
+    </div>
+    <div class="app-header-right">
       <nav class="view-nav">
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
-    </div>
-    <div class="app-header-right">
-      <button type="button" id="usage-guide-btn" class="usage-guide-btn">使い方</button>
+      <button type="button" id="usage-guide-btn" class="header-text-btn">使い方</button>
       <div id="account-slot"></div>
     </div>
   </header>

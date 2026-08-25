@@ -175,9 +175,49 @@ body {
   color: oklch(55% 0.15 30);
 }
 
+/* --- ClerkのUserButtonが読み込まれる枠。widthとheightを.account-signin-btnと
+   同じ28pxで先に確保しておくことで、Clerk側のアバターが後から描画されても
+   ヘッダーの他要素がガタッと動かないようにする（ユーザー指摘）。 --- */
 .account-user-button {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+/* --- ログイン前のアカウント枠。ログイン後のClerkユーザーアイコン(.account-user-button)
+   と同じ丸いアイコンの見た目にし、ログイン前後で場所・大きさが変わらないようにする
+   （ユーザー指示）。 --- */
+.account-signin-btn {
+  appearance: none;
+  border: 1.5px solid currentColor;
+  background: none;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  color: var(--ink-solid);
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.account-signin-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.account-signin-btn:not(:disabled):hover {
+  opacity: 1;
+  background: var(--paper-2);
+}
+
+.account-signin-btn:disabled {
+  cursor: default;
 }
 
 .app-main {
@@ -528,6 +568,9 @@ body {
   #duration-slot {
     flex: none;
     scroll-snap-align: start;
+    /* 勢いよくスワイプすると2ページ分飛ばして止まることがあるため、
+       必ず1ページずつ引っ掛かって止まるようにする（ユーザー指示）。 */
+    scroll-snap-stop: always;
   }
 
   .toolbar-tools {
@@ -1923,23 +1966,25 @@ body {
   margin-top: var(--space-2);
 }
 
-/* --- ヘッダーの使い方ページ再視聴ボタン。アイコンだと何のボタンか伝わり
-   にくかった（ユーザー指摘）ため、view-nav-btnと同じ文字ボタンにする。 --- */
-.usage-guide-btn {
+/* --- ヘッダーの文字ボタン共通スタイル（使い方の再視聴・ログイン導線など）。
+   アイコンだと何のボタンか伝わりにくかった（ユーザー指摘）ため、
+   view-nav-btnと同じ見た目の文字ボタンにする。 --- */
+.header-text-btn {
   appearance: none;
   border: none;
   background: none;
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--ink-60);
+  color: var(--ink-solid);
+  opacity: 0.45;
   cursor: pointer;
   padding: 4px 2px;
-  transition: color var(--duration-fast) ease;
+  transition: opacity var(--duration-fast) ease;
 }
 
-.usage-guide-btn:hover {
-  color: var(--ink-85);
+.header-text-btn:hover {
+  opacity: 1;
 }
 
 @media (max-width: 560px) {
