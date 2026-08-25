@@ -140,23 +140,32 @@ export class FrameGeometry {
     if (this.frameKindValue === "glasses") {
       // ヒンジの鋲がキャンバス要素の外にクリップされないよう、横方向の余白は
       // GLASSES_HORIZONTAL_REACH_WITH_HINGE（鋲ぶんを含む）を基準にする。
+      // referenceWidth/Heightはフレーム（眼鏡）の描画基準サイズ専用——
+      // キャンバス要素自体はこれとは別にcomputeContainerSize（コンテナいっぱい）
+      // を使う。眼鏡は横長のアスペクト比固定のため、縦長スマホでは常に幅で
+      // 頭打ちになり、以前はそれがそのままキャンバス要素の高さにもなっていた。
+      // "single"と同様に画面全体まで広げるようにした結果、コンテナ（.smui-canvas-wrap）
+      // は画面全体に育つのに、実際の<canvas>要素は幅基準の低い高さのまま――という
+      // ズレが生まれ、ズーム・パンしてもその低い高さの外（画面の上下）には
+      // 絶対に届かなくなっていた（ユーザー指摘・実機確認済み）。
       const aspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
-      const { width, height } = computeRectSize(this.container, aspectRatio);
+      const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
+      const containerSize = computeContainerSize(this.container);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
       // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
       // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
       // 「確定済みの実寸」を基準にする。
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(height);
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceHeight);
       const scale = Math.min(
-        computeAutoScale(width, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
-        computeAutoScale(height, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
+        computeAutoScale(referenceWidth, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
+        computeAutoScale(referenceHeight, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
       );
-      this.canvas.style.width = `${width}px`;
-      this.canvas.style.height = `${height}px`;
-      this.canvas.width = Math.round(width * this.dpr);
-      this.canvas.height = Math.round(height * this.dpr);
+      this.canvas.style.width = `${containerSize.width}px`;
+      this.canvas.style.height = `${containerSize.height}px`;
+      this.canvas.width = Math.round(containerSize.width * this.dpr);
+      this.canvas.height = Math.round(containerSize.height * this.dpr);
       this.scaleValue = scale;
-      this.centerPxValue = { x: width / 2, y: height / 2 };
+      this.centerPxValue = { x: containerSize.width / 2, y: containerSize.height / 2 };
     } else {
       const referenceSize = computeSquareSize(this.container);
       const containerSize = computeContainerSize(this.container);
