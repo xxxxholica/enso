@@ -1,5 +1,5 @@
 import { computeOpacity, MS_PER_DAY, remainingMs, STANDARD_LIFESPAN_DAYS } from "./fade";
-import { circleIntersectsBox, clampToCircle, eraseFromStroke } from "./geometry";
+import { circleIntersectsBox, clampToCircle, eraseFromStroke, restrictTranslation } from "./geometry";
 import { loadMemos, saveMemos } from "./storage";
 import { LINE_HEIGHT_MULTIPLIER } from "./textLayout";
 import type { LifespanDays, Memo, MemoStyle, Point, Stroke, TextMemo } from "./types";
@@ -251,14 +251,19 @@ export class MemoStore {
   /**
    * メモ全体（手描き・テキストどちらも）を (dx, dy) だけ平行移動する
    * （移動道具でドラッグしている間、ポインタが動くたびに呼ばれる差分移動）。
-   * 描画可能領域の外にはみ出さないよう、移動後の各点はclampで丸め込む
-   * ——ストロークは点ごとにクランプするため、境界に触れた部分は形がわずかに
-   * 丸められる（描画時のクランプと同じ挙動）。既定は半径1の円だが、SMUIの
-   * ように選んだフレーム形状（楕円/長方形）の輪郭でクランプしたい呼び出し元は
-   * frameShape.tsの対応するclampを渡す——このストア自体は「今どの形状を
-   * 見ているか」を知らない（同じ個人MemoStoreが、常に円の「キャンバス」タブと
-   * 形状を選べるSMUIの左レンズの両方から使われるため、ストアの状態としては
-   * 持てない）。
+   * 描画可能領域の外にはみ出す移動は許さない——手描き(stroke)は、各点を
+   * 独立にclampして境界へスナップするのではなく、restrictTranslationで
+   * ストロークを構成する全ての点が境界内に収まる範囲まで移動量そのものを
+   * 比例的に縮める（剛体移動）。点ごとにクランプする方式は、境界に近い点
+   * ほど個別に丸め込まれて線の形が歪んでしまう問題があったため、この方式に
+   * 変更した（ユーザー指示：移動そのものを制限し、ストローク全体が常に
+   * 境界内に収まるようにする）。テキストは代表点(x, y)1つだけなので、
+   * 従来通りclampで境界へ丸め込めば十分（歪みは起こらない）。
+   * 既定のclampは半径1の円だが、SMUIのように選んだフレーム形状（楕円/長方形）
+   * の輪郭でクランプしたい呼び出し元はframeShape.tsの対応するclampを渡す
+   * ——このストア自体は「今どの形状を見ているか」を知らない（同じ個人
+   * MemoStoreが、常に円の「キャンバス」タブと形状を選べるSMUIの左レンズの
+   * 両方から使われるため、ストアの状態としては持てない）。
    * 移動は「消えるまでの期間」や「なぞって復活」とは無関係な、位置だけの
    * 操作として扱う。よって lastTracedAt / traceHistory には触れない
    * ——ただ場所を直しただけで内容に触れたわけではない、という判断。
@@ -274,7 +279,12 @@ export class MemoStore {
     if (dx === 0 && dy === 0) return;
 
     if (memo.kind === "stroke") {
-      memo.strokes = memo.strokes.map((stroke) => stroke.map((p) => clamp({ x: p.x + dx, y: p.y + dy })));
+      const allPoints = memo.strokes.flat();
+      const restricted = restrictTranslation(allPoints, dx, dy, clamp);
+      if (restricted.dx === 0 && restricted.dy === 0) return;
+      memo.strokes = memo.strokes.map((stroke) =>
+        stroke.map((p) => ({ x: p.x + restricted.dx, y: p.y + restricted.dy }))
+      );
       const first = memo.strokes[0]?.[0];
       if (first) {
         memo.x = first.x;
