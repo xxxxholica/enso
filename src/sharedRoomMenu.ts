@@ -281,6 +281,10 @@ export class SharedRoomMenu {
         this.showInviteLink(id);
         this.setStatus("");
         this.onAutoOpen();
+        // 成功時は「共有」タブに切り替わったこと自体が合図になるので、
+        // ポップオーバーは開けたままにしない（ユーザー指摘：開きっぱなしは
+        // 邪魔）。失敗時は原因が読めるよう、閉じずに残す。
+        this.close();
       } catch (e) {
         this.setStatus(e instanceof Error ? e.message : "参加に失敗しました");
       }

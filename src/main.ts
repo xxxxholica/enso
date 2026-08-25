@@ -239,6 +239,27 @@ new SharedRoomMenu(
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "shared" = "canvas";
 
+// キャンバス／共有タブをURLに反映する。パス（例: /shared）ではなくクエリ
+// パラメータにしているのは、静的ホスティング（Vercel/Netlify/GitHub Pages等、
+// README参照）によってはSPAのパスをindex.htmlへフォールバックさせる設定が
+// 無く、/sharedを直接開く・リロードすると404になりかねないため——クエリ
+// パラメータなら常に同じindex.htmlが返るのでその心配がない。
+const VIEW_PARAM = "view";
+
+function readInitialView(): "canvas" | "shared" {
+  return new URLSearchParams(location.search).get(VIEW_PARAM) === "shared" ? "shared" : "canvas";
+}
+
+// 「共有」タブにいる間にリロードすると「キャンバス」タブへ戻ってしまい
+// 不便、というユーザー指摘の対応。canvasの時はパラメータ自体を消して
+// URLを素のままにする（joinパラメータの扱いと同じ考え方、sharedRoomMenu.ts参照）。
+function syncViewUrl(view: "canvas" | "shared"): void {
+  const url = new URL(location.href);
+  if (view === "shared") url.searchParams.set(VIEW_PARAM, "shared");
+  else url.searchParams.delete(VIEW_PARAM);
+  history.replaceState(null, "", url);
+}
+
 /**
  * 画面（キャンバス／共有）を切り替える。下部バーの中身（道具バー・振り返り
  * スライダー）は、今の中身を完全にフェードアウトさせてから、新しい中身に
@@ -253,6 +274,7 @@ function setView(view: "canvas" | "shared"): void {
   // ので、キャンバスタブを離れる時点で「たった今」に戻しておく。
   if (currentView === "canvas") rewindSelector.reset();
   currentView = view;
+  syncViewUrl(view);
   document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
     btn.style.opacity = btn.dataset.view === view ? "1" : "0.45";
   });
@@ -285,12 +307,17 @@ function setView(view: "canvas" | "shared"): void {
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => setView(btn.dataset.view as "canvas" | "shared"));
 });
-// 初期表示（キャンバス）はフェードなしで即座に反映する。#canvas-panel・道具バー・
+
+const initialView = readInitialView();
+// 既定（キャンバス）はフェードなしで即座に反映する。#canvas-panel・道具バー・
 // 振り返りスライダーはテンプレート側の初期状態（hiddenなし）＋既にis-visibleを
-// 付けてあるので、ここではナビの見た目だけ揃える。
+// 付けてあるので、ここではナビの見た目だけ揃える。URLが共有タブを指している
+// 場合だけ、setViewと同じ処理で切り替える（ユーザー指示：共有タブでリロード
+// してもキャンバスに戻らないようにしたい）。
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.style.opacity = btn.dataset.view === "canvas" ? "1" : "0.45";
 });
+if (initialView === "shared") setView("shared");
 
 function frame(): void {
   const now = Date.now();
