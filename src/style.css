@@ -1847,10 +1847,7 @@ body {
    いた（ユーザー報告）。普通のブロック要素に戻すだけで両方解決する。 */
 .usage-guide-head {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--ink-08);
+  align-items: center;
 }
 
 .usage-guide-close {
@@ -1871,21 +1868,6 @@ body {
 
 .usage-guide-close:hover {
   background: var(--paper-2);
-}
-
-.usage-guide-title {
-  margin: 0 0 8px;
-  font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-size: clamp(26px, 5vw, 34px);
-  font-weight: 600;
-}
-
-.usage-guide-lede {
-  max-width: 46ch;
-  margin: 0;
-  font-size: var(--text-md);
-  line-height: 1.8;
-  color: var(--ink-60);
 }
 
 /* --- 序・練・結のページ送り。以前は1つの長いスクロールページに3つとも
