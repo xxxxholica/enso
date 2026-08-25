@@ -12,8 +12,17 @@ const INK = "oklch(22% 0.012 55)";
 const HOUR = 60 * 60 * 1000;
 
 /** 仮想時計の進み方（実時間1msに対して盤面上の時間が何ms進むか）。本物の
- *  寿命（1日、FIXED_LIFESPAN_DAYS）を数十秒〜数分で体験できるよう加速する。 */
-const VIRTUAL_ACCEL = 400;
+ *  寿命（1日、FIXED_LIFESPAN_DAYS）を数十秒〜数分で体験できるよう加速する。
+ *  以前は400だったが、「振り返り」の目盛りに対してどれだけ経過したかが
+ *  ユーザーが手順を終えるまでにかかった実時間（人によって大きくばらつく）
+ *  に敏感すぎ、振り返っても対象が見つからない／既に完全に消えてしまっている
+ *  ことがあった（ユーザー報告）。振り返りの見本自体はmountRewind()で手順に
+ *  入った瞬間を基準に作り直し（reseedForRewindDemo）、以後の「たった今」も
+ *  その瞬間の値（rewindNowRef）に固定してしまう——探索にどれだけ実時間を
+ *  かけようと結果が変わらないため、この値はもう振り返りの見えやすさには
+ *  一切影響しない。「見ている間にも自然に薄れていく」という一手順目の
+ *  体感速度だけの調整値として、控えめな値に下げてある。 */
+const VIRTUAL_ACCEL = 60;
 
 /** 道具はすべて選択（移動）道具に固定する——このサンドボックスで体験させたい
  *  操作は「掴んで回す」「振り返りスライダー」の2つだけで、道具バー自体を
@@ -43,7 +52,11 @@ const MESSAGES: Record<StepId, string> = {
  *  （nudgeMemoClock、canvasView.ts）でしか変化しないため、seed時の値からの
  *  増減を見るだけで「反時計回りに回した／時計回りに回した」を正確に検出できる
  *  ——受動的な経時フェード（tick）はlastTracedAtを一切書き換えないので、
- *  放置による自然消滅と誤検知することもない。 */
+ *  放置による自然消滅と誤検知することもない。「残したい一枚」がどれかは
+ *  指示文で特定していない（3枚とも見た目上は対等）ため、判定は3枚のうち
+ *  どれか1枚ぶんでも条件を満たせば成立させる——特定の1枚だけを見ていると、
+ *  ユーザーが別の1枚を回した時に「実際に巻き戻っているのに手順が進まない」
+ *  ことになる（ユーザー報告）。 */
 interface TrackedMemo {
   id: string;
   initialLastTracedAt: number;
@@ -84,11 +97,22 @@ export class TutorialSandbox {
   private running = false;
   private realStartMs = 0;
   private virtualBaseMs = 0;
-  private rewindTried = false;
 
   private step: StepId = "watch";
-  private keepMemo: TrackedMemo | null = null;
-  private releaseMemo: TrackedMemo | null = null;
+  /** seed()で置いた3枚（種類は問わない）の初期lastTracedAt。checkProgressは
+   *  この中のどれか1枚でも増減していればkeep/releaseを達成扱いにする。 */
+  private memoBaselines: TrackedMemo[] = [];
+  private ambientMemoId: string | null = null;
+  private memoAId: string | null = null;
+  private memoBId: string | null = null;
+  /** 「振り返り」手順に入った瞬間の仮想時刻を固定した基準点。以降このスライダーの
+   *  「N時間前」は、その都度のcurrentVirtualNow()ではなく常にこの値から引く
+   *  ——探索にどれだけ実時間をかけても（数秒でも数分でも）見え方が変わらない
+   *  ようにするため（ユーザー報告：巻き戻しても反応しないことがあった）。
+   *  「たった今」（ms<=0）だけは例外でrewindAt=nullとなり、CircularCanvas側が
+   *  常に本物のライブな現在時刻を使う——探索中ずっと同じ「今」に固定されて
+   *  見えてしまうことはない。 */
+  private rewindNowRef: number | null = null;
 
   constructor(container: HTMLElement) {
     container.className = "tutorial-sandbox";
@@ -127,11 +151,19 @@ export class TutorialSandbox {
     if (this.running) return;
     this.running = true;
     this.step = "watch";
-    this.rewindTried = false;
     this.syncStep();
 
     this.store = new MemoStore(undefined, false);
-    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => SANDBOX_TOOL_STATE);
+    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => SANDBOX_TOOL_STATE, {
+      // 本物のキャンバスと同じ「1回転まるごと・掴んだ点から半径24px以上」を
+      // そのまま求めると、この操作を初めて知る人には難しすぎて手順で止まって
+      // しまうことがあった（ユーザー報告）。この練習用サンドボックスに限り、
+      // 半周・半径16pxまで緩める——道具バーを持たない小さな円の中で「回すと
+      // 時間が動く」という感覚を最初に掴んでもらうのが目的であり、本物と
+      // 完全に同じ厳しさを課す必要はない。
+      rotateStepRad: Math.PI,
+      rotateMinRadiusPx: 16,
+    });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
     this.seed();
@@ -147,8 +179,11 @@ export class TutorialSandbox {
     this.canvasView?.destroy();
     this.canvasView = null;
     this.store = null;
-    this.keepMemo = null;
-    this.releaseMemo = null;
+    this.memoBaselines = [];
+    this.ambientMemoId = null;
+    this.memoAId = null;
+    this.memoBId = null;
+    this.rewindNowRef = null;
     this.rewindSelector = null;
     this.rewindWrap.replaceChildren();
     this.rewindWrap.hidden = true;
@@ -166,17 +201,19 @@ export class TutorialSandbox {
     // 放っておくと消えていく様子を最初から見せるための、既に薄れかけた1枚
     // （じきに完全に消える）。手を出さなくても物語が進むよう、どの手順にも
     // 紐付けない添え物として置く。
-    seedTextThought(measureCtx, this.store, { x: 0, y: 0.45 }, "夢の続き", 11 * HOUR, now0);
+    const ambient = seedTextThought(measureCtx, this.store, { x: 0, y: 0.45 }, "夢の続き", 11 * HOUR, now0);
     // 掴んで振り回すと、その分だけメモ自体もポインタに追従して動く
     // （canvasView.tsのupdateRotationGesture参照）。縁ぎりぎりに置くと、
     // 少し振り回しただけで縁の外にはみ出して欠けて見えてしまうため、
     // 中心寄りに置いて振り回す余地を持たせる。
-    this.keepMemo = trackedMemoOf(
-      seedTextThought(measureCtx, this.store, { x: -0.32, y: -0.22 }, "行きたい場所", 5 * HOUR, now0)
-    );
-    this.releaseMemo = trackedMemoOf(
-      seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 0.5 * HOUR, now0)
-    );
+    const memoA = seedTextThought(measureCtx, this.store, { x: -0.32, y: -0.22 }, "行きたい場所", 5 * HOUR, now0);
+    const memoB = seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 0.5 * HOUR, now0);
+    this.ambientMemoId = ambient.id;
+    this.memoAId = memoA.id;
+    this.memoBId = memoB.id;
+    // 「残したい一枚」がどれかは指示文で特定していないため、この3枚すべてを
+    // 判定対象にする（checkProgress参照）。
+    this.memoBaselines = [ambient, memoA, memoB].map(trackedMemoOf);
   }
 
   private currentVirtualNow(): number {
@@ -195,15 +232,30 @@ export class TutorialSandbox {
   private checkProgress(): void {
     if (!this.store) return;
     const memos: readonly Memo[] = this.store.getAll();
-    if (this.step === "keep" && this.keepMemo) {
-      const memo = memos.find((m) => m.id === this.keepMemo!.id);
-      if (memo && memo.lastTracedAt > this.keepMemo.initialLastTracedAt) this.advanceTo("release");
-    } else if (this.step === "release" && this.releaseMemo) {
-      const memo = memos.find((m) => m.id === this.releaseMemo!.id);
-      if (memo && memo.lastTracedAt < this.releaseMemo.initialLastTracedAt) this.advanceTo("rewind");
-    } else if (this.step === "rewind" && this.rewindTried) {
+    if (this.step === "keep") {
+      if (this.anyMemoMoved(memos, "up")) this.advanceTo("release");
+    } else if (this.step === "release") {
+      if (this.anyMemoMoved(memos, "down")) this.advanceTo("rewind");
+    } else if (this.step === "rewind" && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
+      // inputイベントの発火に頼らず、毎フレーム直接いまのスライダー値を見る。
+      // 以前はonChange（inputイベント）が発火した時だけ達成フラグを立てていたが、
+      // 実際に遡って見えているのに次に進まないという報告があった——イベントの
+      // 取りこぼしが万一あっても、この方式なら次のフレーム（1/60秒後）には
+      // 必ず現在値を拾えるため、取りこぼしようがない。
       this.advanceTo("done");
     }
+  }
+
+  /** memoBaselinesのうちどれか1枚でも、初期値からup(増加=反時計回り)/
+   *  down(減少=時計回り)の向きに動いていればtrue。 */
+  private anyMemoMoved(memos: readonly Memo[], direction: "up" | "down"): boolean {
+    return this.memoBaselines.some((baseline) => {
+      const memo = memos.find((m) => m.id === baseline.id);
+      if (!memo) return false;
+      return direction === "up"
+        ? memo.lastTracedAt > baseline.initialLastTracedAt
+        : memo.lastTracedAt < baseline.initialLastTracedAt;
+    });
   }
 
   /** 手順を先に進める（後戻りはしない）。 */
@@ -223,17 +275,59 @@ export class TutorialSandbox {
   /** 振り返りスライダーは「遡る」手順に入って初めて出す（一度に全部の道具を
    *  見せず、順番に体験させるため）。本物のRewindSelectorをそのまま使うが、
    *  値の受け渡し（getRewindAt）はDate.now()基準のため、加速した仮想時計を
-   *  使うここでは生のms（getRewindMs）を自分で仮想「今」から引いて渡す。 */
+   *  使うここでは生のms（getRewindMs）を自分で仮想「今」から引いて渡す。
+   *  「今」はこの瞬間にrewindNowRefへ固定し、以後ずっとそれを使い続ける
+   *  ——毎回this.currentVirtualNow()を呼び直すと、探索にかけた実時間ぶん
+   *  「たった今」自体が動いてしまい、見本と目盛りの対応がその場でズレていく
+   *  （ユーザー報告：巻き戻しても反応しないことがあった）。 */
   private mountRewind(): void {
     if (this.rewindSelector) return;
+    this.rewindNowRef = this.currentVirtualNow();
+    this.reseedForRewindDemo(this.rewindNowRef);
     this.rewindWrap.hidden = false;
     this.rewindSelector = new RewindSelector(this.rewindWrap, () => {
-      if (!this.rewindSelector || !this.canvasView) return;
+      if (!this.rewindSelector || !this.canvasView || this.rewindNowRef === null) return;
       const ms = this.rewindSelector.getRewindMs();
-      this.canvasView.setRewindAt(ms <= 0 ? null : this.currentVirtualNow() - ms);
-      if (ms > 0) this.rewindTried = true;
+      this.canvasView.setRewindAt(ms <= 0 ? null : this.rewindNowRef - ms);
     });
     this.setRewindVisible(true);
+  }
+
+  /**
+   * 「振り返り」手順に入る瞬間の仮想時刻（now、rewindNowRef）を基準に、
+   * 3枚を作り直す。seed()時点の固定バックデートのままだと、ここに辿り着くまでに
+   * 実際にかかった時間（読むのが速い人・遅い人で数十倍違う）ぶん仮想時計が
+   * 進んでしまい、対象が振り返りスライダーの目盛り（15分〜3日前）の手前で
+   * 既に作成前だったり、逆にとっくに完全消滅した後だったりして、「巻き戻しても
+   * 反応しない」ことがあった（ユーザー報告）。この手順に入った瞬間を新しい
+   * 基準点にして作り直せば、それまでに何分かかったかに関係なく、常に同じ
+   * 目盛り幅で反応が見つかる。掴んで移動した後の位置はそのまま引き継ぐ
+   * （作り直した瞬間に元の位置へ飛んで見えないように）。ドラッグ中の状態は
+   * rewindAt!==nullで無効化されるため、作り直しのタイミング自体が操作と
+   * 衝突することはない。
+   */
+  private reseedForRewindDemo(now: number): void {
+    if (!this.store) return;
+    const measureCtx = document.createElement("canvas").getContext("2d")!;
+    const respawn = (id: string | null, text: string, backdateMs: number): string | null => {
+      if (!id) return null;
+      const existing = this.store!.getAll().find((m) => m.id === id);
+      if (!existing) return null;
+      this.store!.deleteMemo(id);
+      const anchor: Point = { x: existing.x, y: existing.y };
+      return seedTextThought(measureCtx, this.store!, anchor, text, backdateMs, now).id;
+    };
+    // バックデートは、不透明度が段階的に変わる境目（fade.tsのcomputeOpacity:
+    // 3.43h/10.29hで100%→60%→20%と切り替わる）が「たった今」からすぐの
+    // 目盛り1〜2個ぶん（15分〜30分前）以内に来るよう選んでいる。以前は
+    // 1/3/6時間や4/5/9時間ずらしていたが、それだと最初の数目盛りの間は
+    // 3枚とも同じ濃さのまま変わらず、大きくドラッグしないと違いに気づけ
+    // なかった（ユーザー報告：1枚しか反応していないように見える）。この
+    // 値なら、スライダーをほんの少し動かしただけで3枚とも違うタイミングで
+    // 濃くなる／消えるのが分かる。
+    this.ambientMemoId = respawn(this.ambientMemoId, "夢の続き", 10.35 * HOUR);
+    this.memoAId = respawn(this.memoAId, "行きたい場所", 3.75 * HOUR);
+    this.memoBId = respawn(this.memoBId, "買い物リスト", 3.5 * HOUR);
   }
 }
 
