@@ -2,16 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <!-- maximum-scale=1.0, user-scalable=noは、iOS Safariでヘッダー/ツールバー
-         （position:fixedの帯）の上だけ純正のピンチズームが発動してしまう不具合
-         （touch-action・preventDefault()だけでは止まらなかった、ユーザー報告）
-         向けの対策。ページ全体のネイティブズームをアプリレベルで無効化する
-         昔からある標準的な手段——自作のピンチズーム（canvasView.ts、
-         ポインタイベントベース）には影響しない。 -->
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>円相 | Ensō</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
