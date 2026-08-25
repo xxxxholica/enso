@@ -1346,10 +1346,24 @@ body {
   transform: none;
 }
 
+/* ✕ボタンを含む見出し行を、シート内のスクロールに関わらず常に上部へ固定
+   する（ユーザー指摘：カードを見るために下へスクロールした後、閉じるには
+   一度上まで戻らないといけないのはUI/UX上良くない）。sheetの上端パディング
+   （22px 24px）ぶんを負のmarginで打ち消して背景を左右上に少しはみ出させ、
+   同じ値をpaddingとして付け直すことで、stickyで固定された時に背景が
+   シートの角丸・幅いっぱいまで途切れなく続くようにしている。 --- */
 .template-picker-head {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -22px -24px 0;
+  padding: 22px 24px 16px;
+  background: var(--paper-1);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border-bottom: 1px solid var(--ink-08);
 }
 
 /* 「このアプリで何ができるか」を最初に見せる見出しなので、ワードマークと
@@ -1398,7 +1412,9 @@ body {
 }
 
 .template-picker-grid {
-  margin-top: 18px;
+  /* ヘッダー直下にカードが詰まって見えるとの指摘があったため、見出しの
+     padding-bottom(16px)+border-bottomに加えてここでもしっかり余白を取る。 */
+  margin-top: 20px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 12px;
@@ -1622,6 +1638,14 @@ body {
     padding: 18px 16px 20px;
     border-radius: var(--radius-lg);
   }
+
+  /* .template-picker-headの負のmargin（背景を端まで伸ばす分）は、上の
+     .template-picker-sheetのpaddingと同じ値に揃える必要がある。 */
+  .template-picker-head {
+    margin: -18px -16px 0;
+    padding: 18px 16px 16px;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
 }
 
 /* --- 使い方ページ（usageGuide.ts）。序・一・二・三・四・結の一続きの読み物。
@@ -1657,13 +1681,32 @@ body {
   transform: none;
 }
 
+/* ✕ボタンを含む見出しを、本文をスクロールしても常に上部へ固定する
+   （template-picker.tsの.template-picker-headと同じ考え方——ユーザー指摘：
+   下へスクロールした後、閉じるのに上まで戻らないといけないのはUI/UX上
+   良くない）。負のmarginでsheetの上端パディング(40px 36px)ぶんを打ち消し、
+   同じ値をpaddingとして付け直すことで、固定時に背景がsheetの角丸・幅
+   いっぱいまで途切れなく続くようにしている。 */
+.usage-guide-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: -40px -36px 0;
+  padding: 40px 36px 10px;
+  background: var(--paper-1);
+  border-radius: 24px 24px 0 0;
+  border-bottom: 1px solid var(--ink-08);
+}
+
 .usage-guide-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
   appearance: none;
   border: none;
   background: none;
+  margin-left: auto;
+  flex: 0 0 auto;
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
