@@ -742,13 +742,6 @@ body {
   transform: scale(1.2);
 }
 
-/* ペン・消しゴム以外の道具を選んでいる間は、触れない・薄いことで無効だと
-   分かるようにする（.duration-seekbar-disabledと同じ考え方）。 */
-.thickness-control-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
 /* --- インクの色: 色の三原色（CMY：シアン/マゼンタ/イエロー）の固定3スワッチ
    ＋4つ目の「好きな色」スワッチ（toolbar.ts、ユーザー指示：GoodNotesのように
    定番色をすぐ選べるようにしたい。以前は黒/赤/青だったが、マーカーで黒は
@@ -760,8 +753,9 @@ body {
   gap: 6px;
 }
 
-/* 色を使わない道具（選択・消しゴム）を選んでいる間は、太さスライダーの
-   .thickness-control-disabledと同じ見た目で無効だと分かるようにする（issue #68）。 */
+/* 選択ツールを選んでいる間は、触れない・薄いことで無効だと分かるように
+   する（.duration-seekbar-disabledと同じ考え方。issue #68）。消しゴムの間は
+   グレーアウトではなく非表示にする（syncSwatch参照）ため、こちらは使わない。 */
 .toolbar-swatches-disabled {
   opacity: 0.4;
   pointer-events: none;

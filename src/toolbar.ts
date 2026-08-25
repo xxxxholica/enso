@@ -291,11 +291,11 @@ export class Toolbar {
    *  変えたい）。消しゴムは別のUI（buildEraserSizeSteps、3段階のボタン選択）に
    *  分けている——「消しゴムはGoodNotesのように3段階の大きさから選ぶ形にしたい」
    *  というユーザー指示により、以前は太さスライダーをペン・消しゴムで共有して
-   *  いたのをやめた。ペン以外の道具の間は無効化する（DurationSelectorの
-   *  setEnabledと同じ考え方——「サイズ」の文字ステッパーは道具を問わず常に
-   *  有効なままにしているのとは対照的に、こちらは意味を持つ道具が1つしかない
-   *  ため無効化する）。表示自体は消しゴムの間だけ隠す（buildEraserSizeStepsが
-   *  同じ場所に代わりに表示されるため）。 */
+   *  いたのをやめた。ペン以外（マーカー・テキスト・選択・消しゴム）の間は
+   *  非表示にする——以前はグレーアウトして残していたが、「触れないバーが
+   *  常に居座っているのは分かりにくい」という指摘を受け、意味を持つ道具が
+   *  ペンだけになった今、消しゴムのカラーパレット非表示（syncSwatch参照）と
+   *  同じ考え方で道具を問わず非表示にした。 */
   private buildThicknessSlider(details: HTMLElement): void {
     this.thicknessWrap = document.createElement("div");
     this.thicknessWrap.className = "thickness-control";
@@ -322,11 +322,13 @@ export class Toolbar {
   }
 
   private syncThicknessSlider(): void {
-    const isPen = this.tool === "pen";
-    this.thicknessWrap.hidden = this.tool === "eraser";
+    // ペン以外（マーカー・テキスト・選択・消しゴム）では意味を持たないため
+    // 表示しない——以前はグレーアウトして残していたが、「触れないバーが
+    // 常に居座っているのは分かりにくい」という指摘を受け、消しゴムの
+    // カラーパレット非表示（syncSwatch参照）と同じ考え方で道具を問わず
+    // 非表示にした。
+    this.thicknessWrap.hidden = this.tool !== "pen";
     this.thicknessSlider.value = String(this.penWidth);
-    this.thicknessSlider.disabled = !isPen;
-    this.thicknessWrap.classList.toggle("thickness-control-disabled", !isPen);
     this.thicknessLabel.textContent = `${this.penWidth}px`;
   }
 
