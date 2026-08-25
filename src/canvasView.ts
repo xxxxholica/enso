@@ -247,6 +247,13 @@ export class CircularCanvas {
    *  でない（mode==="idle"）ときにポインタの下のメモを追いかける。 */
   private hoverInfoMemoId: string | null = null;
   private hoverInfoPoint: Point | null = null;
+  /** 消しゴムツールでの当たり範囲プレビュー用（ユーザー指示：クリックして実際に
+   *  消し始めるまで、消しゴムの大きさが分からない問題を解消したい）。上のhoverInfo
+   *  と同じ理由でmouseの間だけ、実際に消し始める前（mode==="idle"）に更新する
+   *  ——タッチには「押さずに触れる」状態が無いため、そもそも事前確認ができない。
+   *  実際に消している最中（mode==="erasing"）のカーソル表示はstate.lastPoint
+   *  を使う既存の仕組みのままなので、ここでは触らない。 */
+  private eraserHoverPoint: Point | null = null;
   /** 1本指ジェスチャー（描画・消しゴム・なぞる・移動）を今進行させている
    *  ポインタのid（nullなら未使用）。キャンバス要素上のpointerdownでのみ
    *  設定される——ピンチ中はbeginPinch()がnullに戻し、以後の1本指ジェス
@@ -1054,11 +1061,17 @@ export class CircularCanvas {
   /** 何も操作していない間（mode==="idle"）だけ呼ばれる。マウスが「なぞる」「移動」
    *  道具でメモの上に来たら、実際に触れなくても残り時間・回復できる時間の案内を
    *  出せるようにする（ユーザー指示：PCに限りホバーでも見られるように）。
-   *  タッチには「押さずに触れる」状態が無いため、pointerType==="mouse"の
-   *  ときだけ働く——タッチ側は従来どおりなぞる/移動を実際に始めたときに表示する。 */
+   *  消しゴムでは同じ理由で、当たり範囲のプレビュー円（eraserHoverPoint）を更新する
+   *  ——クリックして実際に消し始めるまで大きさが分からない問題の解消（ユーザー指示）。
+   *  どちらもタッチには「押さずに触れる」状態が無いため、pointerType==="mouse"の
+   *  ときだけ働く——タッチ側は従来どおり実際に触れて操作を始めたときに表示する。 */
   private updateHoverInfo(ev: PointerEvent): void {
     const tool = this.getToolState().tool;
-    if (this.rewindAt !== null || ev.pointerType !== "mouse" || (tool !== "trace" && tool !== "move")) {
+    const isMouse = ev.pointerType === "mouse" && this.rewindAt === null;
+
+    this.eraserHoverPoint = isMouse && tool === "eraser" ? this.toNormalized(ev.clientX, ev.clientY) : null;
+
+    if (!isMouse || (tool !== "trace" && tool !== "move")) {
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
       return;
@@ -1069,10 +1082,12 @@ export class CircularCanvas {
     this.hoverInfoPoint = hitMemo ? p : null;
   }
 
-  /** マウスがキャンバスの外に出たら、ホバー案内も消す（出しっぱなしにならないように）。 */
+  /** マウスがキャンバスの外に出たら、ホバー案内・消しゴムのプレビュー円も消す
+   *  （出しっぱなしにならないように）。 */
   private onPointerLeave = (): void => {
     this.hoverInfoMemoId = null;
     this.hoverInfoPoint = null;
+    this.eraserHoverPoint = null;
   };
 
   private onPointerUp = (ev: PointerEvent): void => {
@@ -1224,9 +1239,12 @@ export class CircularCanvas {
     }
 
 
-    // 消しゴムの当たり範囲を示すカーソル
-    if (this.state.mode === "erasing" && this.state.lastPoint) {
-      const p = { x: this.state.lastPoint.x * r, y: this.state.lastPoint.y * r };
+    // 消しゴムの当たり範囲を示すカーソル。実際に消している最中はstate.lastPoint、
+    // それ以外（マウスでホバーしているだけ）はeraserHoverPointを使う——クリックして
+    // 実際に消し始めるまで大きさが分からない問題を解消するため（ユーザー指示）。
+    const eraserCursorPoint = this.state.mode === "erasing" ? this.state.lastPoint : this.eraserHoverPoint;
+    if (eraserCursorPoint) {
+      const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
       ctx.beginPath();
       ctx.arc(p.x, p.y, this.getToolState().eraserRadius, 0, Math.PI * 2);
       ctx.strokeStyle = ERASER_CURSOR;
