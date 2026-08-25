@@ -208,7 +208,7 @@ toolbarEl.classList.add("is-visible");
 durationSlot.classList.add("is-visible");
 canvasPanel.classList.add("is-visible");
 
-new AppearanceSelector(
+const appearanceSelector = new AppearanceSelector(
   smuiView.getAppearanceSlot(),
   frameShapeId,
   framePatternId,
@@ -326,7 +326,20 @@ function frame(): void {
     canvasView.render(now);
     canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
   }
-  if (currentView === "shared") smuiView.render(now);
+  if (currentView === "shared") {
+    smuiView.render(now);
+    // ルーム接続中は見た目の設定をルームマスターに委ねて同期する
+    // （ユーザー指示）——ルームマスター以外は選べないようにロックし、
+    // ルームの値をAppearanceSelectorの表示にも反映する。setLocked/setValues
+    // は値が変わらない限りDOMを触らないので、毎フレーム呼んでも無駄がない。
+    const appearanceSync = smuiView.getAppearanceSync();
+    if (appearanceSync) {
+      appearanceSelector.setLocked(appearanceSync.locked);
+      appearanceSelector.setValues(appearanceSync.shapeId, appearanceSync.patternId);
+    } else {
+      appearanceSelector.setLocked(false);
+    }
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

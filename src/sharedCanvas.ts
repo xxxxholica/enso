@@ -1,4 +1,8 @@
 import { authFetch } from "./apiClient";
+import { FRAME_PATTERN_ORDER } from "./framePattern";
+import type { FramePatternId } from "./framePattern";
+import { FRAME_SHAPE_ORDER } from "./frameShape";
+import type { FrameShapeId } from "./frameShape";
 import type { Memo } from "./types";
 
 /**
@@ -36,6 +40,10 @@ export interface SharedCanvasDetail {
   ownerId: string;
   memos: Memo[];
   session: SessionState | null;
+  /** ルームマスターが設定した見た目(フレームの形・柄)。未設定(null)の間は
+   *  呼び出し元(smuiView.ts)がローカルの既定値を使う。 */
+  frameShapeId: FrameShapeId | null;
+  framePatternId: FramePatternId | null;
 }
 
 /** 新しい共有キャンバスを作る。作った本人がownerメンバーになる。ルームIDを返す。 */
@@ -88,10 +96,34 @@ export async function renameSharedCanvas(id: string, name: string): Promise<void
   if (!res.ok) throw new Error(`ルーム名の保存に失敗しました (status: ${res.status})`);
 }
 
+/** ルームの見た目(フレームの形・柄)を設定する。ルームマスター以外は403で失敗する
+ *  ——名前変更と違い、メンバー全員の表示に強制的に反映されるための権限制限。
+ *  保存後は既存のWebSocket通知（{type:"changed"}）経由で他のメンバーにも反映される。 */
+export async function updateSharedAppearance(
+  id: string,
+  frameShapeId: FrameShapeId,
+  framePatternId: FramePatternId
+): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/appearance`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ frameShapeId, framePatternId }),
+  });
+  if (!res.ok) throw new Error(`見た目の保存に失敗しました (status: ${res.status})`);
+}
+
 function parseSession(data: unknown): SessionState | null {
   const session = (data as { session?: unknown }).session;
   if (!session || typeof session !== "object") return null;
   return session as SessionState;
+}
+
+function parseFrameShapeId(v: unknown): FrameShapeId | null {
+  return typeof v === "string" && (FRAME_SHAPE_ORDER as string[]).includes(v) ? (v as FrameShapeId) : null;
+}
+
+function parseFramePatternId(v: unknown): FramePatternId | null {
+  return typeof v === "string" && (FRAME_PATTERN_ORDER as string[]).includes(v) ? (v as FramePatternId) : null;
 }
 
 /** 指定した共有キャンバスの中身を取得する（メンバー外は403で失敗する）。 */
@@ -106,6 +138,8 @@ export async function getSharedCanvas(id: string): Promise<SharedCanvasDetail> {
     ownerId: typeof ownerId === "string" ? ownerId : "",
     memos: Array.isArray(memos) ? (memos as Memo[]) : [],
     session: parseSession(data),
+    frameShapeId: parseFrameShapeId((data as { frameShapeId?: unknown }).frameShapeId),
+    framePatternId: parseFramePatternId((data as { framePatternId?: unknown }).framePatternId),
   };
 }
 

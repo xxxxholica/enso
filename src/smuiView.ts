@@ -7,6 +7,7 @@ import {
   extendSession,
   getSharedCanvas,
   startSession,
+  updateSharedAppearance,
   type SessionState,
   type StartSessionOptions,
 } from "./sharedCanvas";
@@ -17,6 +18,7 @@ import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
+import { loadFramePattern, loadFrameShape } from "./storage";
 import type { TemplateId } from "./templates";
 import { DEFAULT_INK, type Toolbar } from "./toolbar";
 import { getCurrentUser } from "./authState";
@@ -220,7 +222,7 @@ export class SmuiView {
     // fadeExempt/frozenDensityを確定させた直後なので、次のポーリングを待たず
     // すぐ取得し直す——待つと、確定したはずのメモが最大SHARED_POLL_INTERVAL_MSの
     // 間、古いlastTracedAtのままフェードし続けてしまう。
-    if (wasVoting && !session) this.roomSync?.pollNow();
+    if (wasVoting && !session) this.roomSync?.pollNow(true);
   }
 
   /** フェーズ③(voting)専用: メモを1回転させるたびにcanvasView.tsから呼ばれる。
@@ -349,6 +351,11 @@ export class SmuiView {
     this.sessionPanel.reset();
     this.applySession(null);
     this.ownerId = null;
+    // 前のルームでルームマスターが設定した見た目を次のルームへ持ち越さない
+    // ように、いったんローカルの既定値へ戻す——この後、新しいルームが独自の
+    // 値を持っていればapplyRemoteAppearanceで上書きされる。
+    this.frameShapeId = loadFrameShape();
+    this.framePatternId = loadFramePattern();
     this.lens = this.buildPlaceholderCanvas();
     this.setStatus("読み込み中…");
 
@@ -358,14 +365,18 @@ export class SmuiView {
       // もう最新ではないので、SharedRoomSyncを作らず（＝ポーリングの
       // setIntervalを残さず）ここで諦める。
       if (mySeq !== this.roomRequestSeq) return;
-      const sync = new SharedRoomSync(id, (memos) => sharedStore.replaceAll(memos));
+      const sync = new SharedRoomSync(id, (remoteDetail) => {
+        sharedStore.replaceAll(remoteDetail.memos);
+        this.applyRemoteAppearance(remoteDetail.frameShapeId, remoteDetail.framePatternId);
+      });
       const sharedStore = new MemoStore((memos) => sync.schedulePush(memos), false);
       sharedStore.replaceAll(detail.memos);
-      sync.markSynced(detail.memos);
+      sync.markSynced(detail);
       sync.start();
       this.roomSync = sync;
       this.sharedStore = sharedStore;
       this.ownerId = detail.ownerId || null;
+      this.applyRemoteAppearance(detail.frameShapeId, detail.framePatternId);
       this.lens.destroy();
       this.canvasContainerEl.innerHTML = "";
       this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.effectiveToolState, this.lensOptions());
@@ -429,17 +440,49 @@ export class SmuiView {
   }
 
   /** 操作パネルのAppearanceSelectorで選ばれた形状（レンズスタイル）を適用する。
-   *  ルーム未接続のプレースホルダーにも同じように即座に反映される。 */
+   *  ルーム未接続のプレースホルダーにも同じように即座に反映される。ルーム
+   *  接続中でルームマスターなら、サーバーにも保存してメンバー全員に同期する
+   *  （ユーザー指示：見た目の設定もルームマスターに委ねて同期したい）。 */
   setFrameShape(id: FrameShapeId): void {
     this.frameShapeId = id;
     this.lens.setFrameShape(id);
+    this.pushAppearanceIfMaster();
   }
 
   /** 操作パネルのAppearanceSelectorで選ばれた柄・質感を適用する。
-   *  ルーム未接続のプレースホルダーにも同じように即座に反映される。 */
+   *  ルーム未接続のプレースホルダーにも同じように即座に反映される。挙動は
+   *  setFrameShapeと同じ（ルームマスターならサーバーに保存して同期する）。 */
   setFramePattern(id: FramePatternId): void {
     this.framePatternId = id;
     this.lens.setFramePattern(id);
+    this.pushAppearanceIfMaster();
+  }
+
+  private pushAppearanceIfMaster(): void {
+    if (!this.selectedRoomId || !this.isRoomMaster()) return;
+    void updateSharedAppearance(this.selectedRoomId, this.frameShapeId, this.framePatternId).catch((e) => {
+      console.error("[smuiView] appearance save failed", e);
+    });
+  }
+
+  /** ポーリング/WS経由でサーバー側の見た目(フレームの形・柄)を受け取った時に
+   *  適用する。未設定(null)ならローカルの既定値を保ったままにする——setFrameShape/
+   *  setFramePatternと違い、こちらはサーバーへ書き戻さない（自分が発生源では
+   *  ないため、書き戻すと無意味なPATCHが発生するだけになる）。 */
+  private applyRemoteAppearance(shapeId: FrameShapeId | null, patternId: FramePatternId | null): void {
+    if (shapeId) this.frameShapeId = shapeId;
+    if (patternId) this.framePatternId = patternId;
+    this.lens.setFrameShape(this.frameShapeId);
+    this.lens.setFramePattern(this.framePatternId);
+  }
+
+  /** main.tsのframe()ループから、共有タブを見ている間だけ呼んでよい。
+   *  AppearanceSelector（main.ts所有）を、ルーム未接続なら通常のローカル
+   *  編集用に戻し(null)、ルーム接続中ならこのルームの値・ロック状態
+   *  （ルームマスター以外は変更不可）を反映させるために使う。 */
+  getAppearanceSync(): { locked: boolean; shapeId: FrameShapeId; patternId: FramePatternId } | null {
+    if (!this.selectedRoomId) return null;
+    return { locked: !this.isRoomMaster(), shapeId: this.frameShapeId, patternId: this.framePatternId };
   }
 
   /** 表示中かどうかにかかわらず呼んでよい。「共有」タブを離れている間はルームの

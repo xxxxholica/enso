@@ -1,5 +1,12 @@
 import { getSharedCanvas, saveSharedCanvas } from "./sharedCanvas";
+import type { SharedCanvasDetail } from "./sharedCanvas";
 import type { Memo } from "./types";
+
+/** ポーリング/WS経由の変更検知で見るべき部分だけを取り出す。session・ownerId等は
+ *  この仕組みでは扱わない（sessionは別経路、ownerIdは実質不変のため）。 */
+function syncKey(detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId">): string {
+  return JSON.stringify({ memos: detail.memos, frameShapeId: detail.frameShapeId, framePatternId: detail.framePatternId });
+}
 
 const PUSH_DEBOUNCE_MS = 2000;
 // サーバー(index.js)のWebSocket通知（realtimeSync.ts経由）でほぼ即座に
@@ -17,7 +24,7 @@ export const SHARED_POLL_INTERVAL_MS = 15000;
  */
 export class SharedRoomSync {
   private id: string;
-  private onRemoteChange: (memos: Memo[]) => void;
+  private onRemoteChange: (detail: SharedCanvasDetail) => void;
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private pushInFlight = false;
@@ -28,15 +35,23 @@ export class SharedRoomSync {
   /** 自分が最後にサーバーへ送った(または取得した)内容。自分のpushをポーリングが
    *  そのまま拾い直して二重に反映してしまわないための判定に使う。 */
   private lastSyncedJson: string | null = null;
+  /** schedulePush()はmemosしか知らないため、直近の見た目(フレームの形・柄)を
+   *  ここに覚えておき、push成功時にlastSyncedJsonを組み直すのに使う
+   *  ——見た目自体はupdateSharedAppearance経由で別に送られるため、ここでは
+   *  「今その値をサーバーが持っているはず」という直近の観測値でしかない。 */
+  private lastFrameShapeId: SharedCanvasDetail["frameShapeId"] = null;
+  private lastFramePatternId: SharedCanvasDetail["framePatternId"] = null;
 
-  constructor(id: string, onRemoteChange: (memos: Memo[]) => void) {
+  constructor(id: string, onRemoteChange: (detail: SharedCanvasDetail) => void) {
     this.id = id;
     this.onRemoteChange = onRemoteChange;
   }
 
   /** 初回ハイドレート直後など、今の内容をpush不要の「同期済み」として記録しておく。 */
-  markSynced(memos: readonly Memo[]): void {
-    this.lastSyncedJson = JSON.stringify(memos);
+  markSynced(detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId">): void {
+    this.lastSyncedJson = syncKey(detail);
+    this.lastFrameShapeId = detail.frameShapeId;
+    this.lastFramePatternId = detail.framePatternId;
   }
 
   /** ルームに接続した直後の初回開始。 */
@@ -75,9 +90,14 @@ export class SharedRoomSync {
 
   /** WebSocketで「変わった」通知を受け取った時に、次の定期ポーリングを
    *  待たずすぐ取得し直す。通知が来ない環境（再接続中など）でも定期
-   *  ポーリング自体は動き続けるので、こちらは無くても壊れない「保険の上乗せ」。 */
-  pollNow(): void {
-    void this.poll();
+   *  ポーリング自体は動き続けるので、こちらは無くても壊れない「保険の上乗せ」。
+   *  force=trueは、ローカルの未送信push(hasPendingLocalChanges)があっても
+   *  待たせず取得する——投票フェーズ終了直後、確定したfadeExempt/frozenDensity
+   *  をすぐ反映させたい呼び出し元(smuiView.ts)用。heat/fadeExempt/frozenDensity
+   *  はサーバー側のPUTハンドラがクライアントの送信内容によらず常に上書きする
+   *  値なので、pushが同時に飛んでいてもこの3フィールドを壊す心配はない。 */
+  pollNow(force = false): void {
+    void this.poll(force);
   }
 
   schedulePush(memos: readonly Memo[]): void {
@@ -85,10 +105,13 @@ export class SharedRoomSync {
     this.pushTimer = setTimeout(() => {
       this.pushTimer = undefined;
       this.pushInFlight = true;
-      const json = JSON.stringify(memos);
       void saveSharedCanvas(this.id, memos)
         .then(() => {
-          this.lastSyncedJson = json;
+          this.lastSyncedJson = syncKey({
+            memos: memos as Memo[],
+            frameShapeId: this.lastFrameShapeId,
+            framePatternId: this.lastFramePatternId,
+          });
         })
         .catch((e) => {
           console.error("[sharedCanvasSync] push failed", e);
@@ -99,15 +122,17 @@ export class SharedRoomSync {
     }, PUSH_DEBOUNCE_MS);
   }
 
-  private async poll(): Promise<void> {
-    if (this.hasPendingLocalChanges() || this.pollInFlight) return;
+  private async poll(force = false): Promise<void> {
+    if ((this.hasPendingLocalChanges() && !force) || this.pollInFlight) return;
     this.pollInFlight = true;
     try {
       const detail = await getSharedCanvas(this.id);
-      const json = JSON.stringify(detail.memos);
+      const json = syncKey(detail);
       if (json === this.lastSyncedJson) return;
       this.lastSyncedJson = json;
-      this.onRemoteChange(detail.memos);
+      this.lastFrameShapeId = detail.frameShapeId;
+      this.lastFramePatternId = detail.framePatternId;
+      this.onRemoteChange(detail);
     } catch (e) {
       console.error("[sharedCanvasSync] poll failed", e);
     } finally {

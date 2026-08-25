@@ -648,6 +648,18 @@ body {
   opacity: 1;
 }
 
+/* 共有ルームの見た目(見た目の設定、appearanceSelector.ts)がルームマスターに
+   よって固定されている間、非マスターは押せない。今選ばれているものが
+   何かは分かるよう、選択中(data-active)だけは薄くしない。 */
+.toolbar-btn:disabled {
+  cursor: default;
+  pointer-events: none;
+}
+
+.toolbar-btn:disabled:not([data-active="true"]) {
+  opacity: 0.3;
+}
+
 /* --- 道具ボタンにホバーしたときの「これは何のボタンか」という案内
    （ペン／マーカー／テキスト／選択／なぞる／消しゴム、ユーザー指示）。
    .icon-popoverと同じ見た目・フェードをそのまま流用し、1単語だけなので

@@ -951,7 +951,7 @@ export class CircularCanvas {
    * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.rewindAt !== null || this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
