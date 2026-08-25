@@ -260,18 +260,18 @@ body {
   justify-content: center;
 }
 
-/* --- キャンバスタブ本体。以前は円だけを中央に置く単純な箱だったが、
-   共有タブ（.smui-view）と同じく「ツールバー直上」に情報行(#canvas-info-row、
-   残り時間ピル)を置きたいため、縦積みのflexにして円側(#canvas-wrap)に
-   残りの高さを埋めさせる（align-items:stretchに切り替え、.smui-viewと
-   同じ考え方）。 --- */
+/* --- キャンバスタブ本体。#canvas-info-row（残り時間ピル）はflexの並びから
+   外し、position:absoluteで自分（position:relative）の下端に重ねて置く
+   （.info-row参照）——flexの並びのままだと、キャンバス要素が画面全体に
+   広がった後もこの行の分だけ#canvas-wrap（＝実際のcanvas要素）の高さが
+   狭いままになり、その透明な隙間からbodyの背景色が覗いて色が浮いて見える
+   不具合があった（ユーザー指摘）。 --- */
 #canvas-panel {
+  position: relative;
   width: 100%;
   padding: 4px;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
 }
 
 #canvas-wrap {
@@ -1446,32 +1446,55 @@ body {
    frameKind:"glasses"）だけを表示する。#shared-panelのalign-items:stretch
    （上で追加）から.smui-view→.smui-canvas-wrapまで「残りの高さを埋める
    (flex:1 1 auto; min-height:0)」を連鎖させることで、キャンバスがパネルの
-   高さいっぱいまで育つ。 --- */
+   高さいっぱいまで育つ。.info-row（ルーム作成・見た目設定・残り時間ピル）は
+   #canvas-panelと同じ理由でflexの並びから外し、position:absoluteで重ねる
+   （.info-row参照）。 --- */
 .smui-view {
+  position: relative;
   width: 100%;
   height: 100%;
   padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
 /* --- ツールバー直上の情報行。共有タブでは眼鏡キャンバスの下にルーム作成・
    選択（SharedRoomMenu）、見た目の設定（AppearanceSelector）、残り時間ピルを
    中央寄せで横並びに置く（ユーザー指示）。キャンバスタブでは残り時間ピルだけを
    同じ見た目で置く（#canvas-info-row、main.ts）。
+   親（#canvas-panel/.smui-view、いずれもposition:relative）の下端に
+   position:absoluteで重ねる——flexの並びのままだと、この行の分だけ実際の
+   キャンバス要素（#canvas-wrap/.smui-canvas-wrap）が画面の真の下端まで
+   届かず、その隙間からbodyの背景色が透けて見える不具合があった
+   （ユーザー指摘：ツールバーは半透明でブロックの間に隙間があるため、
+   その隙間から色が浮いて見えていた）。中身が無い間（ピル非表示時）は
+   キャンバスへのタップ・描画を妨げないよう、この行自体はpointer-events:noneに
+   し、実際に見えているボタン・ピル（直接の子要素）にだけpointer-events:auto
+   で戻す。
    min-heightは中身の見た目上の高さに固定しておく——中身（「+ルームを作成」
    ⇔選択中のルームID、ピルの表示/非表示）が変わってもこの行の高さ自体は
-   変わらないようにし、共有キャンバス（.smui-canvas-wrap、flex:1 1 auto）の
-   実際の高さがそのたびに変わってフレームの太さ（frameStrokeWidthは高さに
-   比例）まで変化して見えてしまう、という事態を避ける。 --- */
+   変わらないようにするため（以前はこれが共有キャンバスの実際の高さの変化＝
+   フレームの太さの変化に繋がっていたが、position:absolute化した今も、
+   見た目の高さが変わらない方が望ましい動作のため踏襲する）。 --- */
 .info-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* .app-footer（position:fixed、高さはcontrol-panelの72px＋自身のpadding＋
+     セーフエリアでおおよそ80〜90px）の裏に隠れないよう、その高さぶん＋
+     見た目の隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずが
+     bottom:0だとツールバーの裏＝画面の真下に来てしまい隠れていた）。 */
+  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 10px;
-  flex: 0 0 auto;
   min-height: 34px;
+  pointer-events: none;
+}
+
+.info-row > * {
+  pointer-events: auto;
 }
 
 .smui-canvas-wrap {
