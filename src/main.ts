@@ -322,9 +322,11 @@ if (initialView === "shared") setView("shared");
 function frame(): void {
   const now = Date.now();
   store.tick(now);
+  let zoomed = false;
   if (currentView === "canvas") {
     canvasView.render(now);
     canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
+    zoomed = canvasView.isZoomed();
   }
   if (currentView === "shared") {
     smuiView.render(now);
@@ -339,7 +341,12 @@ function frame(): void {
     } else {
       appearanceSelector.setLocked(false);
     }
+    zoomed = smuiView.isZoomed();
   }
+  // ヘッダー/ツールバーは画面全体に広がったキャンバスの上に固定オーバーレイ
+  // として乗っているため、ズーム中（1倍より拡大）は下の絵が見えるよう薄くする
+  // （style.css `#app.is-zoomed`、ユーザー指示）。
+  app.classList.toggle("is-zoomed", zoomed);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

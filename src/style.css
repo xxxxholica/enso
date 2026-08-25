@@ -149,6 +149,7 @@ body {
   background: oklch(98% 0.005 75 / 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  transition: opacity 180ms ease;
 }
 
 .app-header-left {
@@ -406,6 +407,16 @@ body {
   background: oklch(98% 0.005 75 / 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  transition: opacity 180ms ease;
+}
+
+/* --- ズーム中（1倍より拡大、main.tsのcanvasView.isZoomed()/smuiView.isZoomed()
+   参照）は、画面全体に広がったキャンバスの上に乗るヘッダー/ツールバーを薄くし、
+   下の絵が見えるようにする（ユーザー指示）。ボタン自体は押せるままにするため
+   pointer-eventsは変えない。 --- */
+#app.is-zoomed .app-header,
+#app.is-zoomed .app-footer {
+  opacity: 0.4;
 }
 
 /* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの

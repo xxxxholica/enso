@@ -69,9 +69,12 @@ function rotateStepAmountMs(streak: number): number {
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
- *  意味がないため許可しない。 */
+ *  意味がないため許可しない。上限は、キャンバス要素がヘッダー/ツールバーの
+ *  下まで広がった（issue #83）後、最大までズーム+パンした時にその下まで
+ *  確実に絵が届くよう2倍から引き上げた（ユーザー指摘：2倍だとギリギリ
+ *  届かないことがある）。 */
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 2;
+const MAX_ZOOM = 3;
 
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -1137,6 +1140,13 @@ export class CircularCanvas {
     const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
     if (!target) return null;
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
+
+  /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
+   *  広がったキャンバスの上に固定オーバーレイとして乗る）を薄くするかどうかの
+   *  判定に使う（ユーザー指示：ズーム中は下の絵が見えるよう薄くしたい）。 */
+  isZoomed(): boolean {
+    return this.viewZoom > MIN_ZOOM;
   }
 
   render(now: number): void {
