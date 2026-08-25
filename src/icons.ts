@@ -10,6 +10,9 @@ export const ICONS: Record<
   | "pen"
   | "marker"
   | "eraser"
+  | "eraserSizeSmall"
+  | "eraserSizeMedium"
+  | "eraserSizeLarge"
   | "text"
   | "move"
   | "trace"
@@ -24,7 +27,9 @@ export const ICONS: Record<
   | "patternTortoiseshell"
   | "patternClear"
   | "patternWood"
-  | "trash",
+  | "trash"
+  | "timer"
+  | "room",
   string
 > = {
   pen: `
@@ -44,6 +49,51 @@ export const ICONS: Record<
       <path d="M9.5 19h9" />
       <path d="M6.2 15.3l7-7 4.5 4.5-5.3 5.2H9z" />
       <path d="M13.2 8.3l-4-4a1.5 1.5 0 0 0-2.1 0l-3 3a1.5 1.5 0 0 0 0 2.1l4 4" />
+    </svg>`,
+  // 消しゴムの大きさ（小/中/大）を選ぶボタン用。他のアイコンと違い、実際の大きさの
+  // 違いをそのまま見せたいので線画ではなく丸にしている（GoodNotesの消しゴム
+  // サイズ選択と同じ考え方——ユーザー指示）。中身をcurrentColorの塗りつぶし（黒っぽく
+  // 見えてインクの色スウォッチと紛らわしい）にしていたが、「白色のモザイクのように」
+  // という指摘を受け、白と薄いグレーの2x2の市松模様（モザイク）に変更した。
+  // アイコンの実際の描画サイズが20x20pxしかなく、細かい市松模様にすると潰れて
+  // ただの白い丸に見えてしまうため、円を4分割した粗いチェックにして小さくても
+  // はっきり模様と分かるようにしている。紙のような明るい背景に対しても輪郭が
+  // 見えるよう、丸の外周だけcurrentColorで縁取りしている。
+  eraserSizeSmall: `
+    <svg viewBox="0 0 24 24">
+      <defs>
+        <clipPath id="eraser-clip-s"><circle cx="12" cy="12" r="3" /></clipPath>
+      </defs>
+      <g clip-path="url(#eraser-clip-s)">
+        <rect x="9" y="9" width="6" height="6" fill="#ffffff" />
+        <rect x="9" y="9" width="3" height="3" fill="var(--ink-35)" />
+        <rect x="12" y="12" width="3" height="3" fill="var(--ink-35)" />
+      </g>
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </svg>`,
+  eraserSizeMedium: `
+    <svg viewBox="0 0 24 24">
+      <defs>
+        <clipPath id="eraser-clip-m"><circle cx="12" cy="12" r="5.5" /></clipPath>
+      </defs>
+      <g clip-path="url(#eraser-clip-m)">
+        <rect x="6.5" y="6.5" width="11" height="11" fill="#ffffff" />
+        <rect x="6.5" y="6.5" width="5.5" height="5.5" fill="var(--ink-35)" />
+        <rect x="12" y="12" width="5.5" height="5.5" fill="var(--ink-35)" />
+      </g>
+      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </svg>`,
+  eraserSizeLarge: `
+    <svg viewBox="0 0 24 24">
+      <defs>
+        <clipPath id="eraser-clip-l"><circle cx="12" cy="12" r="8.5" /></clipPath>
+      </defs>
+      <g clip-path="url(#eraser-clip-l)">
+        <rect x="3.5" y="3.5" width="17" height="17" fill="#ffffff" />
+        <rect x="3.5" y="3.5" width="8.5" height="8.5" fill="var(--ink-35)" />
+        <rect x="12" y="12" width="8.5" height="8.5" fill="var(--ink-35)" />
+      </g>
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.2" />
     </svg>`,
   text: `
     <svg viewBox="0 0 24 24" ${common}>
@@ -150,5 +200,22 @@ export const ICONS: Record<
       <path d="M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>`,
+  // 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン用。
+  timer: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M9 2h6" />
+      <path d="M12 5v3" />
+      <circle cx="12" cy="14" r="7" />
+      <path d="M12 14V10" />
+      <path d="M12 14l3.2 1.8" />
+    </svg>`,
+  // 接続中のルーム（sharedRoomMenu.ts）を表す小さな家のアイコン。IDの文字列
+  // だけでは何を表しているボタンか分かりにくい、というユーザー指摘のため。
+  room: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M4 11.5l8-7 8 7" />
+      <path d="M6 10.2V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.8" />
+      <path d="M10 20v-5h4v5" />
     </svg>`,
 };
