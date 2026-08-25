@@ -1859,3 +1859,60 @@ body {
     left: 17px;
   }
 }
+
+/* --- 使い方ページの「練」パート：序・結の挿絵付き3カラム(48px 96px 1fr)と違い、
+   実際に操作できるキャンバスを収めるため2カラム(48px 1fr)にする（マーカーだけは
+   他のstageと同じ縦レールに揃える）。 --- */
+.usage-guide-stage--practice {
+  grid-template-columns: 48px 1fr;
+}
+
+@media (max-width: 560px) {
+  .usage-guide-stage--practice {
+    grid-template-columns: 36px 1fr;
+  }
+}
+
+/* --- 練習用サンドボックス（tutorialSandbox.ts）。本物の#canvas-wrap相当の
+   円キャンバスを、読み物の幅に収まる控えめなサイズで中央に置く。 --- */
+.tutorial-sandbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: 4px;
+}
+
+.tutorial-sandbox-canvas-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+}
+
+/* 道具バーを持たず「選択」道具に固定しているため、本物の空状態案内
+   （ドラッグで書き始める／＋テンプレートを使用）はここでは意味を持たない
+   ——全メモが消え切った稀なケースでも出さない。 */
+.tutorial-sandbox-canvas-wrap .canvas-empty-state {
+  display: none;
+}
+
+.tutorial-sandbox-message {
+  margin: 0;
+  min-height: 2.6em;
+  max-width: 46ch;
+  font-size: var(--text-sm);
+  line-height: 1.85;
+  color: var(--ink-85);
+  text-align: center;
+}
+
+.tutorial-sandbox-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.tutorial-sandbox-skip {
+  color: var(--ink-40);
+}
