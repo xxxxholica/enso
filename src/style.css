@@ -760,6 +760,13 @@ body {
   gap: 6px;
 }
 
+/* 色を使わない道具（選択・消しゴム）を選んでいる間は、太さスライダーの
+   .thickness-control-disabledと同じ見た目で無効だと分かるようにする（issue #68）。 */
+.toolbar-swatches-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .toolbar-swatch {
   position: relative;
   width: 26px;
