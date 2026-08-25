@@ -24,24 +24,17 @@ const HOUR = 60 * 60 * 1000;
  *  体感速度だけの調整値として、控えめな値に下げてある。 */
 const VIRTUAL_ACCEL = 60;
 
-/** 道具はすべて選択（移動）道具に固定する——このサンドボックスで体験させたい
- *  操作は「掴んで回す」「振り返りスライダー」の2つだけで、道具バー自体を
- *  持たない（ユーザー指示：習得させる操作を2つの時間操作に絞る）。
- *  color/fontSize/eraserRadius等は"move"では参照されないため値そのものに意味はない。 */
-const SANDBOX_TOOL_STATE: ToolState = {
-  tool: "move",
-  color: INK,
-  lifespanDays: FIXED_LIFESPAN_DAYS,
-  fontSize: 24,
-  lineWidth: PEN_WIDTH_RANGE.default,
-  eraserRadius: 16,
-};
+/** .usage-guideモーダル自身のz-index(41、style.css)より前面に出すための値。
+ *  「書く」手順のtext-editor-overlay専用（CircularCanvasOptions.textEditorZIndex
+ *  参照）。 */
+const TEXT_EDITOR_Z_INDEX = 45;
 
-type StepId = "watch" | "keep" | "release" | "rewind" | "done";
-const STEP_ORDER: StepId[] = ["watch", "keep", "release", "rewind", "done"];
+type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
+const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  watch: "いくつか、思いつきを置いてみました。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
+  write: "円の中をタップして、思いついたことを書いてみましょう。",
+  watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
   release: "今度は、要らない一枚に触れたまま、時計回りに回して早く手放してみましょう。",
   rewind: "下のスライダーを動かして、少し前の盤面を振り返ってみましょう。",
@@ -71,15 +64,24 @@ interface TrackedMemo {
  *
  * ポインタ操作（pointerdown/move/leave）はこのインスタンス自身のcanvas要素に
  * 閉じたリスナーのため、使い方ページの全画面オーバーレイが背後の本物の
- * キャンバスを覆っている間は本物には一切届かない。window単位のkeydownは
- * usageGuide.ts側がcapture段でstopPropagationして本物のonGlobalKeyDown
- * （ブラインドタイピング）に一切渡さない——このサンドボックス自身もテキスト
- * 入力を持たないため、キー入力を横取りされても機能に支障はない。window単位の
- * pointerup/pointercancelだけは意図的に横取りしていない：本物のonPointerUpは
+ * キャンバスを覆っている間は本物には一切届かない。window単位の
+ * pointerup/pointercancelは意図的に横取りしていない：本物のonPointerUpは
  * 自身の状態がidleの間は何もしない（=このサンドボックスを操作している間、
  * 本物は必ずidleのまま）ため無害であり、かつこのサンドボックス自身の
  * ジェスチャー終了処理もwindow単位のpointerupに依存しているため、
  * window全体でstopPropagationするとこちらの操作まで巻き込んで壊れてしまう。
+ *
+ * 「書く」手順だけは本物のテキスト入力（道具を"text"にしてタップ→
+ * canvasView.tsのopenTextEditor）を使う。それ以外の手順ではキー入力を
+ * 一切必要としないため、使い方ページ側（usageGuide.ts）がwindow単位の
+ * keydownをcapture段でstopPropagationして本物のonGlobalKeyDown
+ * （ブラインドタイピング）に渡さないようにしているが、「書く」手順で
+ * このサンドボックス自身のtext-editor-overlay（.text-editor-overlay）に
+ * フォーカスがある間だけは例外的に素通しする——それでも本物へブラインド
+ * タイピングが漏れないのは、本物のonGlobalKeyDownがdocument.activeElementが
+ * テキストエリアの間は横取りしないという既存のガード（他の入力欄にフォーカスが
+ * ある間は横取りしないためのもの）にそのまま守られるため。詳しくは
+ * usageGuide.tsのonKeyDown参照。
  */
 export class TutorialSandbox {
   private canvasWrap: HTMLElement;
@@ -102,13 +104,18 @@ export class TutorialSandbox {
   private realStartMs = 0;
   private virtualBaseMs = 0;
 
-  private step: StepId = "watch";
-  /** seed()で置いた3枚（種類は問わない）の初期lastTracedAt。checkProgressは
-   *  この中のどれか1枚でも増減していればkeep/releaseを達成扱いにする。 */
+  private step: StepId = "write";
+  /** seed()で置いた添え物＋「書く」手順でユーザー自身が書いたものの初期
+   *  lastTracedAt。checkProgressはこの中のどれか1枚でも増減していれば
+   *  keep/releaseを達成扱いにする。 */
   private memoBaselines: TrackedMemo[] = [];
-  private ambientMemoId: string | null = null;
-  private memoAId: string | null = null;
-  private memoBId: string | null = null;
+  /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
+   *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
+   *  （内容は問わない）。 */
+  private knownMemoIds = new Set<string>();
+  /** 振り返り手順で作り直す対象のid一覧（seed()の添え物＋「書く」手順で
+   *  ユーザーが書いたものを作成順に追加）。reseedForRewindDemo参照。 */
+  private reseedableIds: string[] = [];
   /** 「振り返り」手順に入った瞬間の仮想時刻を固定した基準点。以降このスライダーの
    *  「N時間前」は、その都度のcurrentVirtualNow()ではなく常にこの値から引く
    *  ——探索にどれだけ実時間をかけても（数秒でも数分でも）見え方が変わらない
@@ -161,11 +168,11 @@ export class TutorialSandbox {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.step = "watch";
+    this.step = "write";
     this.syncStep();
 
     this.store = new MemoStore(undefined, false);
-    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => SANDBOX_TOOL_STATE, {
+    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => this.toolStateFor(), {
       // 本物のキャンバスと同じ「1回転まるごと・掴んだ点から半径24px以上」を
       // そのまま求めると、この操作を初めて知る人には難しすぎて手順で止まって
       // しまうことがあった（ユーザー報告）。この練習用サンドボックスに限り、
@@ -174,6 +181,12 @@ export class TutorialSandbox {
       // 完全に同じ厳しさを課す必要はない。
       rotateStepRad: Math.PI,
       rotateMinRadiusPx: 16,
+      // 「書く」手順で開くtext-editor-overlayは、既定z-index(20)のままだと
+      // 使い方ページのモーダル自身（z-index 41）の背後に隠れてしまう
+      // ——全画面モーダルは本来「本物のキャンバスの書きかけテキストを隠す」
+      // 前提でtext-editor-overlayより手前に設計されているが、ここではその
+      // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
+      textEditorZIndex: TEXT_EDITOR_Z_INDEX,
     });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
@@ -191,9 +204,8 @@ export class TutorialSandbox {
     this.canvasView = null;
     this.store = null;
     this.memoBaselines = [];
-    this.ambientMemoId = null;
-    this.memoAId = null;
-    this.memoBId = null;
+    this.knownMemoIds = new Set();
+    this.reseedableIds = [];
     this.rewindNowRef = null;
     this.rewindSelector = null;
     this.rewindWrap.replaceChildren();
@@ -201,6 +213,24 @@ export class TutorialSandbox {
     this.rewindWrap.classList.remove("is-visible");
   }
 
+  /** 「書く」手順だけテキスト道具、それ以外は選択（移動）道具——このサンドボックスで
+   *  体験させたい操作を、書く・掴んで回す・振り返りスライダーの3つに絞る
+   *  （道具バー自体は持たない。ユーザー指示）。 */
+  private toolStateFor(): ToolState {
+    return {
+      tool: this.step === "write" ? "text" : "move",
+      color: INK,
+      lifespanDays: FIXED_LIFESPAN_DAYS,
+      fontSize: FONT_SIZE_STEPS.medium,
+      lineWidth: PEN_WIDTH_RANGE.default,
+      eraserRadius: 16,
+    };
+  }
+
+  /** 「書く」手順の前に、添え物を2枚だけ仕込んでおく——ユーザー自身が
+   *  これから書く1枚と合わせて、後の手順（残す・消す・振り返る）で
+   *  触る対象が最低3枚になるようにする。手を出さなくても物語が進むよう、
+   *  どの手順にも紐付けない添え物として置く。 */
   private seed(): void {
     if (!this.store) return;
     const now0 = this.virtualBaseMs;
@@ -209,22 +239,22 @@ export class TutorialSandbox {
     // 潰れて見えてしまう（ユーザー指摘）ため、位置だけがまとめてクランプされる
     // テキストメモに変えた。
     const measureCtx = document.createElement("canvas").getContext("2d")!;
-    // 放っておくと消えていく様子を最初から見せるための、既に薄れかけた1枚
-    // （じきに完全に消える）。手を出さなくても物語が進むよう、どの手順にも
-    // 紐付けない添え物として置く。
+    // 「薄れる」手順ですぐ見比べられるよう、既に薄れかけた状態で置く
+    // （自分がこれから書く1枚は真新しいまま、という対比になる）。
     const ambient = seedTextThought(measureCtx, this.store, { x: 0, y: 0.45 }, "夢の続き", 11 * HOUR, now0);
     // 掴んで振り回すと、その分だけメモ自体もポインタに追従して動く
     // （canvasView.tsのupdateRotationGesture参照）。縁ぎりぎりに置くと、
     // 少し振り回しただけで縁の外にはみ出して欠けて見えてしまうため、
-    // 中心寄りに置いて振り回す余地を持たせる。
-    const memoA = seedTextThought(measureCtx, this.store, { x: -0.32, y: -0.22 }, "行きたい場所", 5 * HOUR, now0);
-    const memoB = seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 0.5 * HOUR, now0);
-    this.ambientMemoId = ambient.id;
-    this.memoAId = memoA.id;
-    this.memoBId = memoB.id;
-    // 「残したい一枚」がどれかは指示文で特定していないため、この3枚すべてを
-    // 判定対象にする（checkProgress参照）。
-    this.memoBaselines = [ambient, memoA, memoB].map(trackedMemoOf);
+    // 中心寄りに置いて振り回す余地を持たせる——また、この2枚は右寄り・
+    // 下寄りに置き、「書く」手順で円の左〜中央あたりにタップして書き
+    // やすい余地を残す。
+    const decoy = seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 5 * HOUR, now0);
+    this.knownMemoIds = new Set([ambient.id, decoy.id]);
+    this.reseedableIds = [ambient.id, decoy.id];
+    // 「残したい一枚」がどれかは指示文で特定していないため、この2枚
+    // （＋「書く」手順でユーザーが書いたもの）すべてを判定対象にする
+    // （checkProgress参照）。
+    this.memoBaselines = [ambient, decoy].map(trackedMemoOf);
   }
 
   private currentVirtualNow(): number {
@@ -243,7 +273,19 @@ export class TutorialSandbox {
   private checkProgress(): void {
     if (!this.store) return;
     const memos: readonly Memo[] = this.store.getAll();
-    if (this.step === "keep") {
+    if (this.step === "write") {
+      // 内容は問わず、seed()で置いた添え物に無い新しいidが現れたら
+      // 「ユーザーが書き終えた」と判定する（canvasView.tsのopenTextEditorが
+      // blur時にstore.createTextMemoを呼ぶタイミングを直接コールバックで
+      // 拾う手段が無いため、ストアをポーリングして検出する）。
+      const newMemo = memos.find((m) => !this.knownMemoIds.has(m.id));
+      if (newMemo) {
+        this.knownMemoIds.add(newMemo.id);
+        this.memoBaselines.push(trackedMemoOf(newMemo));
+        this.reseedableIds.push(newMemo.id);
+        this.advanceTo("watch");
+      }
+    } else if (this.step === "keep") {
       if (this.anyMemoMoved(memos, "up")) this.advanceTo("release");
     } else if (this.step === "release") {
       if (this.anyMemoMoved(memos, "down")) this.advanceTo("rewind");
@@ -321,25 +363,25 @@ export class TutorialSandbox {
   private reseedForRewindDemo(now: number): void {
     if (!this.store) return;
     const measureCtx = document.createElement("canvas").getContext("2d")!;
-    const respawn = (id: string | null, text: string, backdateMs: number): string | null => {
-      if (!id) return null;
-      const existing = this.store!.getAll().find((m) => m.id === id);
-      if (!existing) return null;
-      this.store!.deleteMemo(id);
-      const anchor: Point = { x: existing.x, y: existing.y };
-      return seedTextThought(measureCtx, this.store!, anchor, text, backdateMs, now).id;
-    };
     // バックデートは、不透明度が段階的に変わる境目（fade.tsのcomputeOpacity:
     // 3.43h/10.29hで100%→60%→20%と切り替わる）が「たった今」からすぐの
     // 目盛り1〜2個ぶん（15分〜30分前）以内に来るよう選んでいる。以前は
     // 1/3/6時間や4/5/9時間ずらしていたが、それだと最初の数目盛りの間は
     // 3枚とも同じ濃さのまま変わらず、大きくドラッグしないと違いに気づけ
     // なかった（ユーザー報告：1枚しか反応していないように見える）。この
-    // 値なら、スライダーをほんの少し動かしただけで3枚とも違うタイミングで
-    // 濃くなる／消えるのが分かる。
-    this.ambientMemoId = respawn(this.ambientMemoId, "夢の続き", 10.35 * HOUR);
-    this.memoAId = respawn(this.memoAId, "行きたい場所", 3.75 * HOUR);
-    this.memoBId = respawn(this.memoBId, "買い物リスト", 3.5 * HOUR);
+    // 値なら、スライダーをほんの少し動かしただけで、置いた順（添え物2枚→
+    // 「書く」手順で書いたもの）に違うタイミングで濃くなる／消えるのが分かる。
+    // 「書く」で書いた内容はexisting.textをそのまま引き継ぐ——ユーザーが
+    // 実際に書いた文面を、勝手に別の文言で上書きしてはいけない。
+    const backdateHours = [3.5, 3.75, 10.35];
+    this.reseedableIds = this.reseedableIds.map((id, i) => {
+      const existing = this.store!.getAll().find((m) => m.id === id);
+      if (!existing || existing.kind !== "text") return id;
+      this.store!.deleteMemo(id);
+      const anchor: Point = { x: existing.x, y: existing.y };
+      const backdateMs = (backdateHours[i] ?? backdateHours[backdateHours.length - 1]) * HOUR;
+      return seedTextThought(measureCtx, this.store!, anchor, existing.text, backdateMs, now).id;
+    });
   }
 }
 

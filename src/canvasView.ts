@@ -184,6 +184,14 @@ export interface CircularCanvasOptions {
    *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
    *  ここでの初期値指定は必須ではない。 */
   onRotationStep?: (memoId: string) => void;
+  /** text-editor-overlay（.text-editor-overlay、既定z-index:20）の実際のz-indexを
+   *  呼び出し側で上書きする。全画面モーダル（テンプレート選択・使い方ページ、
+   *  いずれもz-index 40番台）は「モーダルの中の本物のキャンバスへ書きかけの
+   *  テキストが残っていても隠す」という前提でtext-editor-overlayより上に
+   *  意図して設計されているが、使い方ページの練習用サンドボックス
+   *  （tutorialSandbox.ts）はモーダルの内側で本物のテキスト入力を体験させる
+   *  ため、逆にモーダル自身（z-index 41）より前面に出す必要がある。 */
+  textEditorZIndex?: number;
 }
 
 export class CircularCanvas {
@@ -274,6 +282,7 @@ export class CircularCanvas {
    *  ROTATE_MIN_RADIUS_PXになる。 */
   private rotateStepRad: number;
   private rotateMinRadiusPx: number;
+  private textEditorZIndex: number | undefined;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -295,6 +304,7 @@ export class CircularCanvas {
     this.rotateStepRad = options.rotateStepRad ?? ROTATE_STEP_RAD;
     this.rotateMinRadiusPx = options.rotateMinRadiusPx ?? ROTATE_MIN_RADIUS_PX;
     this.rotationVoteHandler = options.onRotationStep ?? null;
+    this.textEditorZIndex = options.textEditorZIndex;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -754,6 +764,7 @@ export class CircularCanvas {
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
+    if (this.textEditorZIndex !== undefined) el.style.zIndex = String(this.textEditorZIndex);
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
     // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく

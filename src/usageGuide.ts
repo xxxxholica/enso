@@ -5,11 +5,11 @@ import { TutorialSandbox } from "./tutorialSandbox";
  * 使い方ページ：円相の由来と基本操作を、序・練・結の3画面をページ送りで見せる
  * 全画面モーダル。1画面につき1ページで、スクロールでたどる必要はない
  * （ユーザー指示）——序で「つぎへ」を押すと練が始まり、練の中はさらに
- * みる・残す・消す・振り返るの4手順を「つぎへ」ボタンとジェスチャーの成功で
- * 順に進み、最後の「つぎへ」で結に移る。序と結は読み物のまま、中間の「練」
- * だけは本物のCircularCanvasを再利用した練習用サンドボックス
- * （tutorialSandbox.ts）——掴んで回す・振り返りスライダーの2つの時間操作を、
- * 実際に手を動かして体験できる。
+ * 書く・みる・残す・消す・振り返るの5手順を、実際の操作（書き終える・
+ * ジェスチャーの成功）で順に進み、最後の「つぎへ」で結に移る。序と結は
+ * 読み物のまま、中間の「練」だけは本物のCircularCanvasを再利用した練習用
+ * サンドボックス（tutorialSandbox.ts）——書く・掴んで回す・振り返り
+ * スライダーという、このアプリ特有の操作を実際に手を動かして体験できる。
  *
  * 以前は本物のキャンバス・本物のstoreをそのまま流用してチュートリアルにしていたが、
  * ①本物のCircularCanvasは外からrequestAnimationFrameでrender()を呼び続けないと
@@ -18,15 +18,19 @@ import { TutorialSandbox } from "./tutorialSandbox";
  * 繰り返し起き、実装・保守のコストがリターンに見合わなくなったため一度撤廃した
  * （読み物だけの静的ページに置き換えた経緯）。今回の「練」は、この2つの不具合を
  * 構造的に防げる形で作り直したもの——CircularCanvasクラス自体は再利用しつつ、
- * 専用の使い捨てMemoStore・自前のrequestAnimationFrameループを持たせ（①の対策）、
- * このページ自身がcapture段で全キー入力をstopPropagationして本物のonGlobalKeyDown
- * （ブラインドタイピング）に一切渡さない（②の対策。詳しくはtutorialSandbox.tsの
- * クラスコメント参照）。
+ * 専用の使い捨てMemoStore・自前のrequestAnimationFrameループを持たせ（①の対策）。
+ * ②の対策として、このページ自身がcapture段で全キー入力をstopPropagationして
+ * 本物のonGlobalKeyDown（ブラインドタイピング）に渡さないが、「書く」手順で
+ * 使うサンドボックス自身のテキスト編集（.text-editor-overlay）にフォーカスが
+ * ある間だけは例外的に素通しする——それでも本物へ漏れないのは、本物の
+ * onGlobalKeyDown自体が「document.activeElementが他の入力欄の間は横取りしない」
+ * という既存のガードを持つため。詳しくはonKeyDown・tutorialSandbox.tsの
+ * クラスコメント参照。
  *
  * 全画面モーダルの骨格・フォーカスの作法はtemplatePicker.tsに揃える。
- * Escapeキーを含む全キー入力をcapture段でstopPropagationするのも
- * templatePicker.tsと同じ理由——このページ自身（練のサンドボックスを含む）は
- * テキスト入力を一切持たないため安全に全キーを止められる。
+ * Escapeキーを含む全キー入力を（上記の「書く」手順の例外を除いて）capture段で
+ * stopPropagationするのもtemplatePicker.tsと同じ理由——このページ自身は
+ * 「書く」手順以外のテキスト入力を一切持たないため、安全に止められる。
  */
 
 interface Stage {
@@ -232,6 +236,17 @@ class UsageGuide {
   }
 
   private onKeyDown = (ev: KeyboardEvent): void => {
+    // 「練」の「書く」手順だけは、本物のテキスト入力（tutorialSandbox.tsが
+    // canvasView.tsのopenTextEditorを使って開く.text-editor-overlay）を
+    // 使う。ここで素通しせずstopPropagationしてしまうと、日本語IME変換は
+    // おろか通常のタイピング・Enter確定・Escape取り消しまで一切効かなく
+    // なってしまう——本物のonGlobalKeyDown（ブラインドタイピング）へ漏れる
+    // 心配が無いのは、そちら側にdocument.activeElementがテキストエリアの
+    // 間は横取りしないという既存のガードが既にあるため（他の入力欄に
+    // フォーカスがある間は横取りしないためのもの、canvasView.ts参照）。
+    if (ev.target instanceof HTMLElement && ev.target.classList.contains("text-editor-overlay")) {
+      return;
+    }
     ev.stopPropagation();
     if (ev.key === "Escape") this.close();
   };
