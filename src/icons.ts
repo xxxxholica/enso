@@ -10,6 +10,9 @@ export const ICONS: Record<
   | "pen"
   | "marker"
   | "eraser"
+  | "eraserSizeSmall"
+  | "eraserSizeMedium"
+  | "eraserSizeLarge"
   | "text"
   | "move"
   | "trace"
@@ -44,6 +47,21 @@ export const ICONS: Record<
       <path d="M9.5 19h9" />
       <path d="M6.2 15.3l7-7 4.5 4.5-5.3 5.2H9z" />
       <path d="M13.2 8.3l-4-4a1.5 1.5 0 0 0-2.1 0l-3 3a1.5 1.5 0 0 0 0 2.1l4 4" />
+    </svg>`,
+  // 消しゴムの大きさ（小/中/大）を選ぶボタン用。他のアイコンと違い、実際の大きさの
+  // 違いをそのまま見せたいので線画ではなく塗りの丸にしている（GoodNotesの消しゴム
+  // サイズ選択と同じ考え方——ユーザー指示）。
+  eraserSizeSmall: `
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="12" r="3" />
+    </svg>`,
+  eraserSizeMedium: `
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="12" r="5.5" />
+    </svg>`,
+  eraserSizeLarge: `
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="12" r="8.5" />
     </svg>`,
   text: `
     <svg viewBox="0 0 24 24" ${common}>
