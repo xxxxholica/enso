@@ -203,6 +203,17 @@ export class CircularCanvas {
   private container: HTMLElement;
   private store: MemoStore;
   private textEditor: HTMLTextAreaElement | null = null;
+  /** 開いているtext-editor-overlayを、フレームの状態（centerPx/scale/viewPan）が
+   *  変わるたびに正しい画面位置へ再配置するための関数（openTextEditorが設定・
+   *  閉じるときにnullへ戻す）。モバイルでキーボードが開くとcontainerの実サイズが
+   *  変わりResizeObserverが発火するが、オーバーレイの位置はopenTextEditor実行時
+   *  一度きりの計算のままだったため、タップした位置から離れた所に表示される
+   *  不具合があった（ユーザー指摘）。ResizeObserverのコールバックからこれを
+   *  呼び直すことで、フレームが動いてもオーバーレイを追従させる。 */
+  private repositionTextEditor: (() => void) | null = null;
+  /** openTextEditorがhtml/bodyのoverflowを固定している間、元の値に戻すための関数
+   *  （閉じるときにnullへ戻す）。理由はopenTextEditor内のコメント参照。 */
+  private restoreBodyScroll: (() => void) | null = null;
   /** 空のキャンバスに重ねる案内（「ドラッグで書き始める」＋「＋テンプレートを使用」）。
    *  ボタンとして押せる・読み上げられる必要があるため、canvasへの描画ではなく本物の
    *  DOMで持つ。interactive:falseのプレースホルダーでは作らない（nullのまま）。 */
@@ -272,6 +283,11 @@ export class CircularCanvas {
       this.viewZoom = 1;
       this.viewPan = { x: 0, y: 0 };
       this.syncEmptyStatePosition();
+      // モバイルでソフトキーボードが開閉するとcontainerの実サイズが変わり
+      // ここが発火する。text-editor-overlayを開いたままだと、位置がタップ時点の
+      // 古いフレームのまま取り残されてしまうため、開いていれば今のフレームに
+      // 合わせて再配置する（ユーザー指摘：タップ位置から離れた所に表示される）。
+      this.repositionTextEditor?.();
     });
     this.resizeObserver.observe(this.container);
 
@@ -296,6 +312,8 @@ export class CircularCanvas {
       window.addEventListener("pointermove", this.onGlobalPointerMove);
       window.addEventListener("pointerup", this.onGlobalPointerUp);
       window.addEventListener("pointercancel", this.onGlobalPointerUp);
+      window.visualViewport?.addEventListener("resize", this.onVisualViewportChange);
+      window.visualViewport?.addEventListener("scroll", this.onVisualViewportChange);
       // 空のキャンバスの案内は対話可能なキャンバスにだけ持たせる——ルーム未接続の
       // プレースホルダー（interactive:false）は無地の白い紙のままにする（ユーザー指示）。
       this.buildEmptyState(options.onRequestTemplatePicker);
@@ -660,36 +678,27 @@ export class CircularCanvas {
    * initialTextは、何も選択していない状態でキーボード入力を始めたときに、その最初の
    * 1文字を最初から入った状態で開くために使う（onGlobalKeyDown参照。editingMemoと
    * 同時には使わない）。
-   * fromBlindTypingは既定false。キーボードから始めた場合（onGlobalKeyDown）は
-   * trueを渡し、その場で同期的にfocusする——次のフレームまで待つと、その間に
-   * 発生した後続のキー入力（特に日本語IME変換中の2文字目以降）がこのtextarea
-   * ではなく元のフォーカス先（たいていdocument.body）に向かってしまい、変換
-   * 途中の文章が複数のマスに分裂して書き込まれてしまう不具合があった
-   * （ユーザー報告・実機で再現確認）。タップ開始（onPointerDown）の場合は
-   * ポインタ操作自体がフォーカスを動かし得るため、従来どおり次のフレームまで待つ。
+   * focus()は必ず、呼び出し元のポインタ・キー入力イベントと同じ同期的な呼び出し
+   * スタックの中で行う（後述のfocusEl、rAFやsetTimeout等を挟まない）。理由は2つ：
+   * ①モバイル（特にiOS Safari系）はユーザー操作のイベントハンドラ内で同期的に
+   * focus()しないとソフトウェアキーボードが開かない制約があり、1フレーム遅らせると
+   * タップ1回では入力を始められず、2回目のタップでtextarea自体に触れて初めて
+   * 開くようになってしまっていた（ユーザー報告・実機で再現確認）。②キーボードから
+   * 始めた場合（onGlobalKeyDown）は、フォーカスが遅れるとその間に発生した後続の
+   * キー入力（特に日本語IME変換中の2文字目以降）がこのtextareaではなく元の
+   * フォーカス先（たいていdocument.body）に向かってしまい、変換途中の文章が
+   * 複数のマスに分裂して書き込まれてしまう不具合があった（別途ユーザー報告・
+   * 実機で再現確認）。
    */
-  private openTextEditor(
-    anchor: Point,
-    editingMemo: TextMemo | null = null,
-    initialText?: string,
-    fromBlindTyping = false
-  ): void {
+  private openTextEditor(anchor: Point, editingMemo: TextMemo | null = null, initialText?: string): void {
     if (this.textEditor) return;
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
     const align = editingMemo?.align ?? "center";
     const lineHeight = editingMemo?.lineHeight ?? LINE_HEIGHT_MULTIPLIER;
-    const canvasRect = this.canvas.getBoundingClientRect();
-    const scale = this.effectiveScale();
-    const fontPx = fontPxForRender(fontSize, scale);
-    // 画面px⇄基準px（半径REFERENCE_RADIUS基準）の変換比率。可変幅ボックスの実際の
-    // 幅は基準pxで測る（measureTextBoxWidthPx）ため、textareaに反映する際はこれで
-    // 画面pxへ変換する。ピンチズーム中でも見た目の位置・大きさがキャンバス側の
-    // 描画とずれないよう、frame.scaleではなく実効スケール（ズーム込み）を使う。
-    const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * scale;
-    const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale;
-    const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale;
+    const scaleAtOpen = this.effectiveScale();
+    const fontPx = fontPxForRender(fontSize, scaleAtOpen);
 
     const el = document.createElement("textarea");
     el.className = "text-editor-overlay";
@@ -698,19 +707,84 @@ export class CircularCanvas {
     el.value = editingMemo?.text ?? initialText ?? "";
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
-    el.style.fontSize = `${fontPx}px`;
+    // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく
+    // するため」勝手にページ全体をズームインする——これがタップ直後に画面が
+    // アップになり、かつそのズームでvisualViewportが動いた拍子にオーバーレイの
+    // 位置計算まで狂う（タップ位置と無関係な場所に出る）原因になっていた
+    // （ユーザー報告・実機で再現確認）。モバイルでは実際のfontPx（基準文字サイズ
+    // ×実効スケール）が16pxを大きく下回るため常に発火していた。表示上の
+    // font-sizeだけ16px以上に底上げしてズームそのものを起こさせないようにする
+    // ——確定後にメモとして保存される文字サイズ・折り返し幅はcanvas側の計測
+    // （fontSize・measureTextBoxWidthPx、共にこのDOM要素のstyleとは独立）で
+    // 決まるため、ここでの底上げは編集中の見た目だけに影響し、確定後の見た目には
+    // 影響しない。
+    const displayFontPx = Math.max(fontPx, 16);
+    el.style.fontSize = `${displayFontPx}px`;
     el.style.lineHeight = `${lineHeight}`;
     el.style.textAlign = align;
+    // resizeToContent内の幅測定(measureTextBoxWidthPx)にfontSizeをそのまま渡すと、
+    // 上の底上げが効くケース（scaleAtOpenがREFERENCE_RADIUSより小さい典型的な
+    // モバイル画面）で、実際にdisplayFontPxで描画される文字より狭い幅で計算されて
+    // しまい、1行に収まるはずの文章が編集中だけtextarea内で折り返される／はみ出して
+    // 見える不具合になる（PRレビュー指摘）。measureTextBoxWidthPxは基準円スケールの
+    // 値を受け取りresizeToContent側で実際のscaleを掛けて画面px化する仕組みのため、
+    // displayFontPx（画面px）をその逆変換で基準円スケール相当に戻した値を使うことで、
+    // 編集中の幅計算と実際の描画フォントサイズを一致させる。
+    const widthMeasureFontSize = Math.max(fontSize, (displayFontPx * REFERENCE_RADIUS) / scaleAtOpen);
     document.body.appendChild(el);
     this.textEditor = el;
+
+    // モバイルでtextareaにフォーカスすると、ブラウザが「フォーカスした要素が画面内に
+    // 収まるように」ページ全体を自動でスクロールすることがある。このtextareaは
+    // position:fixedで自前で画面上の位置を計算しているため、ブラウザのその自動
+    // スクロールは不要などころか、resizeToContentがcanvas要素のgetBoundingClientRect()
+    // を毎回計算し直す実装のため、ページがスクロールした分だけ位置計算も引きずられて
+    // 動いてしまい、タップした位置と無関係な場所に表示される・スクロールにつれて
+    // 動いて見えるという不具合の原因になっていた（ユーザー報告・実機で再現確認）。
+    // 編集中はhtml/bodyのスクロールを封じてしまい、ブラウザにこの自動スクロールを
+    // そもそも起こさせないようにする（commit/キャンセル時に元の値へ戻す）。
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    this.restoreBodyScroll = () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      this.restoreBodyScroll = null;
+    };
 
     // 内容の実際の幅・高さに合わせてtextareaのサイズと位置を更新する（可変幅——
     // ユーザー指示：短い一言でも余白だらけの箱にならないよう、逆に長めの文でも
     // すぐ折り返さないよう、打った内容に応じて幅を変える）。アンカー点
-    // (screenX, screenY)を中心に据えたまま、幅・高さが変わるたびに
-    // left/topを再計算して中心がずれないようにする。
+    // (screenX, screenY)は毎回、その時点のcanvasRect/frame.centerPx/viewPan/
+    // scaleから計算し直す——1回だけ計算してクロージャに固定していると、
+    // モバイルでキーボードが開いてcontainerのサイズが変わりframeが動いた後も
+    // 古い位置のまま取り残されてしまう（ユーザー指摘：タップ位置から離れた所に
+    // 表示される）。呼び出し元（入力のたびとResizeObserver）の両方から同じ
+    // 関数を呼び直すことで、常に今のフレームに対して正しい位置に揃える。
+    //
+    // visualViewport.offsetLeft/offsetTopの補正について：モバイルでキーボードを
+    // 開く際、ブラウザは「フォーカスした要素をキーボードの上に収める」ため
+    // ビジュアルビューポート（実際に画面に見えている範囲）だけをページ内で
+    // 上下にパンすることがある（レイアウトビューポート自体は動かない）。
+    // getBoundingClientRect()はレイアウトビューポート基準の値を返すのに対し、
+    // position:fixedもレイアウトビューポート基準で配置されるので一見食い違いは
+    // 無さそうだが、実際にはこのパンの分だけ画面上の見た目とズレる
+    // （タップ位置が下の方＝パン量が大きいほど、入力欄が上へ大きく飛び出して
+    // 見える。ユーザー報告・実機で再現確認：下半分をタップすると画面外まで
+    // 飛ぶが上半分は少しのズレで済む＝パン量の違いと一致）。
+    // window.visualViewport.offsetLeft/offsetTopはこのパン量そのものなので、
+    // 加算して補正する（MDN/web.devで案内されている標準的な対処）。
     const resizeToContent = () => {
-      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, fontSize));
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const scale = this.effectiveScale();
+      const viewportOffsetX = window.visualViewport?.offsetLeft ?? 0;
+      const viewportOffsetY = window.visualViewport?.offsetTop ?? 0;
+      const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * scale;
+      const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
+      const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
+
+      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize));
       el.style.width = `${boxWidthPx}px`;
       el.style.left = `${screenX - boxWidthPx / 2}px`;
       el.style.height = "auto";
@@ -720,17 +794,12 @@ export class CircularCanvas {
     };
     resizeToContent();
     el.addEventListener("input", resizeToContent);
+    this.repositionTextEditor = resizeToContent;
 
-    const focusEl = () => {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length); // 編集時・初期文字入り時はカーソルを末尾に
-    };
-    if (fromBlindTyping) {
-      focusEl();
-    } else {
-      // フォーカスがずれるとblurが即座に発火し得るため、appendの次のフレームでfocusする
-      requestAnimationFrame(focusEl);
-    }
+    // 呼び出し元のイベントハンドラと同じ同期的な呼び出しスタックの中でfocusする
+    // （クラス冒頭のJSDoc参照）。
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length); // 編集時・初期文字入り時はカーソルを末尾に
 
     // 日本語IMEの変換候補確定は、キー入力としてはEnterだが、テキスト全体の確定
     // ではない——kev.isComposingで判定するのが基本だが、変換確定のEnterで
@@ -755,6 +824,8 @@ export class CircularCanvas {
     const commit = () => {
       if (this.textEditor !== el) return; // すでに片付け済みなら何もしない
       this.textEditor = null;
+      this.repositionTextEditor = null;
+      this.restoreBodyScroll?.();
       const value = el.value.trim();
       el.remove();
       if (cancelled) return; // Escapeでの取り消し：新規作成なら何もせず、編集なら元の内容のまま
@@ -969,6 +1040,16 @@ export class CircularCanvas {
    * 重なってもよい。ショートカット（Ctrl/Cmd/Alt併用）や、他の入力欄
    * （色ピッカー・招待リンクの入力欄など）にフォーカスがある間は横取りしない。
    */
+  /** iOS Safariはソフトキーボードが開いてもcontainerのCSS上のサイズ自体は
+   *  変えず、代わりに実際に見えている範囲（visual viewport）だけを縮める
+   *  ——このケースはResizeObserver（containerのサイズ監視）では捉えられない
+   *  ため、window.visualViewportのresize/scrollも別途見て、開いている
+   *  text-editor-overlayを再配置する（ユーザー指摘：タップ位置から離れた所に
+   *  表示される）。 */
+  private onVisualViewportChange = (): void => {
+    this.repositionTextEditor?.();
+  };
+
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
     if (this.rewindAt !== null || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -979,8 +1060,7 @@ export class CircularCanvas {
     }
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     ev.preventDefault();
-    // fromBlindTyping=true: 同期的にfocusする（詳しくはopenTextEditorのコメント参照）。
-    this.openTextEditor({ x: 0, y: 0 }, null, ev.key, true);
+    this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
   };
 
   /**
@@ -1160,8 +1240,11 @@ export class CircularCanvas {
       window.removeEventListener("pointermove", this.onGlobalPointerMove);
       window.removeEventListener("pointerup", this.onGlobalPointerUp);
       window.removeEventListener("pointercancel", this.onGlobalPointerUp);
+      window.visualViewport?.removeEventListener("resize", this.onVisualViewportChange);
+      window.visualViewport?.removeEventListener("scroll", this.onVisualViewportChange);
     }
     this.textEditor?.remove();
+    this.restoreBodyScroll?.();
     this.emptyStateEl?.remove();
     this.container.classList.remove("canvas-host");
     this.canvas.remove();

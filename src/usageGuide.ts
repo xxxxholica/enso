@@ -112,16 +112,13 @@ class UsageGuide {
   }
 
   private buildContent(): void {
-    const closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = "usage-guide-close";
-    closeBtn.setAttribute("aria-label", "閉じる");
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", () => this.close());
-    this.sheet.appendChild(closeBtn);
-
+    // ✕ボタンをheadの中に入れ、head自体をスクロール中も上部に固定する
+    // （template-picker.tsのbuildHeadと同じ構成——ユーザー指摘：下へスクロール
+    // した後、閉じるのに上まで戻らないといけないのはUI/UX上良くない）。
     const head = document.createElement("header");
     head.className = "usage-guide-head";
+
+    const heading = document.createElement("div");
     const title = document.createElement("h2");
     title.id = "usage-guide-title";
     title.className = "usage-guide-title";
@@ -130,7 +127,16 @@ class UsageGuide {
     lede.className = "usage-guide-lede";
     lede.textContent =
       "書いたものが、ゆっくり消えていく円のキャンバスです。消えることは不具合ではなく、このアプリの考え方そのものです。";
-    head.append(title, lede);
+    heading.append(title, lede);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "usage-guide-close";
+    closeBtn.setAttribute("aria-label", "閉じる");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", () => this.close());
+
+    head.append(heading, closeBtn);
     this.sheet.appendChild(head);
 
     const storyboard = document.createElement("div");
