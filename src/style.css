@@ -81,6 +81,27 @@
   display: none !important;
 }
 
+/* アプリ全体（タイトル・ボタン・道具バー等）で、長押し・ドラッグ操作中に
+   OS標準の文字選択ハイライトやiOSのコールアウトメニュー（コピー等）が
+   誤って反応することがあったため、全要素で無効化する（ユーザー指摘）。
+   input/textarea（ルーム名入力・メモのテキスト編集など、実際に文字を
+   選択・編集する場面）だけは元の挙動に戻す——ブラウザの仕様上、
+   user-selectはフォームコントロールの編集中テキストには本来効かないが、
+   -webkit-touch-callout（iOSの長押しメニュー）は明示的に戻さないと
+   ペースト等ができなくなるため、両方を書き戻す。 */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 html,
 body {
   height: 100%;
@@ -90,8 +111,15 @@ body {
      window全体のポインタを監視して独自にピンチズームを実装しているため
      （ユーザー指示：「画面のどこでもズームを実行可能にしたい」）。
      pan-x/pan-yは残すことで、一覧のスクロール（.shared-room-list等）や
-     ページ全体のスクロールは従来通り効く。 */
+     ページ内の各スクロール領域は従来通り効く。 */
   touch-action: pan-x pan-y;
+  /* ページ自体（html/body）はスクロール・バウンスさせない——中身が
+     100dvhにきっちり収まる設計なので、ページ全体がスクロール可能になる
+     必要は無い（ユーザー指摘：キャンバスのある画面でスクロールが発生
+     しないようにしたい）。一覧・使い方シート等、個別にスクロールが必要な
+     領域はそれぞれ自分の要素にoverflow-y:auto＋高さの上限を持っているため、
+     ここでhtml/body自体を止めても影響しない。 */
+  overflow: hidden;
 }
 
 /* 初回起動時、キャンバス（円）が真っ平らな単色の上に浮いて見えないよう、
@@ -140,6 +168,10 @@ body {
   right: 0;
   z-index: 10;
   width: 100%;
+  /* html/bodyのtouch-actionだけでは、position:fixedのこの帯の上で
+     iOS Safari純正のピンチズームが発動してしまう不具合があったため
+     （ユーザー報告）、同じ値をここにも明示的に持たせる。 */
+  touch-action: pan-x pan-y;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -404,6 +436,9 @@ body {
   right: 0;
   z-index: 10;
   width: 100%;
+  /* .app-headerと同じ理由（ユーザー報告：ツールバー上でiOS純正のピンチズームが
+     発動してしまう）。 */
+  touch-action: pan-x pan-y;
   display: flex;
   justify-content: center;
   padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
@@ -1963,7 +1998,15 @@ body {
    している（ユーザー指示：ウィンドウのサイズを変えないでほしい）。以前は
    「みる」手順（スライダーが出る前）だけを基準に600pxにしていたため、
    その後スライダーが追加表示される瞬間に床面を超えてわずかに伸びていた
-   （ユーザー報告）。 */
+   （ユーザー報告）。
+   固定の700pxのままだと、画面の低い端末では.usage-guide-sheet（max-height:
+   calc(100dvh - 48px)）に収まりきらず、シート内でスクロールが発生してしまう
+   （ユーザー指摘：使い方タブでもスクロールが起きないようサイズ調整したい／
+   固定pxは比率に直したい）。min()でdvh基準の上限を足し、画面が低い時は
+   700pxより縮めて必ず収まるようにする——200pxは.usage-guide-sheetの上下
+   padding(72px)・.usage-guide-headの高さ・.usage-guide-pagesのmargin-top
+   (24px)・.usage-guideの上下padding(48px)を合わせた、ページ本体以外に
+   必要な縦幅の見積もり。 */
 .usage-guide-page {
   display: flex;
   flex-direction: column;
@@ -1971,7 +2014,7 @@ body {
   justify-content: center;
   gap: var(--space-5);
   text-align: center;
-  min-height: 700px;
+  min-height: min(700px, calc(100dvh - 200px));
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
 }
@@ -2056,7 +2099,7 @@ body {
     height: 108px;
   }
   .usage-guide-page {
-    min-height: 680px;
+    min-height: min(680px, calc(100dvh - 200px));
   }
 }
 
