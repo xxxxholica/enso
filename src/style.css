@@ -111,17 +111,16 @@ body {
 }
 
 /* --- ヘッダー・フッターがposition:fixedの半透明オーバーレイになったため、
-   上下のpaddingはここでは持たない（キャンバス（.app-main）を画面の真の上端
-   〜下端まで広げ、その下までズーム・パンした絵が見えるようにするため——
-   ユーザー指示）。左右の余白（16px）だけ、キャンバス側の見た目の幅を保つために
-   引き続きここで持つ。上下の余白・セーフエリアは.app-header/.app-footer自身の
-   paddingに移した。 --- */
+   上下左右のpaddingはここでは持たない（キャンバス（.app-main）を画面の
+   真の上端〜下端・左端〜右端まで広げ、ズーム・パンした絵がヘッダー/フッターは
+   もちろん左右の端まで見えるようにするため——ユーザー指示）。左右の余白・
+   セーフエリアも.app-header/.app-footer自身のpaddingに移した。 --- */
 #app {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0 16px;
+  padding: 0;
   gap: 14px;
 }
 
@@ -619,13 +618,14 @@ body {
   }
 
   /* ヘッダー・フッターはposition:fixedの固定オーバーレイで、自前でpadding・
-     セーフエリアを持つため、#appは左右の余白だけモバイル幅用に詰める
-     （以前は上下paddingもここで詰めていたが、その役割は.app-header/
-     .app-footer自身に移った）。折り返した分だけ下部バーの縦幅が増えるため、
-     .app-footer側の余白も詰めて、その分をキャンバス（.app-main、flex:1で
-     残り高さを取る）に回す（ユーザー報告：キャンバスがデフォルトで小さい）。 */
+     セーフエリアを持つため、#appはpaddingを持たない（以前は上下左右の
+     paddingもここで詰めていたが、その役割は.app-header/.app-footer自身に
+     移った——ユーザー指示：左右の余白も詰めたい）。折り返した分だけ下部バーの
+     縦幅が増えるため、.app-footer側の余白も詰めて、その分をキャンバス
+     （.app-main、flex:1で残り高さを取る）に回す（ユーザー報告：キャンバスが
+     デフォルトで小さい）。 */
   #app {
-    padding: 0 clamp(8px, 2.5vw, 10px);
+    padding: 0;
     gap: clamp(6px, 2vw, 8px);
   }
 
