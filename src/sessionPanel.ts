@@ -26,7 +26,10 @@ function formatMinutesSeconds(ms: number): string {
 
 /** フェーズの長さ・参加人数上限のスライダー範囲。 */
 const MINUTES_RANGE = { min: 1, max: 30, step: 1, default: 5 } as const;
-const MAX_PARTICIPANTS_RANGE = { min: 1, max: 20, step: 1, default: 8 } as const;
+// 上限は8——フェーズ①の色プール(smuiView.ts PARTICIPANT_COLORS)が色覚検証済みの
+// 固定8色までしか用意していないため（検証の結果、色相だけを増やして人数分の
+// 色を用意する方式は見分けが困難なペアが出ることが分かった）。
+const MAX_PARTICIPANTS_RANGE = { min: 1, max: 8, step: 1, default: 8 } as const;
 
 export interface SessionPanelCallbacks {
   onStart: (options: StartSessionOptions) => void;

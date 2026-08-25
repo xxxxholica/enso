@@ -21,12 +21,27 @@ import type { TemplateId } from "./templates";
 import { DEFAULT_INK, type Toolbar } from "./toolbar";
 import { getCurrentUser } from "./authState";
 
-/** フェーズ①(ideation)の色プール。参加者ごとに割り当てられたcolor_indexから、
- *  黄金角で均等に色相を割り振って生成する——上限人数(maxParticipants)が
- *  何人でも、固定の配列を使い切る心配がなく均等に見分けやすい色になる。 */
+/**
+ * フェーズ①(ideation)の色プール。参加者ごとに割り当てられたcolor_indexに
+ * 対応する固定8色（dataviz色覚検証済みカテゴリカルパレット、色相だけを
+ * 均等割りする方式から変更——validate_palette.jsで全ペアの色覚シミュレーション
+ * を検定したところ、色相だけを回す方式は8色時点で既に見分けが困難なペアが
+ * 出ることが判明したため、実際に検証済みの固定パレットに差し替えた）。
+ * 参加人数の上限もこの8色に合わせて8人までに制限している(sessionPanel.ts)。
+ */
+const PARTICIPANT_COLORS = [
+  "#2a78d6", // 青
+  "#eb6834", // 橙
+  "#1baf7a", // 水
+  "#eda100", // 黄
+  "#e87ba4", // 赤紫
+  "#008300", // 緑
+  "#4a3aa7", // 紫
+  "#e34948", // 赤
+];
+
 function colorForIndex(index: number): string {
-  const hue = (index * 137.508) % 360;
-  return `oklch(58% 0.15 ${hue.toFixed(1)})`;
+  return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length];
 }
 
 /** 眼鏡フレームの縁取りの色・太さ。通常キャンバスの薄い1px線より太いウェリントン
