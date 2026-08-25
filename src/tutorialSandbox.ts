@@ -4,6 +4,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { FIXED_LIFESPAN_DAYS } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
+import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_WIDTH_RANGE } from "./toolStyle";
 import type { Memo, Point } from "./types";
 
@@ -157,12 +158,25 @@ export class TutorialSandbox {
   private seed(): void {
     if (!this.store) return;
     const now0 = this.virtualBaseMs;
+    // テキスト測定専用の使い捨てcanvas（DOMには挿入しない）。手描きストローク
+    // だと、掴んで動かした先が円の縁にかかった時に点ごとクランプされて線が
+    // 潰れて見えてしまう（ユーザー指摘）ため、位置だけがまとめてクランプされる
+    // テキストメモに変えた。
+    const measureCtx = document.createElement("canvas").getContext("2d")!;
     // 放っておくと消えていく様子を最初から見せるための、既に薄れかけた1枚
     // （じきに完全に消える）。手を出さなくても物語が進むよう、どの手順にも
     // 紐付けない添え物として置く。
-    seedThought(this.store, { x: -0.15, y: 0.5 }, 11 * HOUR, now0);
-    this.keepMemo = trackedMemoOf(seedThought(this.store, { x: -0.45, y: -0.2 }, 5 * HOUR, now0));
-    this.releaseMemo = trackedMemoOf(seedThought(this.store, { x: 0.4, y: -0.25 }, 0.5 * HOUR, now0));
+    seedTextThought(measureCtx, this.store, { x: 0, y: 0.45 }, "夢の続き", 11 * HOUR, now0);
+    // 掴んで振り回すと、その分だけメモ自体もポインタに追従して動く
+    // （canvasView.tsのupdateRotationGesture参照）。縁ぎりぎりに置くと、
+    // 少し振り回しただけで縁の外にはみ出して欠けて見えてしまうため、
+    // 中心寄りに置いて振り回す余地を持たせる。
+    this.keepMemo = trackedMemoOf(
+      seedTextThought(measureCtx, this.store, { x: -0.32, y: -0.22 }, "行きたい場所", 5 * HOUR, now0)
+    );
+    this.releaseMemo = trackedMemoOf(
+      seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 0.5 * HOUR, now0)
+    );
   }
 
   private currentVirtualNow(): number {
@@ -223,24 +237,31 @@ export class TutorialSandbox {
   }
 }
 
-/** 手描きの「思いつき」を模した短い線を1本だけ持つメモを、指定した仮想時刻に
- *  作られたことにして仕込む。backdateMsぶん過去に作ったことにすることで、
- *  開いた瞬間から薄れかけの盤面を見せられる。 */
-function seedThought(store: MemoStore, center: Point, backdateMs: number, now0: number): Memo {
-  const start: Point = { x: center.x - 0.06, y: center.y - 0.01 };
-  const memo = store.createMemo(
-    start,
-    { tool: "pen", color: INK, lifespanDays: FIXED_LIFESPAN_DAYS, lineWidth: PEN_WIDTH_RANGE.default },
+/** 短い「思いつき」のテキストメモを、指定した仮想時刻に作られたことにして
+ *  仕込む。backdateMsぶん過去に作ったことにすることで、開いた瞬間から
+ *  薄れかけの盤面を見せられる。 */
+function seedTextThought(
+  measureCtx: CanvasRenderingContext2D,
+  store: MemoStore,
+  center: Point,
+  text: string,
+  backdateMs: number,
+  now0: number
+): Memo {
+  const fontSize = FONT_SIZE_STEPS.medium;
+  const boxWidthPx = measureTextBoxWidthPx(measureCtx, text, fontSize);
+  const textLines = wrapTextAtReferenceScale(measureCtx, text, fontSize, boxWidthPx);
+  const { width, height } = normalizedBoxSize(fontSize, textLines.length, boxWidthPx);
+  return store.createTextMemo(
+    center,
+    text,
+    textLines,
+    fontSize,
+    width,
+    height,
+    { color: INK, lifespanDays: FIXED_LIFESPAN_DAYS },
     now0 - backdateMs
   );
-  const points: Point[] = [
-    { x: center.x - 0.03, y: center.y + 0.015 },
-    { x: center.x, y: center.y - 0.015 },
-    { x: center.x + 0.03, y: center.y + 0.012 },
-    { x: center.x + 0.06, y: center.y - 0.01 },
-  ];
-  for (const p of points) store.addPointToLastStroke(memo.id, p);
-  return memo;
 }
 
 function trackedMemoOf(memo: Memo): TrackedMemo {
