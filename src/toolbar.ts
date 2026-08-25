@@ -124,6 +124,7 @@ export class Toolbar {
   private presetButtons: HTMLButtonElement[] = [];
   private customSwatchBtn!: HTMLButtonElement;
   private colorInput!: HTMLInputElement;
+  private swatchRow!: HTMLElement;
   /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
@@ -328,6 +329,7 @@ export class Toolbar {
   private buildSwatch(details: HTMLElement): void {
     const row = document.createElement("div");
     row.className = "toolbar-swatches";
+    this.swatchRow = row;
 
     for (let i = 0; i < 3; i++) {
       const btn = document.createElement("button");
@@ -374,8 +376,12 @@ export class Toolbar {
   /** 今の道具の固定3色（activePresetInks）をスワッチの背景・ラベルに反映し、
    *  今の色（getColor）と一致するスワッチだけにリングを付けて選択中を示す
    *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー
-   *  入力の表記ゆれを考慮する必要がない）。 */
+   *  入力の表記ゆれを考慮する必要がない）。
+   *  色を使わない道具（選択・消しゴム）を選んでいる間は、太さスライダー
+   *  （syncThicknessSlider）と同じ考え方でパレット全体を無効化する——押しても
+   *  意味を持たないボタンが常に押せる状態のままなのは分かりにくい（issue #68）。 */
   private syncSwatch(): void {
+    const enabled = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
     const presets = this.activePresetInks();
     const color = this.getColor();
     let isPresetActive = false;
@@ -383,14 +389,18 @@ export class Toolbar {
       const btn = this.presetButtons[i];
       btn.style.background = preset.color;
       btn.setAttribute("aria-label", `インクの色: ${preset.label}`);
+      btn.disabled = !enabled;
       const active = preset.color === color;
       btn.dataset.active = String(active);
       if (active) isPresetActive = true;
     });
     this.customSwatchBtn.dataset.active = String(!isPresetActive);
+    this.customSwatchBtn.disabled = !enabled;
+    this.colorInput.disabled = !enabled;
     if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
     }
+    this.swatchRow.classList.toggle("toolbar-swatches-disabled", !enabled);
   }
 
   private syncAll(): void {
