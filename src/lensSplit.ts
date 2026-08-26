@@ -4,12 +4,16 @@ import type { FrameShapeId } from "./frameShape";
 import type { Point } from "./types";
 
 /**
- * フェーズ①(ideation)の共有キャンバスを、メガネ3組(6レンズ)に見た目上分割する
- * レイアウト計算。データモデル(Memo/MemoStore)は一切変更せず、既存の単一の
- * 共有キャンバス・座標系の上に3組ぶんのレンズ形状を平行移動して描くだけ
+ * フェーズ①(ideation)の共有キャンバスを、メガネ最大2組(4レンズ)に見た目上
+ * 分割するレイアウト計算。データモデル(Memo/MemoStore)は一切変更せず、既存の
+ * 単一の共有キャンバス・座標系の上に組ぶんのレンズ形状を平行移動して描くだけ
  * ——詳細はissue #79参照。
- */
-export const LENS_COUNT = 6;
+ *
+ * 元々は3組(6レンズ)まで対応していたが、実機確認の結果3組は組が小さくなり
+ * すぎて表示が安定しない(レイアウト崩れが目立つ)と判断し、上限を2組(4人)に
+ * 引き下げた（issue #79、ユーザー指示）。sessionPanel.tsのMAX_PARTICIPANTS_RANGEも
+ * 合わせて4に変更している。 */
+export const LENS_COUNT = 4;
 
 /** 隣り合う組の間の見た目上の隙間（正規化単位、GLASSES_CENTER_OFFSET等と同じ基準）。
  *  以前は0.3(組の横幅の1割未満)で、組同士がほぼ隙間なくくっついて見えていた
