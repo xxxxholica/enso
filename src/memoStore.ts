@@ -8,6 +8,12 @@ function makeId(): string {
   return `memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** undo履歴に積むスナップショットの上限。無制限に積み続けるとメモリを圧迫する
+ *  ため、一定数を超えたら一番古いものから捨てる（issue #89：「入力ミスをした
+ *  直後の数秒間」を取り消せれば十分、という要求なのでlocalStorageへの永続化は
+ *  せず、ページを再読み込みすれば履歴は消える簡易版でよい）。 */
+const MAX_UNDO_HISTORY = 50;
+
 /**
  * メモ全体の状態を保持し、既定ではlocalStorageと同期させるストア。
  * 保存・復元・経時フェードの判定・なぞり復活・全体リセットをまとめて担う。
@@ -16,6 +22,16 @@ export class MemoStore {
   private memos: Memo[];
   private onChange?: (memos: readonly Memo[]) => void;
   private persistLocally: boolean;
+  /** undo/redo用の完全スナップショット履歴（issue #89）。個々の操作の逆処理を
+   *  操作ごとに書く（コマンドパターン）のではなく、操作の直前の全メモ配列を
+   *  丸ごと複製して積む方式にした——描画・消去・移動・テキスト編集など操作の
+   *  種類が多く、それぞれに逆操作を実装するとバグの温床になりやすい一方、
+   *  メモ配列はそのままlocalStorageに保存できる程度に軽い（JSON化可能な）
+   *  データなので、丸ごと複製するコストは許容できる。ページを再読み込みすれば
+   *  消える前提（localStorageには保存しない）のため、量が増えすぎないよう
+   *  MAX_UNDO_HISTORY件で古いものから捨てる。 */
+  private undoStack: Memo[][] = [];
+  private redoStack: Memo[][] = [];
 
   /**
    * onChangeは、アカウント同期（cloudSync.ts）がローカルの変更をクラウドに
@@ -36,12 +52,51 @@ export class MemoStore {
   }
 
   /**
+   * これから始まる一連の操作（1回のドラッグでの描画・消去・移動・振り回し、
+   * または1回のテキスト編集セッション全体）の直前の状態を、undo履歴に積む。
+   * 呼び出し側（canvasView.ts）が、ジェスチャー中で最初にストアを書き換える
+   * 直前に1回だけ呼ぶ責任を持つ——ポインタが動くたびに何度も呼ぶと、1回の
+   * ドラッグが何十もの細かいundoステップに分かれてしまい「直前の操作を戻す」
+   * という直感に合わなくなるため。新しい操作が始まった時点でredo履歴は
+   * 無効になる（一般的なundo/redoの挙動）。
+   */
+  snapshotForUndo(): void {
+    this.undoStack.push(structuredClone(this.memos));
+    if (this.undoStack.length > MAX_UNDO_HISTORY) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  /** 直前の操作を取り消す。取り消せる操作が無ければ何もしない。 */
+  undo(): boolean {
+    const prev = this.undoStack.pop();
+    if (!prev) return false;
+    this.redoStack.push(structuredClone(this.memos));
+    this.memos = prev;
+    this.persist();
+    return true;
+  }
+
+  /** undoで取り消した操作をやり直す。やり直せる操作が無ければ何もしない。 */
+  redo(): boolean {
+    const next = this.redoStack.pop();
+    if (!next) return false;
+    this.undoStack.push(structuredClone(this.memos));
+    this.memos = next;
+    this.persist();
+    return true;
+  }
+
+  /**
    * クラウド（またはルームのサーバー側の内容）で丸ごと置き換える（アカウントログイン時や
    * 共有キャンバスのポーリング同期用）。ローカルの変更点だけを賢く合成するような処理はせず、
    * 常にサーバー側を正として上書きする——複数端末/複数人での本格的な競合解決は今回のスコープ外。
+   * 置き換え前のundo/redo履歴は、置き換え後の内容とは無関係な状態を指すことになるため破棄する
+   * ——履歴を残したままだと、undoで別の同期タイミングの内容に飛んでしまい混乱する。
    */
   replaceAll(memos: Memo[]): void {
     this.memos = memos;
+    this.undoStack = [];
+    this.redoStack = [];
     if (this.persistLocally) saveMemos(this.memos);
     // 取り込んだ直後にそのまま押し戻す(onChange経由の再送信)必要はないため、
     // ここではpersist()を経由せずonChangeを呼ばない。
@@ -337,6 +392,8 @@ export class MemoStore {
 
   resetAll(): void {
     this.memos = [];
+    this.undoStack = [];
+    this.redoStack = [];
     this.persist();
   }
 

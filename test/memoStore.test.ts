@@ -496,4 +496,109 @@ describe("MemoStore", () => {
       expect(store.getActive()).toHaveLength(1);
     });
   });
+
+  describe("undo/redo（issue #89: PC版のCtrl+Z/Ctrl+Shift+Z）", () => {
+    it("履歴が無ければundo/redoは何もせずfalseを返す", () => {
+      const store = new MemoStore();
+      expect(store.undo()).toBe(false);
+      expect(store.redo()).toBe(false);
+    });
+
+    it("snapshotForUndoの直後の変更をundoで取り消せる", () => {
+      const store = new MemoStore();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(1);
+
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].x).toBe(0);
+    });
+
+    it("undoで戻した内容はredoでやり直せる", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+
+      store.undo();
+      expect(store.getAll()).toHaveLength(0);
+
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].id).toBe(memo.id);
+    });
+
+    it("undoした後に新しい操作（snapshotForUndo）をすると、redo履歴は無効になる", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.undo();
+      expect(store.getAll()).toHaveLength(0);
+
+      store.snapshotForUndo();
+      store.createMemo({ x: 5, y: 5 }, STANDARD, 0);
+      expect(store.redo()).toBe(false); // 新しい操作の後は、取り消したはずの内容には戻れない
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].x).toBe(5);
+    });
+
+    it("複数回のundo/redoを往復できる（スナップショットは複製で、参照を共有しない）", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      const memoA = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(0);
+      expect(store.undo()).toBe(false); // これ以上は戻れない
+
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].id).toBe(memoA.id);
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(2);
+    });
+
+    it("resetAllはundo/redoの履歴も破棄する", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.resetAll();
+      expect(store.undo()).toBe(false);
+    });
+
+    it("replaceAllはundo/redoの履歴も破棄する（サーバー側の内容で丸ごと置き換わるため）", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.replaceAll([]);
+      expect(store.undo()).toBe(false);
+      expect(store.getAll()).toHaveLength(0);
+    });
+
+    it("消しゴム・移動など他の操作もundoで元に戻せる", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.addPointToLastStroke(memo.id, { x: 0.1, y: 0 });
+
+      store.snapshotForUndo();
+      store.translateMemo(memo.id, 0.2, 0.2);
+      expect(store.getActive()[0].x).toBeCloseTo(0.2);
+      store.undo();
+      expect(store.getActive()[0].x).toBeCloseTo(0);
+
+      store.snapshotForUndo();
+      store.eraseAt({ x: 0, y: 0 }, 100);
+      expect(store.getActive()).toHaveLength(0);
+      store.undo();
+      expect(store.getActive()).toHaveLength(1);
+    });
+  });
 });
