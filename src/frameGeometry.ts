@@ -17,7 +17,7 @@ import {
   GLASSES_VERTICAL_REACH,
 } from "./frameShape";
 import type { FrameShape, FrameShapeId } from "./frameShape";
-import { getFramePattern } from "./framePattern";
+import { FRAME_PATTERN_ORDER, getFramePattern } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { chooseLensSplitDirection, computeLensPairCenters } from "./lensSplit";
 import type { Point } from "./types";
@@ -74,14 +74,20 @@ export class FrameGeometry {
    *  frameStrokeWidth（px）をその時のscaleで正規化単位に変換した値。
    *  rebuildFramePaths()で組み立て直す。 */
   private glassesBridgeHalfHeight = 0;
-  /** レンズ分割表示(共同アイデア出しフェーズ①、issue #79)が有効かどうか。
-   *  trueの間、resize()はGLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH
-   *  基準の単一ペアではなく、lensSplitPairCentersValueの3組ぶんを内包するサイズで
-   *  計算する。framePath/strokePathは変更しない（1組ぶんのローカル原点基準の
-   *  Path2Dのまま）——複数組化はcanvasView.ts側の描画ループで平行移動して使い回す。 */
-  private lensSplitEnabledValue = false;
-  /** レンズ分割時の3組の中心座標（正規化単位）。無効時はnull。 */
+  /** レンズ分割表示(共同アイデア出しフェーズ①、issue #79)が有効な間の組数。
+   *  無効時はnull。有効な間、resize()はGLASSES_HORIZONTAL_REACH_WITH_HINGE/
+   *  GLASSES_VERTICAL_REACH基準の単一ペアではなく、lensSplitPairCentersValueの
+   *  この数ぶんを内包するサイズで計算する。framePath/strokePathは変更しない
+   *  （1組ぶんのローカル原点基準のPath2Dのまま）——複数組化はcanvasView.ts側の
+   *  描画ループで平行移動して使い回す。 */
+  private lensSplitPairCountValue: number | null = null;
+  /** レンズ分割時の各組の中心座標（正規化単位）。無効時はnull。 */
   private lensSplitPairCentersValue: Point[] | null = null;
+  /** レンズ分割時、組ごとに柄を変えるための組別スタイル一覧(index=pairIndex)。
+   *  全部同じ柄が並ぶと見分けが付きにくく単調に見える(issue #79、ユーザー指摘)
+   *  ため、設定された柄を起点にFRAME_PATTERN_ORDERを順送りする。無効時は空配列
+   *  ——frameStyleForPair()がframeStyleValueにフォールバックする。 */
+  private pairFrameStyles: (CanvasPattern | CanvasGradient | string)[] = [];
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -129,6 +135,12 @@ export class FrameGeometry {
     return this.frameStyleValue;
   }
 
+  /** レンズ分割時、指定した組(pairIndex)に使う柄のスタイル。組別のスタイルが
+   *  無ければ(無効時・範囲外)通常のframeStyleにフォールバックする。 */
+  frameStyleForPair(pairIndex: number): CanvasPattern | CanvasGradient | string {
+    return this.pairFrameStyles[pairIndex] ?? this.frameStyleValue;
+  }
+
   get frameKind(): "single" | "glasses" {
     return this.frameKindValue;
   }
@@ -150,11 +162,12 @@ export class FrameGeometry {
       : getFrameShape(this.frameShapeIdValue);
   }
 
-  /** レンズ分割表示(共同アイデア出しフェーズ①)のON/OFFを切り替える。
-   *  変化があれば次のresize()でサイズ・lensSplitPairCentersを再計算する。 */
-  setLensSplitEnabled(enabled: boolean): void {
-    if (this.lensSplitEnabledValue === enabled) return;
-    this.lensSplitEnabledValue = enabled;
+  /** レンズ分割表示(共同アイデア出しフェーズ①)のON/OFF・組数を切り替える。
+   *  null=無効、数値=その組数で有効。変化があれば次のresize()でサイズ・
+   *  lensSplitPairCentersを再計算する。 */
+  setLensSplitPairCount(pairCount: number | null): void {
+    if (this.lensSplitPairCountValue === pairCount) return;
+    this.lensSplitPairCountValue = pairCount;
     this.resize();
   }
 
@@ -194,15 +207,19 @@ export class FrameGeometry {
       // は画面全体に育つのに、実際の<canvas>要素は幅基準の低い高さのまま――という
       // ズレが生まれ、ズーム・パンしてもその低い高さの外（画面の上下）には
       // 絶対に届かなくなっていた（ユーザー指摘・実機確認済み）。
-      // レンズ分割表示(issue #79)が有効なら、3組の中心座標を画面の縦横比から
-      // 計算し、それら全てを内包するサイズを基準にする——無効時はpairCentersが
-      // 原点1点だけの配列になり、outerX/outerYはGLASSES_HORIZONTAL_REACH_WITH_HINGE/
-      // GLASSES_VERTICAL_REACHと完全に一致する（既存の単一ペア計算と同じ結果になり、
-      // 回帰が無いようにする）。
+      // レンズ分割表示(issue #79)が有効なら、その組数ぶんの中心座標を画面の
+      // 縦横比から計算し、それら全てを内包するサイズを基準にする——無効時は
+      // pairCentersが原点1点だけの配列になり、outerX/outerYはGLASSES_HORIZONTAL_
+      // REACH_WITH_HINGE/GLASSES_VERTICAL_REACHと完全に一致する（既存の単一ペア
+      // 計算と同じ結果になり、回帰が無いようにする）。
       const containerRect = this.container.getBoundingClientRect();
-      const pairCenters = this.lensSplitEnabledValue
-        ? computeLensPairCenters(chooseLensSplitDirection(containerRect.width, containerRect.height))
-        : [{ x: 0, y: 0 }];
+      const pairCenters =
+        this.lensSplitPairCountValue !== null
+          ? computeLensPairCenters(
+              chooseLensSplitDirection(containerRect.width, containerRect.height),
+              this.lensSplitPairCountValue
+            )
+          : [{ x: 0, y: 0 }];
       const outerX = Math.max(...pairCenters.map((c) => Math.abs(c.x))) + GLASSES_HORIZONTAL_REACH_WITH_HINGE;
       const outerY = Math.max(...pairCenters.map((c) => Math.abs(c.y))) + GLASSES_VERTICAL_REACH;
       const aspectRatio = outerX / outerY;
@@ -226,7 +243,7 @@ export class FrameGeometry {
         x: containerSize.width / 2,
         y: containerSize.height / 2 - computeChromeCenterOffsetY(),
       };
-      this.lensSplitPairCentersValue = this.lensSplitEnabledValue ? pairCenters : null;
+      this.lensSplitPairCentersValue = this.lensSplitPairCountValue !== null ? pairCenters : null;
     } else {
       const referenceSize =
         this.minCanvasSizePx !== undefined
@@ -292,6 +309,22 @@ export class FrameGeometry {
       this.frameKindValue === "glasses"
         ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scaleValue * shape.horizontalReach)
         : this.frameStrokeColor;
+    // レンズ分割時は、設定された柄を起点にFRAME_PATTERN_ORDERを組の数ぶん順送り
+    // した柄一覧を組別に用意する——同じ柄が並び続けると見分けが付かず単調に
+    // 見える(issue #79、ユーザー指摘)ため。単一表示(pairCount===null)では
+    // 空配列のままにし、frameStyleForPair()がframeStyleValueへフォールバックする。
+    this.pairFrameStyles =
+      this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
+        ? this.buildPairFrameStyles(this.lensSplitPairCountValue, this.scaleValue * shape.horizontalReach)
+        : [];
+  }
+
+  private buildPairFrameStyles(pairCount: number, reachPx: number): (CanvasPattern | CanvasGradient | string)[] {
+    const baseIndex = FRAME_PATTERN_ORDER.indexOf(this.framePatternId);
+    return Array.from({ length: pairCount }, (_, i) => {
+      const patternId = FRAME_PATTERN_ORDER[(baseIndex + i) % FRAME_PATTERN_ORDER.length];
+      return getFramePattern(patternId).buildStyle(this.ctx, reachPx);
+    });
   }
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
@@ -328,7 +361,11 @@ export class FrameGeometry {
    *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
    *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
    *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
-  drawGlassesHinges(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
+  drawGlassesHinges(
+    ctx: CanvasRenderingContext2D,
+    shape: FrameShape,
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+  ): void {
     const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidth;
     const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
     const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
@@ -341,7 +378,7 @@ export class FrameGeometry {
 
       ctx.beginPath();
       ctx.roundRect(left, -tabHalfHeight, tabLength, tabHalfHeight * 2, tabRadius);
-      ctx.fillStyle = this.frameStyleValue;
+      ctx.fillStyle = style;
       ctx.fill();
     }
   }
@@ -358,10 +395,13 @@ export class FrameGeometry {
    *  でクリップしたbridge-barが覆いきれず、紙とその帯の境目が細い筋として
    *  見えてしまっていた（ユーザー指摘・実測確認済み）。strokePath自身の高さに
    *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
-  drawGlassesBridgeBar(ctx: CanvasRenderingContext2D): void {
+  drawGlassesBridgeBar(
+    ctx: CanvasRenderingContext2D,
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+  ): void {
     const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeIdValue, this.glassesBridgeHalfHeight);
     const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
-    ctx.fillStyle = this.frameStyleValue;
+    ctx.fillStyle = style;
     ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
   }
 }
