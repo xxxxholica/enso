@@ -1,5 +1,7 @@
+import { CLIENT_ID } from "./clientId";
 import type { AuthSession } from "./clerkAccount";
 import type { SessionState } from "./sharedCanvas";
+import type { Memo } from "./types";
 
 /**
  * 個人キャンバス・共有キャンバスの両方で使う、単一のWebSocket接続。
@@ -11,15 +13,17 @@ import type { SessionState } from "./sharedCanvas";
  * 状態をGETで取得し直させる方式に統一する（個人・共有キャンバス双方、
  * issue #79）。初回接続時は呼ばない（呼び出し側が別途初期ロードを行うため）。
  *
- * サーバー(api.onunu.me)は変更内容そのものを流すのではなく、
- * 「変わったよ」という軽い通知だけを送ってくる。個人キャンバスの変更は
- * canvasIdを持たない{ type: "changed" }、共有キャンバス（ルーム）の変更は
- * { type: "changed", canvasId }として届く——サーバー側のindex.jsで
- * broadcastPersonalChange/broadcastSharedChangeとして実装済み。
- * 受け取ったら呼び出し側が渡したonChanged/onSharedChangedを呼び、実際の
- * 反映は既存のcloudSync.refreshFromCloud()やSharedRoomSync.pollNow()
- * （＝通常のGETでの取得し直し）に任せる——最後に同期した内容で丸ごと
- * 上書きする、という既存の同期方式と揃えるため。
+ * サーバー(api.onunu.me)からの通知には2種類ある。個人キャンバスの変更・
+ * 共有キャンバスの名前/見た目変更は、中身を持たない軽い「変わったよ」pingだけ
+ * ({ type: "changed" }、共有の場合はcanvasId付き)——受け取ったら呼び出し側が
+ * 渡したonChanged/onSharedChangedを呼び、実際の反映は既存のcloudSync.
+ * refreshFromCloud()やSharedRoomSync.pollNow()（＝通常のGETでの取得し直し）に
+ * 任せる。一方、共有キャンバスのメモ1件の作成・編集・削除は{ type: "memo-upserted",
+ * canvasId, memo, originClientId }/{ type: "memo-deleted", canvasId, memoId,
+ * originClientId }としてその中身ごと届く(issue #99)——GETし直さず即座に反映する。
+ * originClientIdは送信元が名乗ったクライアントID(clientId.ts)で、自分自身が送った
+ * 変更のエコーはここで無視する(サーバー側でX-Client-Idヘッダーをそのまま
+ * 転送しているだけ、index.js参照)。
  *
  * 共有ルームの購読は、サーバー側に明示的な購読解除(unsubscribe)が無く、
  * 一度subscribeしたcanvasIdはソケットが切れるまで届き続ける仕様
@@ -71,6 +75,12 @@ export function connectRealtimeSync(
   // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
   // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
   onHeatChanged: (canvasId: string, memoId: string, heat: number) => void,
+  // 共有キャンバスのメモ1件が作成・編集されるたびに届く(issue #99)。フルGETを
+  // 挟まず、その場でメモの中身を反映する。自分自身が送った変更のエコーは
+  // ここで既に除外済み(originClientIdがCLIENT_IDと一致するものは呼ばない)。
+  onMemoUpserted: (canvasId: string, memo: Memo) => void,
+  // 同じくメモ1件が削除されたときに届く。
+  onMemoDeleted: (canvasId: string, memoId: string) => void,
   // 再接続が成立した瞬間に1回だけ呼ぶ。初回接続では呼ばない
   // （呼び出し側の初期ロードと重複するため）。
   onReconnected: () => void
@@ -130,6 +140,8 @@ export function connectRealtimeSync(
         session?: unknown;
         memoId?: unknown;
         heat?: unknown;
+        memo?: unknown;
+        originClientId?: unknown;
       };
       if (parsed.type === "session-changed" && typeof parsed.canvasId === "string") {
         onSessionChanged(parsed.canvasId, (parsed.session ?? null) as SessionState | null);
@@ -142,6 +154,24 @@ export function connectRealtimeSync(
         typeof parsed.heat === "number"
       ) {
         onHeatChanged(parsed.canvasId, parsed.memoId, parsed.heat);
+        return;
+      }
+      if (parsed.originClientId === CLIENT_ID) return; // 自分が送った変更のエコーは無視する
+      if (
+        parsed.type === "memo-upserted" &&
+        typeof parsed.canvasId === "string" &&
+        typeof parsed.memo === "object" &&
+        parsed.memo !== null
+      ) {
+        onMemoUpserted(parsed.canvasId, parsed.memo as Memo);
+        return;
+      }
+      if (
+        parsed.type === "memo-deleted" &&
+        typeof parsed.canvasId === "string" &&
+        typeof parsed.memoId === "string"
+      ) {
+        onMemoDeleted(parsed.canvasId, parsed.memoId);
         return;
       }
       if (parsed.type !== "changed") return;

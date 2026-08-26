@@ -95,6 +95,8 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
       (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
       (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
       (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
+      (canvasId, memo) => smuiView.notifyMemoUpserted(canvasId, memo),
+      (canvasId, memoId) => smuiView.notifyMemoDeleted(canvasId, memoId),
       () => {
         void refreshFromCloud(store);
         smuiView.notifyReconnected();

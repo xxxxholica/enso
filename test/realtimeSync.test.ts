@@ -72,7 +72,7 @@ describe("connectRealtimeSyncのサーキットブレーカー", () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", MockWebSocket);
 
-    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn());
+    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn());
 
     // FLAP_THRESHOLD回、接続してはすぐ切れる、を繰り返す
     // （openのたびにreconnectDelayが基準値にリセットされるため、
@@ -103,7 +103,7 @@ describe("connectRealtimeSyncのサーキットブレーカー", () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", MockWebSocket);
 
-    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn());
+    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn());
     await vi.advanceTimersByTimeAsync(0);
     const ws = MockWebSocket.instances[0];
     ws.triggerOpen();
@@ -119,7 +119,7 @@ describe("connectRealtimeSyncのサーキットブレーカー", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
     const onReconnected = vi.fn();
 
-    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onReconnected);
+    const handle = connectRealtimeSync(fakeSession(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onReconnected);
     await vi.advanceTimersByTimeAsync(0);
     MockWebSocket.instances[0].triggerOpen();
     expect(onReconnected).not.toHaveBeenCalled();

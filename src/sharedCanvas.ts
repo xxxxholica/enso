@@ -1,4 +1,5 @@
 import { authFetch } from "./apiClient";
+import { CLIENT_ID } from "./clientId";
 import { FRAME_PATTERN_ORDER } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { FRAME_SHAPE_ORDER } from "./frameShape";
@@ -10,9 +11,12 @@ import type { Memo } from "./types";
  * すべてのエンドポイントで Authorization ヘッダーが必須のため、未ログイン時は
  * 呼び出し元（smuiView.ts）でガードすること。
  *
- * 作成・参加・一覧・閲覧・退出・名前変更に加え、PUTによる保存も行う（SMUIの
- * 右レンズで実際に書き込めるようにするため）。同時編集の競合解決（楽観ロック等）
- * は行わず、最後に保存した内容が勝つ単純な方式（sharedCanvasSync.ts側でポーリングする）。
+ * 作成・参加・一覧・閲覧・退出・名前変更に加え、メモ単位のupsert/delete保存も行う
+ * （SMUIの右レンズで実際に書き込めるようにするため）。以前はメモ全件をPUTで丸ごと
+ * 上書きしていたが、2人が別々のメモを同時に編集すると後勝ちが先勝ちを踏みつぶす
+ * 問題があった(issue #99)ため、メモ単位のエンドポイントに分けた——競合解決は
+ * 依然として「そのメモを最後に保存した内容が勝つ」単純な方式のままだが、単位が
+ * メモ1件になったことで別々のメモへの同時編集は互いを踏みつぶさなくなる。
  */
 
 export interface SharedCanvasSummary {
@@ -143,14 +147,25 @@ export async function getSharedCanvas(id: string): Promise<SharedCanvasDetail> {
   };
 }
 
-/** 指定した共有キャンバスの中身を保存する（メンバー外は403で失敗する）。 */
-export async function saveSharedCanvas(id: string, memos: readonly Memo[]): Promise<void> {
-  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}`, {
+/** メモ1件を保存する（作成・編集・移動のいずれも同じエンドポイント。メンバー外は403で失敗する）。
+ *  X-Client-IdヘッダーはWebSocket経由で自分に跳ね返ってくる通知を無視するために
+ *  サーバーがそのまま転送するだけの識別子（clientId.ts参照）。 */
+export async function upsertSharedMemo(id: string, memo: Memo): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/memos/${encodeURIComponent(memo.id)}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ memos }),
+    headers: { "Content-Type": "application/json", "X-Client-Id": CLIENT_ID },
+    body: JSON.stringify({ memo }),
   });
-  if (!res.ok) throw new Error(`共有キャンバスの保存に失敗しました (status: ${res.status})`);
+  if (!res.ok) throw new Error(`メモの保存に失敗しました (status: ${res.status})`);
+}
+
+/** メモ1件を削除する（メンバー外は403で失敗する）。 */
+export async function deleteSharedMemo(id: string, memoId: string): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/memos/${encodeURIComponent(memoId)}`, {
+    method: "DELETE",
+    headers: { "X-Client-Id": CLIENT_ID },
+  });
+  if (!res.ok) throw new Error(`メモの削除に失敗しました (status: ${res.status})`);
 }
 
 // --- 共同アイデア出しセッション（ルームマスターのみ開始・進行・延長・終了できる） ---
