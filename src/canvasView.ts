@@ -111,6 +111,13 @@ function pointerMidpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+/** ソフトウェアキーボードが出るデバイス（openTextEditorのモバイル向け固定
+ *  配置分岐、issue #87）かどうかの判定。画面幅ではなくポインタ精度で見るのは、
+ *  iPad等の広い画面のタッチデバイスも対象に含めたいため。 */
+function isCoarsePointerDevice(): boolean {
+  return window.matchMedia?.("(pointer: coarse)").matches ?? false;
+}
+
 /** 進行中のピンチ操作の起点（開始時の指間距離・中点・その時点のズーム/パン）。 */
 interface PinchState {
   startDist: number;
@@ -1127,11 +1134,25 @@ export class CircularCanvas {
 
       const minLeft = viewportOffsetX + margin;
       const maxLeft = viewportOffsetX + visibleWidth - boxWidthPx - margin;
-      const left = maxLeft >= minLeft ? Math.min(Math.max(screenX - boxWidthPx / 2, minLeft), maxLeft) : minLeft;
-
       const minTop = viewportOffsetY + margin;
       const maxTop = viewportOffsetY + visibleHeight - h - margin;
-      const top = maxTop >= minTop ? Math.min(Math.max(screenY - h / 2, minTop), maxTop) : minTop;
+
+      let left: number;
+      let top: number;
+      if (isCoarsePointerDevice()) {
+        // モバイル（ソフトキーボードが出るデバイス）では、タップ位置の上下パンに
+        // 追従させるのではなく、常に画面（visualViewport）下部・キーボード直上の
+        // 中央に固定表示する（issue #87：iOS標準のキーボード回避パンにタップ位置
+        // 追従の位置計算が引きずられ、意図しない場所に飛んで見える不具合の対策）。
+        // タップ位置(anchor)自体は、確定後のメモの挿入位置としてのみ使う
+        // （commit内のsafeAnchor参照）。
+        const centeredLeft = viewportOffsetX + (visibleWidth - boxWidthPx) / 2;
+        left = maxLeft >= minLeft ? Math.min(Math.max(centeredLeft, minLeft), maxLeft) : minLeft;
+        top = maxTop >= minTop ? maxTop : minTop;
+      } else {
+        left = maxLeft >= minLeft ? Math.min(Math.max(screenX - boxWidthPx / 2, minLeft), maxLeft) : minLeft;
+        top = maxTop >= minTop ? Math.min(Math.max(screenY - h / 2, minTop), maxTop) : minTop;
+      }
 
       el.style.left = `${left}px`;
       el.style.top = `${top}px`;
