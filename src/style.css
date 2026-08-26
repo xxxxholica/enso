@@ -10,7 +10,7 @@
    装飾的な値（虹色スワッチのグラデーション等）は無理に揃えずそのまま残す。
    余白は4pxグリッド、文字サイズは今後ここへ段階的に揃えていく目標値。 --- */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   --ink-solid: oklch(22% 0.012 55);
   --ink-95: oklch(22% 0.012 55 / 0.95);
@@ -70,6 +70,83 @@
      2段階で共有している。 */
   --shadow-card: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
   --shadow-popover: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
+}
+
+/* --- ダークテーマ（settingsMenu.tsの「設定」ボタン内、テーマ切り替え機能。
+   ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
+   ライトテーマの色トークンは「暖色系グレースケール1本（インク）＋紙の明度
+   違い」の2系統だったため、ダークもこの構造をそのまま踏襲し、同じ色相・
+   彩度のまま明度だけ反転させている——インクは暗い色から明るい色へ、紙は
+   明るい色から暗い色へ。これにより「暖かい紙とインク」という世界観を
+   ダークテーマでも保っている（無彩色の黒ではなく、ごくわずかに暖色寄りの
+   黒に紙を沈める）。paper-1（カード・ポップオーバーの背景）が他のpaper-*
+   より明るい、という relative な明度関係もライトテーマと同じに保っている
+   （ダークUIでも「浮いている面はわずかに明るい」方が一貫して見えるため）。
+   3状態（自動/ライト/ダーク）の切り替えはhtml要素のdata-theme属性で行う
+   （settingsMenu.ts・theme.ts参照）——data-theme無し（既定）はOSの設定に
+   従い、"light"/"dark"は明示的に固定する。 --- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ink-solid: oklch(92% 0.006 75);
+    --ink-95: oklch(92% 0.006 75 / 0.95);
+    --ink-85: oklch(92% 0.006 75 / 0.85);
+    --ink-80: oklch(92% 0.006 75 / 0.8);
+    --ink-70: oklch(92% 0.006 75 / 0.7);
+    --ink-60: oklch(92% 0.006 75 / 0.6);
+    --ink-55: oklch(92% 0.006 75 / 0.55);
+    --ink-50: oklch(92% 0.006 75 / 0.5);
+    --ink-45: oklch(92% 0.006 75 / 0.45);
+    --ink-40: oklch(92% 0.006 75 / 0.4);
+    --ink-35: oklch(92% 0.006 75 / 0.35);
+    --ink-20: oklch(92% 0.006 75 / 0.2);
+    --ink-12: oklch(92% 0.006 75 / 0.12);
+    --ink-08: oklch(92% 0.006 75 / 0.08);
+    --ink-06: oklch(92% 0.006 75 / 0.06);
+
+    --paper-0: oklch(20% 0.01 75);
+    --paper-1: oklch(24% 0.008 75);
+    --paper-2: oklch(16% 0.01 75);
+    --paper-2-hover: oklch(19% 0.012 75);
+    --paper-3: oklch(12% 0.012 75);
+    --paper-4: oklch(10% 0.012 75);
+
+    --rule-line: oklch(78% 0.07 240 / 0.55);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink-solid: oklch(92% 0.006 75);
+  --ink-95: oklch(92% 0.006 75 / 0.95);
+  --ink-85: oklch(92% 0.006 75 / 0.85);
+  --ink-80: oklch(92% 0.006 75 / 0.8);
+  --ink-70: oklch(92% 0.006 75 / 0.7);
+  --ink-60: oklch(92% 0.006 75 / 0.6);
+  --ink-55: oklch(92% 0.006 75 / 0.55);
+  --ink-50: oklch(92% 0.006 75 / 0.5);
+  --ink-45: oklch(92% 0.006 75 / 0.45);
+  --ink-40: oklch(92% 0.006 75 / 0.4);
+  --ink-35: oklch(92% 0.006 75 / 0.35);
+  --ink-20: oklch(92% 0.006 75 / 0.2);
+  --ink-12: oklch(92% 0.006 75 / 0.12);
+  --ink-08: oklch(92% 0.006 75 / 0.08);
+  --ink-06: oklch(92% 0.006 75 / 0.06);
+
+  --paper-0: oklch(20% 0.01 75);
+  --paper-1: oklch(24% 0.008 75);
+  --paper-2: oklch(16% 0.01 75);
+  --paper-2-hover: oklch(19% 0.012 75);
+  --paper-3: oklch(12% 0.012 75);
+  --paper-4: oklch(10% 0.012 75);
+
+  --rule-line: oklch(78% 0.07 240 / 0.55);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -900,7 +977,11 @@ body {
   height: 26px;
   border-radius: 50%;
   border: 2px solid var(--paper-1);
-  box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px var(--ink-12);
+  /* 固定の暗い色(旧oklch(22% 0.012 55 / 0.15))だと、ダークテーマでボタンの
+     地色(--paper-1)がスワッチの色（特に黒インク）と同化して輪郭が見えなく
+     なっていた。ink-20（ライトでは暗い輪郭、ダークでは明るい輪郭）にする
+     ことで、どちらのテーマでもスワッチの色に関わらず輪郭が見えるようにする。 */
+  box-shadow: 0 0 0 1px var(--ink-20), 0 1px 3px var(--ink-12);
   cursor: pointer;
   padding: 0;
   overflow: hidden;
@@ -1248,7 +1329,7 @@ body {
   font: inherit;
   font-size: var(--text-sm);
   padding: 3px 6px;
-  border: 1px solid oklch(22% 0.012 55 / 0.25);
+  border: 1px solid var(--ink-20);
   border-radius: 6px;
   background: var(--paper-1);
   color: inherit;
@@ -1375,6 +1456,35 @@ body {
    と同じ区切りの見た目のまま流用する。 --- */
 .appearance-popover {
   min-width: 220px;
+  padding: 14px 16px;
+}
+
+/* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
+   背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
+   他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。 --- */
+.settings-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper-1);
+}
+
+.settings-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.settings-trigger:hover {
+  background: var(--paper-2-hover);
+}
+
+.settings-trigger[data-active="true"] {
+  background: var(--paper-3);
+}
+
+.settings-popover {
+  min-width: 180px;
   padding: 14px 16px;
 }
 
@@ -1680,7 +1790,7 @@ body {
 
 .template-card:hover {
   background: var(--paper-1);
-  border-color: oklch(22% 0.012 55 / 0.22);
+  border-color: var(--ink-20);
   transform: translateY(-1px);
 }
 
