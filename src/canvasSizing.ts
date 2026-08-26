@@ -112,6 +112,25 @@ export function computeRectSize(container: HTMLElement, aspectRatio: number): { 
  * computeContainerSize(container)を計算済みなら、getBoundingClientRect()の
  * 二重呼び出しを避けるためreferenceSize/containerSizeで渡せる。
  */
+/**
+ * ヘッダー・フッターは画面の真の上端／下端に固定表示される半透明の帯で、
+ * キャンバス要素自体はその下まで含めて画面いっぱいに広がる——ズーム・パン
+ * した絵がヘッダー/フッターの下まで透けて見えるようにするための意図的な
+ * 設計（style.css .app-header/.app-footerのコメント参照）。そのため円の
+ * 中心を単純にキャンバス要素の幾何中心へ置くと、フッター（下端の余白を
+ * 他3辺より広めに取っている・道具バーを含む）の方がヘッダーより背が高い分
+ * だけ、円が見た目にはツールバー側へ寄って見えてしまう（ユーザー指摘）。
+ * ヘッダー・フッターの高さの差の半分だけ円の中心を上へ補正する値を返す
+ * ——見えている帯の間（ヘッダー下端〜フッター上端）のちょうど中央に円が
+ * 来るようにするための量。ヘッダー/フッターが存在しない文脈（使い方ガイドの
+ * 練習用サンドボックス等）では0を返す。 */
+export function computeChromeCenterOffsetY(): number {
+  const header = document.querySelector<HTMLElement>(".app-header");
+  const footer = document.querySelector<HTMLElement>(".app-footer");
+  if (!header || !footer) return 0;
+  return (footer.getBoundingClientRect().height - header.getBoundingClientRect().height) / 2;
+}
+
 export function fitCanvasToContainer(
   canvas: HTMLCanvasElement,
   container: HTMLElement,
