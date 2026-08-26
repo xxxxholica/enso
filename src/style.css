@@ -297,11 +297,6 @@ body {
   gap: 10px;
 }
 
-.account-name {
-  font-size: var(--text-sm);
-  color: var(--ink-70);
-}
-
 .account-badge-warning {
   font-size: var(--text-2xs);
   color: oklch(55% 0.15 30);
@@ -1507,11 +1502,16 @@ body {
 
 /* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
    背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
-   他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。 --- */
+   他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。
+   文字を持たない（ユーザー指示）ため、他のpill-btnと違いwidth/heightを
+   固定して正円のアイコンボタンにする。 --- */
 .settings-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   background: var(--paper-1);
 }
 
@@ -1529,9 +1529,20 @@ body {
   background: var(--paper-3);
 }
 
+/* --- アカウント区画の統合でヘッダー最右端の要素になったため、他の
+   .icon-popover（トリガーを中心に開く既定）と違い、右端をトリガーの右端に
+   揃えて開く——中央寄せのままだと画面幅によらずポップオーバーの右側が
+   常に画面外へはみ出してしまう（実測で確認済み）。 --- */
 .settings-popover {
   min-width: 180px;
   padding: 14px 16px;
+  left: auto;
+  right: 0;
+  transform: translateY(-6px);
+}
+
+.settings-popover.is-visible {
+  transform: translateY(0);
 }
 
 /* --- 共同アイデア出しセッション(sessionPanel.ts)のトリガーボタン。他の
@@ -2198,27 +2209,6 @@ body {
   display: flex;
   justify-content: center;
   margin-top: var(--space-2);
-}
-
-/* --- ヘッダーの文字ボタン共通スタイル（使い方の再視聴・ログイン導線など）。
-   アイコンだと何のボタンか伝わりにくかった（ユーザー指摘）ため、
-   view-nav-btnと同じ見た目の文字ボタンにする。 --- */
-.header-text-btn {
-  appearance: none;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--ink-solid);
-  opacity: 0.45;
-  cursor: pointer;
-  padding: 4px 2px;
-  transition: opacity var(--duration-fast) ease;
-}
-
-.header-text-btn:hover {
-  opacity: 1;
 }
 
 @media (max-width: 560px) {

@@ -36,6 +36,7 @@ const PATTERN_ICON: Record<FramePatternId, string> = {
  * 向こうが開いていれば自動で閉じる（逆も同様）。
  */
 export class AppearanceSelector {
+  private anchor: HTMLElement;
   private triggerBtn: HTMLButtonElement;
   private popover: HTMLElement;
   private popoverFade: (show: boolean) => void;
@@ -61,8 +62,8 @@ export class AppearanceSelector {
     this.onShapeChange = onShapeChange;
     this.onPatternChange = onPatternChange;
 
-    const anchor = document.createElement("div");
-    anchor.className = "icon-anchor";
+    this.anchor = document.createElement("div");
+    this.anchor.className = "icon-anchor";
 
     this.triggerBtn = document.createElement("button");
     this.triggerBtn.type = "button";
@@ -70,7 +71,7 @@ export class AppearanceSelector {
     this.triggerBtn.setAttribute("aria-label", "見た目の設定");
     this.triggerBtn.innerHTML = `${ICONS.appearance}<span>見た目の設定</span>`;
     this.triggerBtn.addEventListener("click", () => this.toggle());
-    anchor.appendChild(this.triggerBtn);
+    this.anchor.appendChild(this.triggerBtn);
 
     this.popover = document.createElement("div");
     this.popover.className = "appearance-popover icon-popover";
@@ -119,8 +120,8 @@ export class AppearanceSelector {
     patternSection.appendChild(patternRow);
     this.popover.appendChild(patternSection);
 
-    anchor.appendChild(this.popover);
-    container.appendChild(anchor);
+    this.anchor.appendChild(this.popover);
+    container.appendChild(this.anchor);
 
     this.syncShape();
     this.syncPattern();
@@ -133,7 +134,7 @@ export class AppearanceSelector {
 
   private openMenu(): void {
     if (this.open) return;
-    notifyOpen(this.closeRef);
+    notifyOpen(this.closeRef, this.anchor);
     this.open = true;
     this.triggerBtn.dataset.active = "true";
     this.popoverFade(true);
