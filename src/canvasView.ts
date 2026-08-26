@@ -68,6 +68,12 @@ function rotateStepAmountMs(streak: number): number {
 }
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
+/** 1本目の指が触れてから何ms以内に2本目が触れた場合だけピンチズームとして
+ *  受け付けるか。実際に両方の指をつまむように動かすピンチ操作は、指がほぼ
+ *  同時に触れる——これより間隔が空いた2本目は、既に片方の指で操作している
+ *  最中に後から誤って触れた指（手のひら等）とみなし、ピンチを開始しない
+ *  （ユーザー指示）。 */
+const SECOND_FINGER_PINCH_WINDOW_MS = 50;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
  *  意味がないため許可しない。上限は、キャンバス要素がヘッダー/ツールバーの
  *  下まで広がった（issue #83）後、最大までズーム+パンした時にその下まで
@@ -269,6 +275,17 @@ export class CircularCanvas {
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
    *  最新クライアント座標——2本目の指が乗るとピンチ開始。 */
   private pinchPointers = new Map<number, Point>();
+  /** pinchPointersが0本→1本になった瞬間（＝今の接触の1本目が触れた瞬間）の
+   *  performance.now()。SECOND_FINGER_PINCH_WINDOW_MS以内に2本目が触れたかの
+   *  判定に使う——全ての指が離れる（pinchPointersが空になる）とnullに戻す。 */
+  private firstPinchTouchAt: number | null = null;
+  /** 進行中の消しゴムジェスチャーが実際に触れたメモの、書き換え前の状態
+   *  （id→{memo, index}、同じメモに複数回触れてもジェスチャー開始時点=最初の
+   *  1回分だけ保持）。SECOND_FINGER_PINCH_WINDOW_MS以内に2本目が触れて
+   *  ピンチへ切り替わった場合、beginPinchでこれを使って消しゴムの結果を
+   *  取り消す（ユーザー指示）——ジェスチャーごとにonPointerDownでクリアし、
+   *  ジェスチャーが終わる（endSinglePointerGesture）たびにもクリアする。 */
+  private eraseUndoSnapshots = new Map<string, { memo: Memo; index: number }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
@@ -573,7 +590,8 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
+      this.eraseUndoSnapshots.clear(); // 新しい消しゴムジェスチャーの開始
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale(), this.recordEraseUndo);
       return;
     }
 
@@ -645,27 +663,51 @@ export class CircularCanvas {
    *  canvas自身の単指描画（onPointerDown）は最初からpreventDefault()で
    *  純正ジェスチャーを止めており実際に機能しているため、同じ考え方を
    *  2本指検知にも適用する——1本目だけの間は呼ばない（通常のタップ・
-   *  ボタン操作を妨げないため）。 */
+   *  ボタン操作を妨げないため）。
+   *
+   *  ピンチズーム自体（beginPinch）は、1本目の指が触れてからSECOND_FINGER_
+   *  PINCH_WINDOW_MS以内に2本目が触れた場合だけ始める——実際に両方の指を
+   *  つまむように動かすピンチ操作は指がほぼ同時に触れるため、この場合は
+   *  ペンで描き始めていた・消しゴムで消していた等の進行中の単一指ジェスチャー
+   *  があってもそちらを打ち切ってピンチへ切り替える（ユーザー指示：
+   *  記入し始めてから一定期間以内に2本目が触れた場合は、その動作の代わりに
+   *  ズームを実行してほしい）。逆にこの時間窓を過ぎてから触れた2本目
+   *  （既に片手で操作している最中に後から誤って触れた指・手のひら等）は、
+   *  進行中の操作を中断せずそのまま無視する。ただしpreventDefault自体は
+   *  この時間窓に関わらず呼ぶ——ここで止めないと、ズームを始めなくても
+   *  Safari等の純正ピンチズームがページ全体に効いてしまう。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
+    if (this.pinchPointers.size === 0) {
+      this.firstPinchTouchAt = performance.now();
+    }
     this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (this.pinchPointers.size === 2) {
       ev.preventDefault();
-      this.beginPinch();
+      const withinWindow =
+        this.firstPinchTouchAt !== null &&
+        performance.now() - this.firstPinchTouchAt <= SECOND_FINGER_PINCH_WINDOW_MS;
+      if (this.state.mode !== "pinching" && withinWindow) {
+        this.beginPinch();
+      }
     }
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
-   *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
-   *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
-   *  （onGlobalPointerDownのコメント参照）。 */
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上を
+   *  追跡している間は状態に関わらずev.preventDefault()し続ける——2本目の
+   *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
+   *  実際にズーム・パンを更新する（updatePinch）のは、beginPinchがピンチを
+   *  開始した場合（state.mode === "pinching"）だけに限る。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
     if (!this.pinchPointers.has(ev.pointerId)) return;
     this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.state.mode === "pinching") {
+    if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
+    }
+    if (this.state.mode === "pinching") {
       this.updatePinch();
     }
   };
@@ -673,6 +715,9 @@ export class CircularCanvas {
   /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
+    if (this.pinchPointers.size === 0) {
+      this.firstPinchTouchAt = null; // 全ての指が離れたので、次の接触は新しい1本目として計測し直す
+    }
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
@@ -681,13 +726,31 @@ export class CircularCanvas {
     }
   };
 
-  /** 2本目の指が乗った瞬間に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
-   *  なぞる・移動）があれば打ち切ってからピンチの起点を記録する。 */
+  /** 2本目の指が乗った瞬間、それが1本目からSECOND_FINGER_PINCH_WINDOW_MS
+   *  以内だった場合に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
+   *  なぞる・移動）があれば打ち切ってからピンチの起点を記録する——描画中
+   *  だった場合は、判定時間内に書けていた分（複数点になっていても）を
+   *  discardTrailingStrokeで丸ごと取り消す（ユーザー指示：呼び出し元の
+   *  onGlobalPointerDownのコメント参照）。消しゴム中だった場合も同様に、
+   *  判定時間内にこのジェスチャーが実際に触れたメモだけをeraseUndoSnapshots
+   *  から元に戻す——共有キャンバスで同時に他ユーザーが編集している可能性の
+   *  ある、触れていない他のメモには影響しない（ユーザー指示）。それ以外の
+   *  1本指ジェスチャー（なぞる・移動）は内容を書き換える取り消し対象ではない
+   *  ため、endSinglePointerGestureの通常の後始末に任せる。 */
   private beginPinch(): void {
+    if (this.state.mode === "drawing" && this.state.activeMemoId) {
+      this.store.discardTrailingStroke(this.state.activeMemoId);
+      this.state.activeMemoId = null;
+    } else if (this.state.mode === "erasing" && this.eraseUndoSnapshots.size > 0) {
+      this.store.restoreErasedMemos([...this.eraseUndoSnapshots.values()]);
+    }
     if (this.state.mode !== "idle" && this.state.mode !== "pinching") {
       this.endSinglePointerGesture();
     }
-    this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
+    // 1本目の指が「選択」道具等で何もない場所に触れただけの場合、その指の
+    // pointerIdはonPointerDownで既にactivePointerIdへ入っている（mode自体は
+    // idleのまま）——ピンチに切り替えるにはこれを手放しておく必要がある。
+    this.activePointerId = null;
     const [a, b] = [...this.pinchPointers.values()];
     this.state.mode = "pinching";
     this.pinch = {
@@ -759,7 +822,17 @@ export class CircularCanvas {
     this.state.rotateFiredSteps = 0;
     this.state.rotateStreak = 0;
     this.tracedMemoIdsThisGesture.clear();
+    this.eraseUndoSnapshots.clear();
   }
+
+  /** eraseAtのonTouchedに渡す——同じメモに複数回触れても、このジェスチャー中の
+   *  最初の1回分（＝ジェスチャーが触れる直前の状態）だけをeraseUndoSnapshotsに
+   *  残す。 */
+  private recordEraseUndo = (before: Memo, index: number): void => {
+    if (!this.eraseUndoSnapshots.has(before.id)) {
+      this.eraseUndoSnapshots.set(before.id, { memo: before, index });
+    }
+  };
 
   /**
    * タップした位置にテキスト入力用の<textarea>を重ねて表示する。円のクリップの外に
@@ -1048,7 +1121,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
-      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
+      this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale(), this.recordEraseUndo);
     }
   };
 

@@ -166,6 +166,24 @@ export class MemoStore {
     if (!memo || memo.kind !== "stroke" || memo.strokes.length === 0) return false;
     const lastStroke = memo.strokes[memo.strokes.length - 1];
     if (lastStroke.length >= 2) return false;
+    return this.popOrDeleteLastStroke(memo, memoId);
+  }
+
+  /**
+   * ピンチへの切り替え時専用: 直近のストロークを、点の数に関わらず丸ごと
+   * 取り消す。判定時間（SECOND_FINGER_PINCH_WINDOW_MS、canvasView.ts参照）
+   * 以内に2本目の指が触れてピンチへ切り替わった場合、その直前にペンで
+   * 書き始めていた内容は誤操作の一部とみなして消す——通常に指を離した場合の
+   * discardTrailingSinglePointStroke（1点のみの場合しか消さない）とは異なる
+   * （ユーザー指示）。戻り値はメモ自体を削除したかどうか。
+   */
+  discardTrailingStroke(memoId: string): boolean {
+    const memo = this.memos.find((m) => m.id === memoId);
+    if (!memo || memo.kind !== "stroke" || memo.strokes.length === 0) return false;
+    return this.popOrDeleteLastStroke(memo, memoId);
+  }
+
+  private popOrDeleteLastStroke(memo: Memo & { kind: "stroke" }, memoId: string): boolean {
     if (memo.strokes.length === 1) {
       this.deleteMemo(memoId);
       return true;
@@ -345,10 +363,16 @@ export class MemoStore {
    * 手描きメモはストロークが分断される場合は複数本に分け、全て消えたメモは配列から取り除く。
    * テキストメモは部分削除ができないため、当たり判定用のボックス(boxWidth/boxHeight)に
    * 触れたらメモごと削除する。消滅済み（振り返りビューにある）メモには影響しない。
+   *
+   * onTouchedはオプション: この呼び出しで実際に書き換える（分断・削除する）メモが
+   * あれば、書き換え前の状態の複製と、その時点のthis.memos内でのインデックスを渡して
+   * 呼ぶ——ピンチへの切り替えでこのジェスチャー中の消しゴムを取り消せるように
+   * するため（canvasView.ts参照）。渡すのは複製なので、呼び出し側で保持していても
+   * このメソッド内のその後のmemo.strokes書き換えの影響を受けない。
    */
-  eraseAt(center: Point, radius: number): boolean {
+  eraseAt(center: Point, radius: number, onTouched?: (before: Memo, index: number) => void): boolean {
     let changed = false;
-    this.memos = this.memos.filter((memo) => {
+    this.memos = this.memos.filter((memo, index) => {
       if (memo.status !== "active") return true;
 
       if (memo.kind === "text") {
@@ -358,7 +382,10 @@ export class MemoStore {
           width: memo.boxWidth,
           height: memo.boxHeight,
         });
-        if (touched) changed = true;
+        if (touched) {
+          changed = true;
+          onTouched?.(structuredClone(memo), index);
+        }
         return !touched;
       }
 
@@ -366,11 +393,35 @@ export class MemoStore {
       const strokeCountChanged =
         newStrokes.length !== memo.strokes.length ||
         newStrokes.some((s, i) => s.length !== memo.strokes[i]?.length);
-      if (strokeCountChanged) changed = true;
+      if (strokeCountChanged) {
+        changed = true;
+        onTouched?.(structuredClone(memo), index);
+      }
       memo.strokes = newStrokes;
       return newStrokes.length > 0;
     });
     if (changed) this.persist();
     return changed;
+  }
+
+  /**
+   * eraseAtのonTouchedで集めたスナップショットから、消しゴムの結果を取り消す
+   * （ピンチへの切り替え専用、canvasView.ts参照）。同じidのメモが今も存在する
+   * （部分的に分断されただけ）ならその内容をスナップショットで置き換え、既に
+   * 完全に削除されている場合は元のインデックスの位置へ挿入し直す——このジェス
+   * チャーで実際に触れたメモだけを書き換えるため、同時に他のメモに加わった
+   * 変更（例: 共有キャンバスで他ユーザーから届いた同期更新）には触れない。
+   */
+  restoreErasedMemos(snapshots: { memo: Memo; index: number }[]): void {
+    if (snapshots.length === 0) return;
+    for (const { memo, index } of snapshots) {
+      const currentIndex = this.memos.findIndex((m) => m.id === memo.id);
+      if (currentIndex !== -1) {
+        this.memos[currentIndex] = memo;
+      } else {
+        this.memos.splice(Math.min(index, this.memos.length), 0, memo);
+      }
+    }
+    this.persist();
   }
 }
