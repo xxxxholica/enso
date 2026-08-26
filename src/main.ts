@@ -258,8 +258,11 @@ new SharedRoomMenu(
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "shared" = "canvas";
 
+// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
+// してしまわないようnullを返す——ExportControl側はnullなら書き出さず
+// エラー表示に留める。
 new ExportControl(document.querySelector<HTMLDivElement>("#export-slot")!, () =>
-  currentView === "shared" ? smuiView : canvasView
+  currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView
 );
 
 // キャンバス／共有タブをURLに反映する。パス（例: /shared）ではなくクエリ

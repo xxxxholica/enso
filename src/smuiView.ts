@@ -533,6 +533,12 @@ export class SmuiView {
     return { locked: !this.isRoomMaster(), shapeId: this.frameShapeId, patternId: this.framePatternId };
   }
 
+  /** ルームを選択済みか。ExportControl(main.ts)が、ルーム未選択時にプレース
+   *  ホルダーの空Storeを書き出し対象にしてしまわないよう判定するのに使う。 */
+  hasSelectedRoom(): boolean {
+    return this.selectedRoomId !== null;
+  }
+
   /** 表示中かどうかにかかわらず呼んでよい。 */
   setActive(active: boolean): void {
     this.active = active;

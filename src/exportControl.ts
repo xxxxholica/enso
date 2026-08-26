@@ -30,10 +30,14 @@ export class ExportControl {
   private anchor: HTMLElement;
   private popover: HTMLElement;
   private popoverFade: (show: boolean) => void;
+  private statusEl: HTMLElement;
   private open = false;
   private readonly closeRef = () => this.close();
 
-  constructor(container: HTMLElement, getSource: () => ExportSource) {
+  /** getSourceは、共有(レンズ)タブでルームが未選択の間はnullを返す想定
+   *  ——プレースホルダーの空Storeに対して無警告で空PNG/txtを書き出して
+   *  しまわないよう、runExport側でnullを弾く。 */
+  constructor(container: HTMLElement, getSource: () => ExportSource | null) {
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
 
@@ -69,6 +73,14 @@ export class ExportControl {
       this.popover.appendChild(item);
     }
     this.anchor.appendChild(this.popover);
+
+    // 失敗時・ルーム未選択時のエラーだけをここに出す(成功時はダウンロードが
+    // 始まること自体が合図になるため、成功メッセージは出さずポップオーバーを
+    // 閉じる——sharedRoomMenu.tsのstatusElと同じ考え方)。
+    this.statusEl = document.createElement("p");
+    this.statusEl.className = "export-status";
+    this.popover.appendChild(this.statusEl);
+
     container.appendChild(this.anchor);
   }
 
@@ -92,11 +104,15 @@ export class ExportControl {
     notifyClose(this.closeRef);
   }
 
-  private async runExport(kind: "text" | "image" | "both", getSource: () => ExportSource): Promise<void> {
-    this.close();
+  private async runExport(kind: "text" | "image" | "both", getSource: () => ExportSource | null): Promise<void> {
+    const source = getSource();
+    if (!source) {
+      this.statusEl.textContent = "書き出す前にルームを選択してください";
+      return;
+    }
+    this.statusEl.textContent = "";
     this.button.disabled = true;
     try {
-      const source = getSource();
       const stamp = timestampForFile(new Date());
       if (kind === "image" || kind === "both") {
         const image = await source.createExportImage();
@@ -106,6 +122,9 @@ export class ExportControl {
         const text = source.getExportText();
         download(new Blob([text], { type: "text/plain;charset=utf-8" }), `ensou-${stamp}.txt`);
       }
+      this.close();
+    } catch (e) {
+      this.statusEl.textContent = e instanceof Error ? e.message : "書き出しに失敗しました";
     } finally {
       this.button.disabled = false;
     }

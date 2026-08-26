@@ -1473,70 +1473,93 @@ export class CircularCanvas {
     this.hoverInfoMemoId = null;
     this.hoverInfoPoint = null;
     this.eraserHoverPoint = null;
-    this.render(Date.now());
 
-    const source = this.canvas;
-    const sourceCtx = source.getContext("2d", { willReadFrequently: true })!;
-    const pixels = sourceCtx.getImageData(0, 0, source.width, source.height);
-    let minX = source.width;
-    let minY = source.height;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < source.height; y += 1) {
-      for (let x = 0; x < source.width; x += 1) {
-        if (pixels.data[(y * source.width + x) * 4 + 3] === 0) continue;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
+    // getImageData等が例外を投げた場合でも、上で退避した表示状態
+    // （ズーム・パン・ホバー表示）を必ず元に戻す——finallyが無いと、
+    // 書き出しの途中で失敗した時にMIN_ZOOM/(0,0)へ固定されたまま
+    // 戻らなくなる。
+    let output: HTMLCanvasElement;
+    try {
+      this.render(Date.now());
+
+      const source = this.canvas;
+      const sourceCtx = source.getContext("2d", { willReadFrequently: true })!;
+      const pixels = sourceCtx.getImageData(0, 0, source.width, source.height);
+      let minX = source.width;
+      let minY = source.height;
+      let maxX = -1;
+      let maxY = -1;
+      for (let y = 0; y < source.height; y += 1) {
+        for (let x = 0; x < source.width; x += 1) {
+          if (pixels.data[(y * source.width + x) * 4 + 3] === 0) continue;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
       }
+
+      output = document.createElement("canvas");
+      output.width = 1200;
+      output.height = 1200;
+      const ctx = output.getContext("2d")!;
+      ctx.fillStyle = "#f4f0e8";
+      ctx.fillRect(0, 0, output.width, output.height);
+
+      if (maxX >= minX && maxY >= minY) {
+        const cropWidth = maxX - minX + 1;
+        const cropHeight = maxY - minY + 1;
+        const availableWidth = 1056;
+        const availableHeight = 940;
+        const scale = Math.min(availableWidth / cropWidth, availableHeight / cropHeight);
+        const width = cropWidth * scale;
+        const height = cropHeight * scale;
+        ctx.drawImage(source, minX, minY, cropWidth, cropHeight, (1200 - width) / 2, 54 + (availableHeight - height) / 2, width, height);
+      }
+
+      ctx.fillStyle = "#302d29";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = '600 42px "Klee One", "Noto Sans JP", sans-serif';
+      ctx.fillText("円相", 600, 1080);
+    } finally {
+      this.viewZoom = previousZoom;
+      this.viewPan = previousPan;
+      this.hoverInfoMemoId = previousHoverInfoMemoId;
+      this.hoverInfoPoint = previousHoverInfoPoint;
+      this.eraserHoverPoint = previousEraserHoverPoint;
+      this.render(Date.now());
     }
-
-    const output = document.createElement("canvas");
-    output.width = 1200;
-    output.height = 1200;
-    const ctx = output.getContext("2d")!;
-    ctx.fillStyle = "#f4f0e8";
-    ctx.fillRect(0, 0, output.width, output.height);
-
-    if (maxX >= minX && maxY >= minY) {
-      const cropWidth = maxX - minX + 1;
-      const cropHeight = maxY - minY + 1;
-      const availableWidth = 1056;
-      const availableHeight = 940;
-      const scale = Math.min(availableWidth / cropWidth, availableHeight / cropHeight);
-      const width = cropWidth * scale;
-      const height = cropHeight * scale;
-      ctx.drawImage(source, minX, minY, cropWidth, cropHeight, (1200 - width) / 2, 54 + (availableHeight - height) / 2, width, height);
-    }
-
-    ctx.fillStyle = "#302d29";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = '600 42px "Klee One", "Noto Sans JP", sans-serif';
-    ctx.fillText("円相", 600, 1080);
-
-    this.viewZoom = previousZoom;
-    this.viewPan = previousPan;
-    this.hoverInfoMemoId = previousHoverInfoMemoId;
-    this.hoverInfoPoint = previousHoverInfoPoint;
-    this.eraserHoverPoint = previousEraserHoverPoint;
-    this.render(Date.now());
 
     return new Promise<Blob>((resolve, reject) => {
       output.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("画像の生成に失敗しました"))), "image/png");
     });
   }
 
-  /** 手描き線は含めず、表示中の文字メモだけを空行で区切って返す。 */
+  /** 手描き線は含めず、今まさに画面に見えている文字メモだけを空行で区切って
+   *  返す——render()と同じ可視性判定(遡り表示中の時点・レンズ分割中の
+   *  未帰属メモの除外)を通す。これを素通しすると、画面には一度も出ていない
+   *  メモがtxtにだけ漏れてしまう。 */
   getExportText(): string {
-    return this.store
-      .getActive()
+    const now = Date.now();
+    const rewindAt = this.rewindAt;
+    const candidates = rewindAt !== null ? this.store.getAll() : this.store.getActive();
+    return candidates
+      .filter((memo) => this.isMemoCurrentlyVisible(memo, rewindAt, now))
       .filter((memo) => memo.kind === "text")
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((memo) => memo.text)
       .filter((text) => text.trim().length > 0)
       .join("\n\n");
+  }
+
+  /** render()の可視性判定(rewindAt時点の不透明度・レンズ分割中の未帰属メモ
+   *  除外)を、書き出し以外からも再利用できるよう切り出したもの。 */
+  private isMemoCurrentlyVisible(memo: Memo, rewindAt: number | null, now: number): boolean {
+    if (this.lensSplitState && this.lensSplitState.lensIndexForMemo(memo) === null) return false;
+    if (memo.fadeExempt) return true;
+    const opacity = rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+    return opacity !== null && opacity > 0;
   }
 
   render(now: number): void {

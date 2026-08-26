@@ -1562,6 +1562,20 @@ body {
   outline: none;
 }
 
+/* --- 失敗時・ルーム未選択時のエラーだけをここに出す（.shared-statusと同じ
+   考え方）。空文字の間は<p>の既定marginごと消し、行として場所を取らない。 --- */
+.export-status {
+  margin: 4px 2px 0;
+  max-width: 200px;
+  font-size: var(--text-2xs);
+  color: var(--ink-50);
+  white-space: normal;
+}
+
+.export-status:empty {
+  display: none;
+}
+
 /* --- アカウント区画の統合でヘッダー最右端の要素になったため、他の
    .icon-popover（トリガーを中心に開く既定）と違い、右端をトリガーの右端に
    揃えて開く——中央寄せのままだと画面幅によらずポップオーバーの右側が
