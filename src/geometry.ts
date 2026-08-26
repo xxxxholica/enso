@@ -134,6 +134,19 @@ export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, cen
 }
 
 /**
+ * 単一レンズclamp（clampToCircle/clampToEllipse/clampToRoundedRectのいずれか、
+ * 原点中心のローカル座標前提）を、指定したcenterへ平行移動して適用する。
+ * clampToGlassesと違い「近い方のレンズを選ぶ」判定はしない——呼び出し側で
+ * 自分の担当レンズが既に一意に決まっている場合に使う（SMUIのレンズ分割表示、
+ * 自分の書き込みを自分のレンズ領域だけに制限する用途）。
+ */
+export function clampToOffsetLens(p: Point, lensClamp: (local: Point) => Point, center: Point): Point {
+  const local: Point = { x: p.x - center.x, y: p.y - center.y };
+  const clampedLocal = lensClamp(local);
+  return { x: clampedLocal.x + center.x, y: clampedLocal.y + center.y };
+}
+
+/**
  * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
  * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
  * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする

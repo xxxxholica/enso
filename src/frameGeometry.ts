@@ -19,6 +19,7 @@ import {
 import type { FrameShape, FrameShapeId } from "./frameShape";
 import { getFramePattern } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
+import { chooseLensSplitDirection, computeLensPairCenters } from "./lensSplit";
 import type { Point } from "./types";
 
 export interface FrameGeometryOptions {
@@ -50,7 +51,7 @@ export class FrameGeometry {
   private scaleValue = 0;
   private centerPxValue: Point = { x: 0, y: 0 };
   private contentScaleFactor: number | ((size: number) => number) | undefined;
-  private frameShapeId: FrameShapeId;
+  private frameShapeIdValue: FrameShapeId;
   private frameStrokeColor: string;
   private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
   /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
@@ -73,6 +74,14 @@ export class FrameGeometry {
    *  frameStrokeWidth（px）をその時のscaleで正規化単位に変換した値。
    *  rebuildFramePaths()で組み立て直す。 */
   private glassesBridgeHalfHeight = 0;
+  /** レンズ分割表示(共同アイデア出しフェーズ①、issue #79)が有効かどうか。
+   *  trueの間、resize()はGLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH
+   *  基準の単一ペアではなく、lensSplitPairCentersValueの3組ぶんを内包するサイズで
+   *  計算する。framePath/strokePathは変更しない（1組ぶんのローカル原点基準の
+   *  Path2Dのまま）——複数組化はcanvasView.ts側の描画ループで平行移動して使い回す。 */
+  private lensSplitEnabledValue = false;
+  /** レンズ分割時の3組の中心座標（正規化単位）。無効時はnull。 */
+  private lensSplitPairCentersValue: Point[] | null = null;
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -90,7 +99,7 @@ export class FrameGeometry {
     this.ctx = ctx;
     this.container = container;
     this.dpr = dpr;
-    this.frameShapeId = options.frameShapeId;
+    this.frameShapeIdValue = options.frameShapeId;
     this.frameStrokeColor = options.frameStrokeColor;
     this.frameStrokeWidthOption = options.frameStrokeWidth;
     this.frameKindValue = options.frameKind;
@@ -124,10 +133,29 @@ export class FrameGeometry {
     return this.frameKindValue;
   }
 
+  get frameShapeId(): FrameShapeId {
+    return this.frameShapeIdValue;
+  }
+
+  /** レンズ分割表示時の3組の中心座標（正規化単位）。無効時はnull。 */
+  get lensSplitPairCenters(): Point[] | null {
+    return this.lensSplitPairCentersValue;
+  }
+
   /** 今のframeKindに応じたフレーム形状を返す（"glasses"なら眼鏡形状ファミリー、
    *  "single"なら従来通りの単一形状）。 */
   currentShape(): FrameShape {
-    return this.frameKindValue === "glasses" ? getGlassesFrameShape(this.frameShapeId) : getFrameShape(this.frameShapeId);
+    return this.frameKindValue === "glasses"
+      ? getGlassesFrameShape(this.frameShapeIdValue)
+      : getFrameShape(this.frameShapeIdValue);
+  }
+
+  /** レンズ分割表示(共同アイデア出しフェーズ①)のON/OFFを切り替える。
+   *  変化があれば次のresize()でサイズ・lensSplitPairCentersを再計算する。 */
+  setLensSplitEnabled(enabled: boolean): void {
+    if (this.lensSplitEnabledValue === enabled) return;
+    this.lensSplitEnabledValue = enabled;
+    this.resize();
   }
 
   /** キャンバス要素自体は、利用可能な幅・高さいっぱいの矩形として広げる
@@ -166,7 +194,18 @@ export class FrameGeometry {
       // は画面全体に育つのに、実際の<canvas>要素は幅基準の低い高さのまま――という
       // ズレが生まれ、ズーム・パンしてもその低い高さの外（画面の上下）には
       // 絶対に届かなくなっていた（ユーザー指摘・実機確認済み）。
-      const aspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
+      // レンズ分割表示(issue #79)が有効なら、3組の中心座標を画面の縦横比から
+      // 計算し、それら全てを内包するサイズを基準にする——無効時はpairCentersが
+      // 原点1点だけの配列になり、outerX/outerYはGLASSES_HORIZONTAL_REACH_WITH_HINGE/
+      // GLASSES_VERTICAL_REACHと完全に一致する（既存の単一ペア計算と同じ結果になり、
+      // 回帰が無いようにする）。
+      const containerRect = this.container.getBoundingClientRect();
+      const pairCenters = this.lensSplitEnabledValue
+        ? computeLensPairCenters(chooseLensSplitDirection(containerRect.width, containerRect.height))
+        : [{ x: 0, y: 0 }];
+      const outerX = Math.max(...pairCenters.map((c) => Math.abs(c.x))) + GLASSES_HORIZONTAL_REACH_WITH_HINGE;
+      const outerY = Math.max(...pairCenters.map((c) => Math.abs(c.y))) + GLASSES_VERTICAL_REACH;
+      const aspectRatio = outerX / outerY;
       const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
       const containerSize = computeContainerSize(this.container);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
@@ -175,8 +214,8 @@ export class FrameGeometry {
       // 「確定済みの実寸」を基準にする。
       this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceHeight);
       const scale = Math.min(
-        computeAutoScale(referenceWidth, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
-        computeAutoScale(referenceHeight, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
+        computeAutoScale(referenceWidth, outerX, this.frameStrokeWidth),
+        computeAutoScale(referenceHeight, outerY, this.frameStrokeWidth)
       );
       this.canvas.style.width = `${containerSize.width}px`;
       this.canvas.style.height = `${containerSize.height}px`;
@@ -187,6 +226,7 @@ export class FrameGeometry {
         x: containerSize.width / 2,
         y: containerSize.height / 2 - computeChromeCenterOffsetY(),
       };
+      this.lensSplitPairCentersValue = this.lensSplitEnabledValue ? pairCenters : null;
     } else {
       const referenceSize =
         this.minCanvasSizePx !== undefined
@@ -204,6 +244,7 @@ export class FrameGeometry {
       );
       this.scaleValue = scale;
       this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY() };
+      this.lensSplitPairCentersValue = null;
     }
     this.rebuildFramePaths();
   }
@@ -255,7 +296,7 @@ export class FrameGeometry {
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
   setFrameShape(id: FrameShapeId): void {
-    this.frameShapeId = id;
+    this.frameShapeIdValue = id;
     // 動的計算時のscale自体はMAX_SHAPE_REACH基準で形状に関わらず一定だが、
     // クリップ境界・紙の塗り範囲（drawRuledPaperのfillHalfExtent）は形状ごとに
     // 異なるため、次のrender()で正しく反映されるようここでresize()して
@@ -318,7 +359,7 @@ export class FrameGeometry {
    *  見えてしまっていた（ユーザー指摘・実測確認済み）。strokePath自身の高さに
    *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
   drawGlassesBridgeBar(ctx: CanvasRenderingContext2D): void {
-    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeId, this.glassesBridgeHalfHeight);
+    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeIdValue, this.glassesBridgeHalfHeight);
     const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
     ctx.fillStyle = this.frameStyleValue;
     ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
