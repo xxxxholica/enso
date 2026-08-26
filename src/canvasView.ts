@@ -477,14 +477,30 @@ export class CircularCanvas {
     this.setEmptyStateVisible(show);
   }
 
-  /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
-   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
-  private toNormalized(clientX: number, clientY: number): Point {
+  /** 画面ピクセル座標 → 正規化座標（丸め込み前の生の値。円の半径・長方形の半辺を
+   *  1とする、中心が原点）。 */
+  private toRawPoint(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const scale = this.effectiveScale();
     const x = (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale;
     const y = (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale;
-    return this.frame.currentShape().clamp({ x, y });
+    return { x, y };
+  }
+
+  /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
+   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
+  private toNormalized(clientX: number, clientY: number): Point {
+    return this.frame.currentShape().clamp(this.toRawPoint(clientX, clientY));
+  }
+
+  /** 正規化座標上の点が、今選んでいるフレーム形状の輪郭の内側にあるか。
+   *  各形状のclamp()は境界の内側の点をそのまま（丸め込まずに）返すため、
+   *  clamp後の値が入力と一致するかどうかで内外判定できる——round/oval/square/
+   *  glassesいずれの形状にもこのまま使える（形状ごとに個別の内外判定を
+   *  用意する必要がない）。 */
+  private isInsideFrame(p: Point): boolean {
+    const clamped = this.frame.currentShape().clamp(p);
+    return clamped.x === p.x && clamped.y === p.y;
   }
 
   private scheduleSessionClose(): void {
@@ -542,7 +558,15 @@ export class CircularCanvas {
     this.activePointerId = ev.pointerId;
 
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
-    const p = this.toNormalized(ev.clientX, ev.clientY);
+    const raw = this.toRawPoint(ev.clientX, ev.clientY);
+    // フレーム形状の外側から始まった入力は、そのまま無視する（描画・消しゴム・
+    // なぞる・移動のいずれも開始しない）。activePointerIdはこの指のまま
+    // 残すため、この後に指が形状の内側へ移動してきてもmodeが"idle"のまま
+    // 変わらず、途中から描画が始まってしまうことはない——モバイル実機で
+    // 円の外からペン先が触れて円内へ動いた際、丸め込まれた円周上の点から
+    // 描画が始まったように見えてしまう不具合の修正（ユーザー報告）。
+    if (!this.isInsideFrame(raw)) return;
+    const p = this.frame.currentShape().clamp(raw);
 
     const tool = this.getToolState().tool;
 
