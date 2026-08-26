@@ -17,6 +17,8 @@ import type { Memo } from "./types";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
+import { LENS_COUNT } from "./lensSplit";
+import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
 import { ReviveInfoPill } from "./reviveInfoPill";
@@ -25,29 +27,6 @@ import { loadFramePattern, loadFrameShape } from "./storage";
 import type { TemplateId } from "./templates";
 import { DEFAULT_INK, type Toolbar } from "./toolbar";
 import { getCurrentUser } from "./authState";
-
-/**
- * フェーズ①(ideation)の色プール。参加者ごとに割り当てられたcolor_indexに
- * 対応する固定8色（dataviz色覚検証済みカテゴリカルパレット、色相だけを
- * 均等割りする方式から変更——validate_palette.jsで全ペアの色覚シミュレーション
- * を検定したところ、色相だけを回す方式は8色時点で既に見分けが困難なペアが
- * 出ることが判明したため、実際に検証済みの固定パレットに差し替えた）。
- * 参加人数の上限もこの8色に合わせて8人までに制限している(sessionPanel.ts)。
- */
-const PARTICIPANT_COLORS = [
-  "#2a78d6", // 青
-  "#eb6834", // 橙
-  "#1baf7a", // 水
-  "#eda100", // 黄
-  "#e87ba4", // 赤紫
-  "#008300", // 緑
-  "#4a3aa7", // 紫
-  "#e34948", // 赤
-];
-
-function colorForIndex(index: number): string {
-  return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length];
-}
 
 /** 眼鏡フレームの縁取りの色・太さ。通常キャンバスの薄い1px線より太いウェリントン
  *  風の見た目にする。太さはキャンバスの実サイズ（px）に対する比率で持たせる
@@ -206,6 +185,7 @@ export class SmuiView {
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
       this.lens.setVoteOnly(false);
+      this.lens.setLensSplit(null);
       return;
     }
     const isMaster = this.isRoomMaster();
@@ -215,18 +195,30 @@ export class SmuiView {
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(!isMaster);
       this.lens.setVoteOnly(false);
+      this.lens.setLensSplit(null);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
       this.toolbar.setOnlyToolEnabled(null);
-      this.lens.setLocked(false);
+      // レンズ枚数(LENS_COUNT=6)を超える7・8人目の参加者(色は割り当て済みだが
+      // 6以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
+      // 製品判断。maxParticipants自体は8のまま変更しない）。myColorIndexが
+      // そもそもnull（色プール自体が枯渇——maxParticipantsを超えて参加した場合）
+      // は、このレンズ分割とは無関係の既存の別経路なので従来通り自由に書ける
+      // ままにする（回帰させない）。
+      const myLensIndex =
+        this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
+      const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
+      this.lens.setLocked(isOverflowLensParticipant);
       this.lens.setVoteOnly(false);
+      this.lens.setLensSplit(myLensIndex !== null ? { myLensIndex, lensIndexForMemo: (memo) => lensIndexForColor(memo.color) } : null);
     } else {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled("move");
       this.lens.setLocked(false);
       this.lens.setVoteOnly(true);
+      this.lens.setLensSplit(null);
     }
   }
 
@@ -445,6 +437,14 @@ export class SmuiView {
   private startSessionForCurrentRoom(options: StartSessionOptions): void {
     const id = this.selectedRoomId;
     if (!id) return;
+    // フェーズ①はレンズ分割表示になり、参加者色と一致しないメモ（セッション開始前に
+    // 自由に書かれていたもの等）は一時的に非表示になる（issue #79、ユーザー確認済みの
+    // 製品判断）——開始前にルームマスターへ明示しておく。フェーズ②③に進めば
+    // 単一ビューに戻り、これらのメモも普通に見えるようになる。
+    const confirmed = window.confirm(
+      "アイデア出しを開始します。参加者の色と一致しないメモ（事前の下書き等）は、アイデア出し中は一時的に非表示になります。よろしいですか？"
+    );
+    if (!confirmed) return;
     void startSession(id, options)
       .then((session) => this.applySession(session))
       .catch((e) => console.error("[smuiView] session start failed", e));
