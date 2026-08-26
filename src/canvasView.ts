@@ -257,6 +257,14 @@ export class CircularCanvas {
    *  実際に消している最中（mode==="erasing"）のカーソル表示はstate.lastPoint
    *  を使う既存の仕組みのままなので、ここでは触らない。 */
   private eraserHoverPoint: Point | null = null;
+  /** 今の1回のジェスチャー（1回のドラッグでの描画・消去・移動・振り回し、
+   *  または1回のテキスト編集セッション）の中で、undo履歴用のスナップショット
+   *  （store.snapshotForUndo()）を既に積んだかどうか（issue #89）。
+   *  onPointerDown・openTextEditorでfalseに戻し、ジェスチャー中で最初に
+   *  ストアを書き換える直前だけtrueにして呼ぶ——ポインタが動くたびに何度も
+   *  積んでしまうと、1回のドラッグが何十もの細かいundoステップに分かれて
+   *  しまうため。 */
+  private undoSnapshotTaken = false;
   /** 1本指ジェスチャー（描画・消しゴム・なぞる・移動）を今進行させている
    *  ポインタのid（nullなら未使用）。キャンバス要素上のpointerdownでのみ
    *  設定される——ピンチ中はbeginPinch()がnullに戻し、以後の1本指ジェス
@@ -521,6 +529,15 @@ export class CircularCanvas {
     this.state.idleTimer = null;
   }
 
+  /** 今のジェスチャーで初めてストアを書き換える直前に呼ぶ（issue #89のundo/
+   *  redo）。同じジェスチャー中の2回目以降の呼び出しは何もしない
+   *  （undoSnapshotTakenのコメント参照）。 */
+  private ensureUndoSnapshot(): void {
+    if (this.undoSnapshotTaken) return;
+    this.undoSnapshotTaken = true;
+    this.store.snapshotForUndo();
+  }
+
   private hitTestMemo(p: Point): Memo | null {
     const threshold = HIT_THRESHOLD_PX / this.effectiveScale();
     for (const memo of this.store.getActive()) {
@@ -569,10 +586,13 @@ export class CircularCanvas {
     const p = this.frame.currentShape().clamp(raw);
 
     const tool = this.getToolState().tool;
+    // 新しいジェスチャーの開始（issue #89のundo/redo、undoSnapshotTaken参照）。
+    this.undoSnapshotTaken = false;
 
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
+      this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
     }
@@ -603,6 +623,7 @@ export class CircularCanvas {
         this.state.mode = "tracing";
         this.state.tracingMemoId = hitMemo.id;
         this.state.lastPoint = p;
+        this.ensureUndoSnapshot();
         this.store.reviveMemo(hitMemo.id);
         this.tracedMemoIdsThisGesture.add(hitMemo.id);
       }
@@ -623,6 +644,7 @@ export class CircularCanvas {
     // ペン・マーカー：既存メモの上に重なっても常に新規描画のみを行う
     // （なぞって復活はしない——なぞる操作は専用の「なぞる」道具に分離した）。
     this.state.mode = "drawing";
+    this.ensureUndoSnapshot();
     if (this.state.activeMemoId) {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
@@ -785,6 +807,10 @@ export class CircularCanvas {
    */
   private openTextEditor(anchor: Point, editingMemo: TextMemo | null = null, initialText?: string): void {
     if (this.textEditor) return;
+    // 新しいジェスチャー（1回のテキスト編集セッション）の開始（issue #89の
+    // undo/redo、undoSnapshotTaken参照）。Escapeで取り消した場合はストアを
+    // 一切書き換えないため、スナップショットも積まれない。
+    this.undoSnapshotTaken = false;
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
@@ -925,12 +951,14 @@ export class CircularCanvas {
 
       if (editingMemo) {
         if (!value) {
+          this.ensureUndoSnapshot();
           this.store.deleteMemo(editingMemo.id);
           return;
         }
         const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
         const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
         const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
+        this.ensureUndoSnapshot();
         this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
         return;
       }
@@ -939,6 +967,7 @@ export class CircularCanvas {
       const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
       const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
       const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
+      this.ensureUndoSnapshot();
       this.store.createTextMemo(anchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
     };
     el.addEventListener("blur", commit);
@@ -1036,11 +1065,16 @@ export class CircularCanvas {
       if (hitMemo) {
         this.state.tracingMemoId = hitMemo.id;
         if (!this.tracedMemoIdsThisGesture.has(hitMemo.id)) {
+          this.ensureUndoSnapshot();
           this.store.reviveMemo(hitMemo.id);
           this.tracedMemoIdsThisGesture.add(hitMemo.id);
         }
       }
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
+      // updateRotationGestureは内部でstore.nudgeMemoClockを呼び得るため、
+      // このジェスチャーで最初にストアを書き換わる可能性がある処理より前で
+      // スナップショットを取る（ensureUndoSnapshotのコメント参照）。
+      this.ensureUndoSnapshot();
       this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
       const dx = p.x - this.state.lastPoint.x;
       const dy = p.y - this.state.lastPoint.y;
@@ -1048,6 +1082,7 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
+      this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
@@ -1159,15 +1194,31 @@ export class CircularCanvas {
     this.repositionTextEditor?.();
   };
 
+  /**
+   * issue #89: PC版でCtrl+Z（Cmd+Z）による直前操作の取り消し（undo）、
+   * Ctrl+Shift+Z（Cmd+Shift+Z）によるやり直し（redo）を使えるようにする。
+   * 印字可能キー1文字での新規テキストメモ作成（下記）と同じ関数にまとめ、
+   * 「今表示中のタブのキャンバスか」「他の入力欄にフォーカスが無いか」の
+   * ガードを共有する——ルーム名の入力欄などにフォーカスがある間は、ブラウザ
+   * 標準のundoを横取りしないよう素通りする。
+   */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
     if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
+    if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     const active = document.activeElement;
-    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active as HTMLElement | null)?.isContentEditable) {
+    const isEditableFocus =
+      active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active as HTMLElement | null)?.isContentEditable;
+
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "z" && !isEditableFocus) {
+      ev.preventDefault();
+      if (ev.shiftKey) this.store.redo();
+      else this.store.undo();
       return;
     }
-    if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
+
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
+    if (isEditableFocus) return;
     ev.preventDefault();
     this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
   };
