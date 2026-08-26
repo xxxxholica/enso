@@ -757,11 +757,16 @@ export class CircularCanvas {
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
-   *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
-   *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
-   *  （onGlobalPointerDownのコメント参照）。触れている指がTAP_MAX_MOVEMENT_PX
-   *  を超えて動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上の指を
+   *  追跡している間は道具に関わらず常にev.preventDefault()し続ける——2本目の
+   *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
+   *  以前は選択ツールでのピンチ中(mode==="pinching")に限っていたが、それ以外の
+   *  道具では2本目以降の指の動きをSafari純正のジェスチャー（ダブルタップ/
+   *  マルチタッチでのズーム等）が横取りしてしまい、指の位置がブレて複数指
+   *  タップ（issue #90）の判定まで狂う不具合になっていた（ユーザー報告・
+   *  実機Safariで再現確認）。触れている指がTAP_MAX_MOVEMENT_PXを超えて
+   *  動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
    *  （ドラッグ・ピンチとして進行する）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
     const tracked = this.pinchPointers.get(ev.pointerId);
@@ -770,8 +775,10 @@ export class CircularCanvas {
     if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
       this.tapGestureValid = false;
     }
-    if (this.state.mode === "pinching") {
+    if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
+    }
+    if (this.state.mode === "pinching") {
       this.updatePinch();
     }
   };
@@ -784,6 +791,14 @@ export class CircularCanvas {
    *  マルチタッチ全体がタップだったとみなして後始末する。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
+    // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
+    // 間隔（touchend/pointerupのタイミング）で判定される——onGlobalPointerMove
+    // 側のpreventDefault()（指が動く間だけ効く）では止められないため、こちらも
+    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する
+    // （複数指タップ自体がSafari純正のズームと誤認されないようにするため。
+    // ユーザー報告・実機Safariで再現確認：3本指タップを2回繰り返すと時々
+    // ズームしてしまっていた）。
+    if (this.tapGesturePeakCount >= 2) ev.preventDefault();
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
