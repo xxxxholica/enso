@@ -530,6 +530,20 @@ body {
   opacity: 0.4;
 }
 
+/* --- モバイルでキーボード直上に固定表示される入力欄（issue #87、
+   canvasView.isEditingTextFixedBottom()/smuiView.isEditingTextFixedBottom()
+   参照）は、.text-editor-overlay--fixed-bottomとして不透明なカードで
+   ツールバーとほぼ同じ場所に重なって表示される。上のis-zoomedのような
+   半透明の薄がけだと、カードの外側からツールバーの一部だけ透けて中途半端に
+   見えてしまうため、この間はツールバーごと完全に隠す（操作もできなくする）
+   ——「今は入力に集中するモード」であることを見た目からも明確にする
+   （ユーザー指示）。.app-footerに既にあるtransition: opacityでフェード
+   イン・アウトする。 --- */
+#app.is-editing-text-mobile .app-footer {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* --- 下部の操作パネル。ツール選択・ツールの詳細・時間選択という機能ごとの
    3ブロックを横並びに置くための、レイアウトだけのコンテナ。ブロックそれぞれが
    .control-block（枠線＋背景付き）として見た目を持つため、それらをまとめて包む

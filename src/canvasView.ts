@@ -1515,6 +1515,14 @@ export class CircularCanvas {
     return this.viewZoom > MIN_ZOOM;
   }
 
+  /** キーボード直上に固定表示中（issue #87、pointer:coarse時の
+   *  text-editor-overlay--fixed-bottom）か。main.tsがこの間ツールバーを
+   *  隠すかどうかの判定に使う——入力欄がツールバーとほぼ同じ場所に不透明な
+   *  カードとして重なって表示されるため（ユーザー指示）。 */
+  isEditingTextFixedBottom(): boolean {
+    return this.textEditor?.classList.contains("text-editor-overlay--fixed-bottom") ?? false;
+  }
+
   /** 現在のフレームと殴り書きを、余白とロゴを含む正方形PNGへする。 */
   async createExportImage(): Promise<Blob> {
     this.finishTextEditingIfOpen();
