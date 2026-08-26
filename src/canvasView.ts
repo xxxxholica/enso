@@ -6,7 +6,7 @@ import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, pointNearStrokes } from "./geometry";
-import { drawRadialGlow, renderHeatGlow, renderMemoAt } from "./memoRenderer";
+import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
 import { currentReviveInfoTarget } from "./reviveInfoTarget";
@@ -37,6 +37,14 @@ const EMPTY_STATE_OFFSET_Y = 0.32;
  *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
+
+/** 投票フェーズ中、相対密度が最も低い(0)メモでもインクが完全には薄くなり
+ *  切らないための下限——確定前のアイデアが読めなくなるほど薄まるのを防ぐ
+ *  （確定後(fadeExempt)はこの下限を適用せず、0まで薄くなり得る＝従来通り）。 */
+const VOTING_DENSITY_OPACITY_FLOOR = 0.3;
+/** displayDensityが目標値に追いつく速さ。この時間が経つごとに、残りの差の
+ *  半分だけ縮まる（フレームレートに依存しない指数イージング）。 */
+const DENSITY_EASE_HALF_LIFE_MS = 300;
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -284,6 +292,20 @@ export class CircularCanvas {
    *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
    *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
   private locked = false;
+  /** 共同アイデア出しセッションのフェーズ③(投票)で、ルームマスター以外の
+   *  参加者を「なぞる」道具での投票ジェスチャーだけに絞るためのロック
+   *  （issue #79：非マスターがペン等で描画・消去・移動できてしまっていた
+   *  不具合の修正）。lockedと違い、なぞる操作の開始（onPointerDown内の
+   *  tracing突入）だけは通す——投票の回転はこの後に始まるtracingから
+   *  続くため。 */
+  private voteOnly = false;
+  /** 投票フェーズの相対密度（人気度）を、メモの色の濃さへ滑らかに反映させる
+   *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/maxHeatや
+   *  frozenDensity)が変わっても瞬時に飛ばず、render()のたびに少しずつ
+   *  追いつかせることで、投票が増える・確定するたびの見た目の変化を
+   *  なめらかにする（issue #79、熱グローに代わる表現）。 */
+  private displayDensity = new Map<string, number>();
+  private lastDensityFrameAt: number | null = null;
 
   constructor(
     container: HTMLElement,
@@ -403,6 +425,15 @@ export class CircularCanvas {
    *  （onPointerDown参照）。 */
   setLocked(locked: boolean): void {
     this.locked = locked;
+  }
+
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ③(投票)で
+   *  ルームマスター以外の参加者を「なぞる」道具での投票ジェスチャーだけに
+   *  絞るために呼ぶ（smuiView.ts）。setLockedと同時にはtrueにしない
+   *  ——setLocked(true)は新しい操作の開始そのものを一括で止めるため、
+   *  投票の「なぞる」も道連れに止まってしまう。 */
+  setVoteOnly(voteOnly: boolean): void {
+    this.voteOnly = voteOnly;
   }
 
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
@@ -527,6 +558,10 @@ export class CircularCanvas {
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
     if (this.rewindAt !== null || this.locked) return; // 過去を遡って見ている間・ロック中は描画・操作を受け付けない
+    // 投票専用ロック中は、「なぞる」以外の道具（ペン・消しゴム・移動・テキスト）
+    // では何も始めない——投票フェーズの操作は掴んで回す(tracing)ジェスチャー
+    // だけに絞る（issue #79：非マスターがペンで描画できてしまっていた不具合）。
+    if (this.voteOnly && this.getToolState().tool !== "trace") return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
@@ -1136,7 +1171,7 @@ export class CircularCanvas {
   };
 
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.locked || this.voteOnly || this.textEditor || this.state.mode !== "idle") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
     const active = document.activeElement;
@@ -1157,6 +1192,13 @@ export class CircularCanvas {
     const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
     if (!target) return null;
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
+
+  /** 上と同じ対象（なぞる/移動で実際に触れている、またはPCでホバーしている
+   *  メモ）のIDだけを返す。投票フェーズ中、smuiView.tsが残り時間の代わりに
+   *  支持率(%)を出すために使う（issue #79）。 */
+  getHoverMemoId(): string | null {
+    return currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint)?.memoId ?? null;
   }
 
   /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
@@ -1231,7 +1273,7 @@ export class CircularCanvas {
     }
 
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
-    // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
+    // 専用インスタンス）ため、このループは自然に何もしない。
     const activeMemos = this.store.getActive();
     // 遡り中（rewindAt !== null）は、消滅済みメモも含めた全メモを対象に、
     // traceHistoryから過去の時刻tにおける不透明度を再現する（旧ArchiveViewの
@@ -1242,18 +1284,42 @@ export class CircularCanvas {
     // fadeExempt済み(既に確定済み)のメモは母集団から除く——バックエンドの
     // endSession()と同じ考え方（多重セッションで確定済み密度を歪めないため）。
     const maxHeat = Math.max(1, ...memosToRender.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
+    // 投票フェーズが今まさに進行中かどうか（rotationVoteHandlerはvotingの
+    // 間だけ設定されるため、これをそのまま流用する）。
+    const votingActive = this.rotationVoteHandler !== null;
+    const dtMs = this.lastDensityFrameAt === null ? 0 : Math.max(0, now - this.lastDensityFrameAt);
+    this.lastDensityFrameAt = now;
+    const densityEase = dtMs > 0 ? 1 - Math.pow(0.5, dtMs / DENSITY_EASE_HALF_LIFE_MS) : 1;
+    const seenMemoIds = new Set<string>();
     for (const memo of memosToRender) {
-      // 投票フェーズで確定した(fadeExempt)メモは、遡り表示中であっても常に確定した
-      // 濃さのまま——時間経過フェードから恒久的に外れているという仕様のため。
-      const opacity = memo.fadeExempt
-        ? memo.frozenDensity ?? 1
-        : rewindAt !== null
-          ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt)
-          : this.store.opacityOf(memo, now);
-      if (opacity === null || opacity <= 0) continue;
-      const relativeDensity = memo.fadeExempt ? (memo.frozenDensity ?? 0) : (memo.heat ?? 0) / maxHeat;
-      if (relativeDensity > 0) renderHeatGlow(ctx, memo, r, relativeDensity);
-      renderMemoAt(ctx, memo, r, opacity);
+      seenMemoIds.add(memo.id);
+      // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
+      // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
+      // 密度による見た目の変化を適用しない(=1)。
+      const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
+      const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
+      const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
+      this.displayDensity.set(memo.id, displayDensity);
+
+      if (memo.fadeExempt) {
+        // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
+        // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
+        // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
+        renderMemoAt(ctx, memo, r, displayDensity);
+        continue;
+      }
+      const baseOpacity =
+        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+      if (baseOpacity === null || baseOpacity <= 0) continue;
+      // 投票フェーズ中は、人気度(displayDensity)に応じてインクの濃さ自体を
+      // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
+      // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
+      const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
+      renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+    }
+    // 描画対象から外れたメモの補間状態は溜め込まない。
+    for (const id of this.displayDensity.keys()) {
+      if (!seenMemoIds.has(id)) this.displayDensity.delete(id);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";

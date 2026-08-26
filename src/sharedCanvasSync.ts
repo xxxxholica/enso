@@ -1,32 +1,30 @@
 import { getSharedCanvas, saveSharedCanvas } from "./sharedCanvas";
-import type { SharedCanvasDetail } from "./sharedCanvas";
+import type { SessionState, SharedCanvasDetail } from "./sharedCanvas";
 import type { Memo } from "./types";
 
-/** ポーリング/WS経由の変更検知で見るべき部分だけを取り出す。session・ownerId等は
- *  この仕組みでは扱わない（sessionは別経路、ownerIdは実質不変のため）。 */
+/** GET経由の変更検知で見るべき部分だけを取り出す。ownerId等は対象外
+ *  （実質不変のため）。sessionは別途onSessionSeenで毎回渡すためここでは扱わない。 */
 function syncKey(detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId">): string {
   return JSON.stringify({ memos: detail.memos, frameShapeId: detail.frameShapeId, framePatternId: detail.framePatternId });
 }
 
 const PUSH_DEBOUNCE_MS = 2000;
-// サーバー(index.js)のWebSocket通知（realtimeSync.ts経由）でほぼ即座に
-// 変更を検知できるようになったため、ポーリングは「通知を取りこぼした場合の
-// 保険」という位置づけに下げてよく、間隔を伸ばしてサーバー負荷を減らす。
-export const SHARED_POLL_INTERVAL_MS = 15000;
 
 /**
  * 1つのルーム（共有キャンバス）に対する、書き込み(PUT)のデバウンス送信と、
- * 他メンバーの変更取り込みをまとめて担う。取り込みは主にWebSocket通知
- * （realtimeSync.tsが受け取り、SmuiView経由でpollNow()を呼ぶ）で即座に
- * 行い、定期ポーリング(GET)は通知の取りこぼしに備えた保険として残す
- * ——本格的な競合解決はせず、最後に保存した内容が勝つ単純な方式（cloudSync.tsの
- * 個人キャンバス向け同期と同じ考え方）。
+ * 他メンバーの変更取り込みをまとめて担う。取り込みはWebSocket通知
+ * （realtimeSync.tsが受け取り、SmuiView経由でpollNow()を呼ぶ）と、
+ * 再接続直後のresync（同じくpollNow()経由）でのみ行う——定期ポーリングは
+ * 持たない（WS接続が生きている間はメッセージを取りこぼさないため、保険は
+ * 「再接続の瞬間に取得し直す」だけで足りる、issue #79）。本格的な競合解決は
+ * せず、最後に保存した内容が勝つ単純な方式（cloudSync.tsの個人キャンバス
+ * 向け同期と同じ考え方）。
  */
 export class SharedRoomSync {
   private id: string;
   private onRemoteChange: (detail: SharedCanvasDetail) => void;
+  private onSessionSeen: (session: SessionState | null) => void;
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
-  private pollTimer: ReturnType<typeof setInterval> | undefined;
   private pushInFlight = false;
   /** poll()の多重実行防止。WebSocket通知は短時間に連続で届き得るため、
    *  前回のGETがまだ終わっていない間に来た通知は無視する（schedulePush側の
@@ -42,9 +40,14 @@ export class SharedRoomSync {
   private lastFrameShapeId: SharedCanvasDetail["frameShapeId"] = null;
   private lastFramePatternId: SharedCanvasDetail["framePatternId"] = null;
 
-  constructor(id: string, onRemoteChange: (detail: SharedCanvasDetail) => void) {
+  constructor(
+    id: string,
+    onRemoteChange: (detail: SharedCanvasDetail) => void,
+    onSessionSeen: (session: SessionState | null) => void
+  ) {
     this.id = id;
     this.onRemoteChange = onRemoteChange;
+    this.onSessionSeen = onSessionSeen;
   }
 
   /** 初回ハイドレート直後など、今の内容をpush不要の「同期済み」として記録しておく。 */
@@ -54,43 +57,18 @@ export class SharedRoomSync {
     this.lastFramePatternId = detail.framePatternId;
   }
 
-  /** ルームに接続した直後の初回開始。 */
-  start(): void {
-    this.resumePolling();
-  }
-
   /** ルームを離れる／切り替える時の完全停止。デバウンス中の未送信pushも
-   *  破棄する——ここで待たずに確実に止める（SMUIの「共有」タブを離れる程度の
-   *  操作でデータを失いたくない場合は、代わりにpausePolling/resumePollingを使う）。 */
+   *  破棄する——ここで待たずに確実に止める。 */
   stop(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.pushTimer) clearTimeout(this.pushTimer);
-    this.pollTimer = undefined;
     this.pushTimer = undefined;
-  }
-
-  /** 「共有」タブを離れている間だけポーリングを止める（画面に映らない間、
-   *  4秒おきのGETを続けても無駄なため）。デバウンス中のpushはそのまま
-   *  進行させる——タブを離れただけで未保存の編集を失いたくないため。 */
-  pausePolling(): void {
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = undefined;
-  }
-
-  /** 「共有」タブに戻った時にポーリングを再開する。既に動いていれば何もしない
-   *  （二重にsetIntervalしてしまい古い方のハンドルを見失うのを防ぐ）。 */
-  resumePolling(): void {
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => void this.poll(), SHARED_POLL_INTERVAL_MS);
   }
 
   private hasPendingLocalChanges(): boolean {
     return this.pushTimer !== undefined || this.pushInFlight;
   }
 
-  /** WebSocketで「変わった」通知を受け取った時に、次の定期ポーリングを
-   *  待たずすぐ取得し直す。通知が来ない環境（再接続中など）でも定期
-   *  ポーリング自体は動き続けるので、こちらは無くても壊れない「保険の上乗せ」。
+  /** WebSocketの「変わった」通知、または再接続直後のresyncで呼ぶ。
    *  force=trueは、ローカルの未送信push(hasPendingLocalChanges)があっても
    *  待たせず取得する——投票フェーズ終了直後、確定したfadeExempt/frozenDensity
    *  をすぐ反映させたい呼び出し元(smuiView.ts)用。heat/fadeExempt/frozenDensity
@@ -127,6 +105,10 @@ export class SharedRoomSync {
     this.pollInFlight = true;
     try {
       const detail = await getSharedCanvas(this.id);
+      // sessionはmemos/frameの変化と無関係に、取得するたびに毎回通知する
+      // （WS通知の取りこぼし時にセッションのフェーズ状態を復旧できるのは
+      // この経路だけのため、syncKeyの差分判定の対象外にしてある）。
+      this.onSessionSeen(detail.session);
       const json = syncKey(detail);
       if (json === this.lastSyncedJson) return;
       this.lastSyncedJson = json;

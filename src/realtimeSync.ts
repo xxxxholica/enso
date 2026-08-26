@@ -4,6 +4,13 @@ import type { SessionState } from "./sharedCanvas";
 /**
  * 個人キャンバス・共有キャンバスの両方で使う、単一のWebSocket接続。
  *
+ * 再接続時のresync: 接続が生きている間はWebSocketメッセージの順序も到達も
+ * 保証されるため、通知を取りこぼすとしたら「接続が切れて再接続するまでの間」
+ * だけである。したがって定期ポーリングという「保険」を持たせる代わりに、
+ * 再接続が成立した瞬間に呼び出し側へonReconnectedを1回だけ通知し、その時点の
+ * 状態をGETで取得し直させる方式に統一する（個人・共有キャンバス双方、
+ * issue #79）。初回接続時は呼ばない（呼び出し側が別途初期ロードを行うため）。
+ *
  * サーバー(api.onunu.me)は変更内容そのものを流すのではなく、
  * 「変わったよ」という軽い通知だけを送ってくる。個人キャンバスの変更は
  * canvasIdを持たない{ type: "changed" }、共有キャンバス（ルーム）の変更は
@@ -63,7 +70,10 @@ export function connectRealtimeSync(
   // 投票フェーズ中、熱量が変わるたびに届く軽量な通知。フルGETを挟まず、
   // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
   // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
-  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void
+  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void,
+  // 再接続が成立した瞬間に1回だけ呼ぶ。初回接続では呼ばない
+  // （呼び出し側の初期ロードと重複するため）。
+  onReconnected: () => void
 ): RealtimeSyncHandle {
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -71,6 +81,7 @@ export function connectRealtimeSync(
   let closed = false;
   let pendingRoomId: string | null = null;
   let disconnectTimestamps: number[] = [];
+  let hasConnectedBefore = false;
 
   /** 切断のたびに呼ぶ。直近FLAP_WINDOW_MS以内の切断回数がFLAP_THRESHOLD以上
    *  ならフラッピングとみなしtrueを返す。 */
@@ -102,6 +113,8 @@ export function connectRealtimeSync(
       reconnectDelay = RECONNECT_BASE_MS;
       console.log("[realtimeSync] connected");
       sendSubscribe(ws);
+      if (hasConnectedBefore) onReconnected();
+      hasConnectedBefore = true;
     });
 
     ws.addEventListener("message", (event) => {

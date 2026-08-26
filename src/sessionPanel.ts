@@ -3,7 +3,7 @@ import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import type { SessionState, StartSessionOptions } from "./sharedCanvas";
 
-const PHASE_LABEL: Record<SessionState["phase"], string> = {
+export const PHASE_LABEL: Record<SessionState["phase"], string> = {
   ideation: "アイデア出し",
   discussion: "議論",
   voting: "採択・絞り込み",
@@ -128,7 +128,10 @@ export class SessionPanel {
     advanceBtn.type = "button";
     advanceBtn.className = "pill-btn";
     advanceBtn.textContent = "次のフェーズへ";
-    advanceBtn.addEventListener("click", () => this.callbacks.onAdvance());
+    advanceBtn.addEventListener("click", () => {
+      this.callbacks.onAdvance();
+      this.close();
+    });
     const extendBtn = document.createElement("button");
     extendBtn.type = "button";
     extendBtn.className = "pill-btn";

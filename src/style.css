@@ -1180,6 +1180,36 @@ body {
   font-weight: 600;
 }
 
+/* ルームのセッション状態バッジ(issue #79)。取得できるまでhiddenのまま。 */
+.shared-room-status-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  color: var(--ink-50);
+  background: var(--paper-2);
+  border: 1px solid var(--ink-12);
+}
+
+.shared-room-status-badge[data-status="active"] {
+  color: var(--paper-1);
+  background: var(--accent-blue);
+  border-color: transparent;
+}
+
+.shared-room-status-badge[data-status="ended"] {
+  color: var(--ink-60);
+  background: var(--paper-3);
+}
+
+.shared-room-status-badge[data-status="not-started"] {
+  color: var(--ink-40);
+  background: transparent;
+}
+
 /* 「…」操作メニュートリガー。PCではホバーするまで見えないようにして
    見える要素を増やさない（ユーザー指示）。タッチ（hover非対応）では
    このメディアクエリ自体が当たらないため常に非表示のままで良い
@@ -2145,4 +2175,113 @@ body {
 
 .tutorial-sandbox-skip {
   color: var(--ink-40);
+}
+
+/* --- フェーズ切り替えの「カットイン」演出 (issue #79) -------------------
+   共同アイデア出しセッションのフェーズが切り替わった瞬間、格闘ゲーム風の
+   帯+フラッシュで「アイデア出し開始」等を一瞬だけ大きく見せる。
+   phaseCutIn.tsが呼ぶたびに.phase-cutinを1つ生成し、アニメーション終了で
+   自分自身を消す（使い捨てのDOM）。 --- */
+.phase-cutin {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phase-cutin-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--paper-1);
+  opacity: 0;
+  animation: phase-cutin-flash 0.5s ease-out forwards;
+}
+
+.phase-cutin-band {
+  position: absolute;
+  left: -15%;
+  right: -15%;
+  height: 22%;
+  min-height: 84px;
+  background: var(--ink-solid);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-130%) skewY(-3deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: phase-cutin-band 1s cubic-bezier(0.22, 0.9, 0.24, 1) forwards;
+}
+
+.phase-cutin-text {
+  font-family: "Klee One", "Noto Sans JP", sans-serif;
+  font-weight: 600;
+  font-size: clamp(28px, 5.5vw, 56px);
+  letter-spacing: 0.06em;
+  color: var(--paper-1);
+  white-space: nowrap;
+  transform: skewY(3deg) translateX(-24px);
+  opacity: 0;
+  animation: phase-cutin-text 0.6s ease-out 0.18s forwards;
+}
+
+@keyframes phase-cutin-flash {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes phase-cutin-band {
+  0% {
+    transform: translateX(-130%) skewY(-3deg);
+  }
+  22% {
+    transform: translateX(0%) skewY(-3deg);
+  }
+  72% {
+    transform: translateX(0%) skewY(-3deg);
+  }
+  100% {
+    transform: translateX(130%) skewY(-3deg);
+  }
+}
+
+@keyframes phase-cutin-text {
+  0% {
+    opacity: 0;
+    transform: skewY(3deg) translateX(-24px);
+  }
+  18% {
+    opacity: 1;
+    transform: skewY(3deg) translateX(0);
+  }
+  70% {
+    opacity: 1;
+    transform: skewY(3deg) translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: skewY(3deg) translateX(20px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-cutin-flash,
+  .phase-cutin-band,
+  .phase-cutin-text {
+    animation: none;
+  }
+  .phase-cutin-band {
+    transform: skewY(0deg);
+  }
+  .phase-cutin-text {
+    opacity: 1;
+    transform: none;
+  }
 }

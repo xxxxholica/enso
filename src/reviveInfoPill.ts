@@ -27,4 +27,18 @@ export class ReviveInfoPill {
     this.el.hidden = false;
     this.el.textContent = `残り時間 ${formatDurationJa(remainingMs)}`;
   }
+
+  /** 投票フェーズ中はこちらに切り替える（smuiView.ts）。「残り時間」は
+   *  個人のメモが消えるまでの猶予であって投票中に見たい情報ではなく、
+   *  共有ビューなのに個人向けの文言がそのまま出てしまっていた
+   *  （issue #79：ユーザー指摘）ため、ホバー中のメモの相対的な支持率(%)を
+   *  同じ場所に出す。percentがnullなら隠す。 */
+  updateSupport(percent: number | null): void {
+    if (percent === null) {
+      this.el.hidden = true;
+      return;
+    }
+    this.el.hidden = false;
+    this.el.textContent = `支持率 ${percent}%`;
+  }
 }

@@ -142,6 +142,11 @@ export class Toolbar {
   private customSwatchBtn!: HTMLButtonElement;
   private colorInput!: HTMLInputElement;
   private swatchRow!: HTMLElement;
+  /** setColorLocked参照。syncSwatch()がtoolの種類だけを見てdisabledを
+   *  決め直してしまうと、道具を切り替えるたびにこのロックが解除されて
+   *  しまっていた（issue #79：参加者の色制限が見た目にも実際にも効かなく
+   *  なる不具合）ため、syncSwatch()側でもこの状態を毎回加味する。 */
+  private colorLocked = false;
   /** カスタムスワッチ（4つ目）で一度でも選んだ色。GoodNotes同様、選んだ色は
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
@@ -436,7 +441,7 @@ export class Toolbar {
    *  ため、グレーアウトのまま残すと3段階ボタンの隣に無意味な色パレットが
    *  居座って見える（ユーザー指摘：消しゴムでは色の固定部分を表示しないでほしい）。 */
   private syncSwatch(): void {
-    const enabled = this.tool === "pen" || this.tool === "marker" || this.tool === "text";
+    const enabled = (this.tool === "pen" || this.tool === "marker" || this.tool === "text") && !this.colorLocked;
     this.swatchRow.hidden = this.tool === "eraser";
     const presets = this.activePresetInks();
     const color = this.getColor();
@@ -483,8 +488,7 @@ export class Toolbar {
    * （誤操作防止、ユーザーが「押したのに変わらない」と混乱しないため）。
    */
   setColorLocked(locked: boolean): void {
-    for (const btn of this.presetButtons) btn.disabled = locked;
-    this.customSwatchBtn.disabled = locked;
-    this.colorInput.disabled = locked;
+    this.colorLocked = locked;
+    this.syncSwatch();
   }
 }
