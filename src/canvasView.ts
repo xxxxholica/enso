@@ -84,6 +84,24 @@ const WRITING_SESSION_IDLE_MS = 1400;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
+/**
+ * モバイルの複数指タップ（issue #90：2本指=直前の操作の取り消し(undo)、
+ * 3本指=やり直し(redo)、GoodNotes等のノートアプリで一般的なジェスチャー）
+ * の判定に使うしきい値。ピンチズームは「選択」道具の間だけ始まる
+ * （beginPinch/onGlobalPointerDownのコメント参照）が、複数指タップの判定
+ * 自体は道具に関わらず常に行う——undo/redoはどの道具を選んでいても使いたい
+ * 操作のため。
+ * TAP_MAX_MOVEMENT_PXは、指が触れてから離れるまでの間にこれを超えて動いたら
+ * 「タップ」ではなくドラッグ（ピンチ・パン、または各道具の通常操作）とみなす。
+ * TAP_MAX_DURATION_MSは、この一連のマルチタッチ（最初の指が触れてから、
+ * 関わった指が全て離れるまで）の最大時間（ms）——長押しや、1本の指で長く
+ * 描き続けている間に別の指が一瞬触れた、といったケースはタップとみなさない
+ * （後者は、最後まで描き続けているその指自体がこの時間を超えるため自然に
+ * 除外される）。
+ */
+const TAP_MAX_MOVEMENT_PX = 12;
+const TAP_MAX_DURATION_MS = 400;
+
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -283,11 +301,21 @@ export class CircularCanvas {
    *  「キャンバスの外側どこでタッチしても構わない」という指示により、
    *  canvas要素にのみ登録されたactivePointerIdとは別に、windowレベルで
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
-   *  最新クライアント座標——2本目の指が乗るとピンチ開始。 */
-  private pinchPointers = new Map<number, Point>();
+   *  現在位置に加え、複数指タップ判定（issue #90、tapGesture*参照）に使う
+   *  「触れた瞬間の位置」も持つ——2本目の指が乗るとピンチ開始（「選択」道具の
+   *  間だけ、onGlobalPointerDown参照）。 */
+  private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** 複数指タップ（issue #90）の判定用。一連のマルチタッチ（最初の指が触れて
+   *  から関わった指が全て離れるまで）で同時に触れていた指の最大本数。 */
+  private tapGesturePeakCount = 0;
+  /** 上と同じ一連のマルチタッチの中で、いずれかの指がTAP_MAX_MOVEMENT_PXを
+   *  超えて動いた（＝タップではなくドラッグ）場合はfalseになる。 */
+  private tapGestureValid = true;
+  /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
+  private tapGestureStartAt = 0;
   /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
    *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
    *  ROTATE_MIN_RADIUS_PXになる。 */
@@ -702,11 +730,27 @@ export class CircularCanvas {
    *  （誤って触れた・手のひらが触れた等）、進行中の描画等を中断してズームに
    *  切り替えてしまうのはユーザーにとって意図しない挙動のため（ユーザー指示）。
    *  ただしpreventDefault自体は道具に関わらず呼ぶ——ここで止めないと、
-   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。 */
+   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。
+   *
+   *  複数指タップ（issue #90）の判定用の記録も、道具に関わらず常にここで行う
+   *  ——undo/redoはどの道具を選んでいても使いたい操作のため。今回の
+   *  マルチタッチの塊の最初の指（pinchPointersが0→1になった瞬間）で判定を
+   *  リセットし、以後この塊に加わった指の最大本数（tapGesturePeakCount）を
+   *  更新し続ける。有効性（tapGestureValid）の判定はonGlobalPointerMoveで、
+   *  実際にundo/redoを呼ぶ判定はonGlobalPointerUpで行う。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    const pos = { x: ev.clientX, y: ev.clientY };
+    if (this.pinchPointers.size === 0) {
+      this.tapGesturePeakCount = 0;
+      this.tapGestureValid = true;
+      this.tapGestureStartAt = Date.now();
+    }
+    this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
+    this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
+
     if (this.pinchPointers.size === 2) {
       ev.preventDefault();
       if (this.getToolState().tool === "move") {
@@ -716,27 +760,69 @@ export class CircularCanvas {
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
-   *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
-   *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
-   *  （onGlobalPointerDownのコメント参照）。 */
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上の指を
+   *  追跡している間は道具に関わらず常にev.preventDefault()し続ける——2本目の
+   *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
+   *  以前は選択ツールでのピンチ中(mode==="pinching")に限っていたが、それ以外の
+   *  道具では2本目以降の指の動きをSafari純正のジェスチャー（ダブルタップ/
+   *  マルチタッチでのズーム等）が横取りしてしまい、指の位置がブレて複数指
+   *  タップ（issue #90）の判定まで狂う不具合になっていた（ユーザー報告・
+   *  実機Safariで再現確認）。触れている指がTAP_MAX_MOVEMENT_PXを超えて
+   *  動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
+   *  （ドラッグ・ピンチとして進行する）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
-    if (!this.pinchPointers.has(ev.pointerId)) return;
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.state.mode === "pinching") {
+    const tracked = this.pinchPointers.get(ev.pointerId);
+    if (!tracked) return;
+    tracked.pos = { x: ev.clientX, y: ev.clientY };
+    if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
+      this.tapGestureValid = false;
+    }
+    if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
+    }
+    if (this.state.mode === "pinching") {
       this.updatePinch();
     }
   };
 
-  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
+   *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
+   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ（issue #90）。
+   *  「選択」道具を選んでいる間だけ判定する——ペン・消しゴム等では1本目の指が
+   *  触れた瞬間に即座にストアを書き換える（ensureUndoSnapshot）ため、タップと
+   *  確定する前の暫定的な書き換えがundo/redoの履歴と絡み合ってしまい、特に
+   *  3本指タップ（redo）はその暫定書き換え自体がredo履歴を消してしまって
+   *  正しく機能しないことがあった（実機で再現確認）。選択道具は1本目の指
+   *  だけでは何も書き換えない（実際に動かして初めてtranslateMemoが呼ばれる）
+   *  ため、この問題が起きない。ペン等でも取り消したい場合は、道具バーの
+   *  「戻る」ボタン（toolbar.ts）を使う。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
+    // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
+    // 間隔（touchend/pointerupのタイミング）で判定される——onGlobalPointerMove
+    // 側のpreventDefault()（指が動く間だけ効く）では止められないため、こちらも
+    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する
+    // （複数指タップ自体がSafari純正のズームと誤認されないようにするため。
+    // ユーザー報告・実機Safariで再現確認：3本指タップを2回繰り返すと時々
+    // ズームしてしまっていた）。
+    if (this.tapGesturePeakCount >= 2) ev.preventDefault();
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
       this.state.mode = "idle";
       this.pinch = null;
+    }
+    if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
+    if (this.getToolState().tool !== "move") return;
+
+    const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
+    if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
+
+    if (this.tapGesturePeakCount === 2) {
+      this.store.undo();
+    } else {
+      this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
     }
   };
 
@@ -747,7 +833,7 @@ export class CircularCanvas {
       this.endSinglePointerGesture();
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     this.state.mode = "pinching";
     this.pinch = {
       startDist: pointerDistance(a, b),
@@ -761,7 +847,7 @@ export class CircularCanvas {
    *  中点の移動量でパンを更新する。 */
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     const dist = pointerDistance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
@@ -1033,6 +1119,13 @@ export class CircularCanvas {
   /** 編集中のテキストがあれば確定する（画面切り替え・道具切り替え時に呼ぶ）。 */
   finishTextEditingIfOpen(): void {
     this.textEditor?.blur();
+  }
+
+  /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
+   *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
+   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。 */
+  undo(): void {
+    this.store.undo();
   }
 
   /**

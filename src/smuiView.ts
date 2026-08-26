@@ -551,6 +551,11 @@ export class SmuiView {
     this.lens.beginPlacingTemplate(id);
   }
 
+  /** 道具バーの「戻る」ボタン（issue #90）用。 */
+  undo(): void {
+    this.lens.undo();
+  }
+
   render(now: number): void {
     if (!this.active) return;
     this.lens.render(now);
