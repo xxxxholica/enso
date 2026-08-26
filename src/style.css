@@ -1529,6 +1529,39 @@ body {
   background: var(--paper-3);
 }
 
+.export-trigger:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.export-popover {
+  min-width: 128px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-option {
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-85);
+  font: inherit;
+  font-size: var(--text-xs);
+  text-align: left;
+  white-space: nowrap;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.export-option:hover,
+.export-option:focus-visible {
+  background: var(--paper-2);
+  outline: none;
+}
+
 /* --- アカウント区画の統合でヘッダー最右端の要素になったため、他の
    .icon-popover（トリガーを中心に開く既定）と違い、右端をトリガーの右端に
    揃えて開く——中央寄せのままだと画面幅によらずポップオーバーの右側が

@@ -24,6 +24,7 @@ export const ICONS: Record<
   | "moreActions"
   | "appearance"
   | "settings"
+  | "export"
   | "themeSystem"
   | "themeLight"
   | "themeDark"
@@ -173,6 +174,12 @@ export const ICONS: Record<
         stroke-width="2.2"
         d="M12 3.3v1.6M12 19.1v1.6M3.3 12h1.6M19.1 12h1.6M6.3 6.3l1.1 1.1M16.6 16.6l1.1 1.1M17.7 6.3l-1.1 1.1M7.4 16.6l-1.1 1.1"
       />
+    </svg>`,
+  export: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M12 3v12" />
+      <path d="M7.5 10.5L12 15l4.5-4.5" />
+      <path d="M5 17v3h14v-3" />
     </svg>`,
   // テーマ選択（自動/ライト/ダーク）の3アイコン。
   themeSystem: `

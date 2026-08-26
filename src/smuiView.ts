@@ -556,6 +556,14 @@ export class SmuiView {
     this.lens.undo();
   }
 
+  createExportImage(): Promise<Blob> {
+    return this.lens.createExportImage();
+  }
+
+  getExportText(): string {
+    return this.lens.getExportText();
+  }
+
   render(now: number): void {
     if (!this.active) return;
     this.lens.render(now);

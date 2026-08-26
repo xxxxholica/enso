@@ -1458,6 +1458,87 @@ export class CircularCanvas {
     return this.viewZoom > MIN_ZOOM;
   }
 
+  /** 現在のフレームと殴り書きを、余白とロゴを含む正方形PNGへする。 */
+  async createExportImage(): Promise<Blob> {
+    this.finishTextEditingIfOpen();
+
+    // 書き出しは閲覧中のズーム・パンやマウスカーソルに左右されない「作品」状態にする。
+    const previousZoom = this.viewZoom;
+    const previousPan = { ...this.viewPan };
+    const previousHoverInfoMemoId = this.hoverInfoMemoId;
+    const previousHoverInfoPoint = this.hoverInfoPoint;
+    const previousEraserHoverPoint = this.eraserHoverPoint;
+    this.viewZoom = MIN_ZOOM;
+    this.viewPan = { x: 0, y: 0 };
+    this.hoverInfoMemoId = null;
+    this.hoverInfoPoint = null;
+    this.eraserHoverPoint = null;
+    this.render(Date.now());
+
+    const source = this.canvas;
+    const sourceCtx = source.getContext("2d", { willReadFrequently: true })!;
+    const pixels = sourceCtx.getImageData(0, 0, source.width, source.height);
+    let minX = source.width;
+    let minY = source.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < source.height; y += 1) {
+      for (let x = 0; x < source.width; x += 1) {
+        if (pixels.data[(y * source.width + x) * 4 + 3] === 0) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    const output = document.createElement("canvas");
+    output.width = 1200;
+    output.height = 1200;
+    const ctx = output.getContext("2d")!;
+    ctx.fillStyle = "#f4f0e8";
+    ctx.fillRect(0, 0, output.width, output.height);
+
+    if (maxX >= minX && maxY >= minY) {
+      const cropWidth = maxX - minX + 1;
+      const cropHeight = maxY - minY + 1;
+      const availableWidth = 1056;
+      const availableHeight = 940;
+      const scale = Math.min(availableWidth / cropWidth, availableHeight / cropHeight);
+      const width = cropWidth * scale;
+      const height = cropHeight * scale;
+      ctx.drawImage(source, minX, minY, cropWidth, cropHeight, (1200 - width) / 2, 54 + (availableHeight - height) / 2, width, height);
+    }
+
+    ctx.fillStyle = "#302d29";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = '600 42px "Klee One", "Noto Sans JP", sans-serif';
+    ctx.fillText("円相", 600, 1080);
+
+    this.viewZoom = previousZoom;
+    this.viewPan = previousPan;
+    this.hoverInfoMemoId = previousHoverInfoMemoId;
+    this.hoverInfoPoint = previousHoverInfoPoint;
+    this.eraserHoverPoint = previousEraserHoverPoint;
+    this.render(Date.now());
+
+    return new Promise<Blob>((resolve, reject) => {
+      output.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("画像の生成に失敗しました"))), "image/png");
+    });
+  }
+
+  /** 手描き線は含めず、表示中の文字メモだけを空行で区切って返す。 */
+  getExportText(): string {
+    return this.store
+      .getActive()
+      .filter((memo) => memo.kind === "text")
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((memo) => memo.text)
+      .filter((text) => text.trim().length > 0)
+      .join("\n\n");
+  }
+
   render(now: number): void {
     const { ctx } = this;
     const w = this.canvas.width;
