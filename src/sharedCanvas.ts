@@ -23,6 +23,8 @@ export interface SharedCanvasSummary {
   id: string;
   /** ルームの名前。未設定はnull（バックエンド仕様、2026-08-24からPATCHで保存可能に）。 */
   name: string | null;
+  /** ルームマスターのuserId。招待リンク発行時、自分がオーナーかどうかの判定に使う(issue #79)。 */
+  ownerId: string;
 }
 
 /** 進行中の「共同アイデア出し」セッションの状態（未開始の間はnull）。 */
@@ -69,10 +71,26 @@ export async function listSharedCanvases(): Promise<SharedCanvasSummary[]> {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter(
-      (item): item is { id: string; name?: unknown } =>
+      (item): item is { id: string; name?: unknown; owner_id?: unknown } =>
         typeof item === "object" && item !== null && typeof (item as { id?: unknown }).id === "string"
     )
-    .map((item) => ({ id: item.id, name: typeof item.name === "string" ? item.name : null }));
+    .map((item) => ({
+      id: item.id,
+      name: typeof item.name === "string" ? item.name : null,
+      ownerId: typeof item.owner_id === "string" ? item.owner_id : "",
+    }));
+}
+
+/** ルームマスターが招待リンク用のトークンを発行する(issue #79)。ログイン不要の
+ *  ゲスト参加リンクに埋め込む——ルームマスター以外は403で失敗する。 */
+export async function mintInvite(id: string): Promise<{ token: string; expiresAt: number }> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/invite`, { method: "POST" });
+  if (!res.ok) throw new Error(`招待リンクの発行に失敗しました (status: ${res.status})`);
+  const data: unknown = await res.json();
+  const token = (data as { token?: unknown }).token;
+  const expiresAt = (data as { expiresAt?: unknown }).expiresAt;
+  if (typeof token !== "string") throw new Error("サーバーの応答にtokenが含まれていません");
+  return { token, expiresAt: typeof expiresAt === "number" ? expiresAt : Date.now() };
 }
 
 /** 招待リンク経由で共有キャンバスのメンバーに加わる。 */

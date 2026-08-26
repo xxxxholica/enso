@@ -250,7 +250,31 @@ new SharedRoomMenu(
     subscribeToRoom?.(id);
     void smuiView.selectRoom(id);
   },
-  () => setView("shared")
+  () => setView("shared"),
+  // 招待リンク経由のログイン不要のゲスト参加(issue #79)。Clerkのsession(=
+  // AuthSession)を持たないため、payload.tokenGetterをゲストトークンだけ
+  // 返すダックタイプのオブジェクトに差し替えて、mountAccountWidgetの
+  // ログイン時と同じconnectRealtimeSyncの配線をそのまま流用する。
+  (canvasId, guestAuth) => {
+    const realtime = connectRealtimeSync(
+      { getToken: async () => guestAuth.token },
+      {
+        onPersonalMemoUpserted: () => {},
+        onPersonalMemoDeleted: () => {},
+        onSharedChanged: (cid) => smuiView.notifyRemoteChangeIfCurrent(cid),
+        onSessionChanged: (cid, sessionState) => smuiView.notifySessionChanged(cid, sessionState),
+        onHeatChanged: (cid, memoId, heat) => smuiView.notifyHeatChanged(cid, memoId, heat),
+        onMemoUpserted: (cid, memo) => smuiView.notifyMemoUpserted(cid, memo),
+        onMemoDeleted: (cid, memoId) => smuiView.notifyMemoDeleted(cid, memoId),
+        onReconnected: () => smuiView.notifyReconnected(),
+      }
+    );
+    disconnectRealtime = realtime.disconnect;
+    subscribeToRoom = realtime.subscribeToRoom;
+    subscribeToRoom(canvasId);
+    void smuiView.selectRoom(canvasId);
+    setView("shared");
+  }
 );
 
 // --- 画面切り替え -------------------------------------------------------
