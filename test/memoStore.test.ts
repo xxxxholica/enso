@@ -496,4 +496,196 @@ describe("MemoStore", () => {
       expect(store.getActive()).toHaveLength(1);
     });
   });
+
+  describe("undo/redo（issue #89: PC版のCtrl+Z/Ctrl+Shift+Z）", () => {
+    it("履歴が無ければundo/redoは何もせずfalseを返す", () => {
+      const store = new MemoStore();
+      expect(store.undo()).toBe(false);
+      expect(store.redo()).toBe(false);
+    });
+
+    it("snapshotForUndoの直後の変更をundoで取り消せる", () => {
+      const store = new MemoStore();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(1);
+
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].x).toBe(0);
+    });
+
+    it("undoで戻した内容はredoでやり直せる", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+
+      store.undo();
+      expect(store.getAll()).toHaveLength(0);
+
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].id).toBe(memo.id);
+    });
+
+    it("undoした後に新しい操作（snapshotForUndo）をすると、redo履歴は無効になる", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.undo();
+      expect(store.getAll()).toHaveLength(0);
+
+      store.snapshotForUndo();
+      store.createMemo({ x: 5, y: 5 }, STANDARD, 0);
+      expect(store.redo()).toBe(false); // 新しい操作の後は、取り消したはずの内容には戻れない
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].x).toBe(5);
+    });
+
+    it("複数回のundo/redoを往復できる（スナップショットは複製で、参照を共有しない）", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      const memoA = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.undo()).toBe(true);
+      expect(store.getAll()).toHaveLength(0);
+      expect(store.undo()).toBe(false); // これ以上は戻れない
+
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.getAll()[0].id).toBe(memoA.id);
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(2);
+    });
+
+    it("resetAllはundo/redoの履歴も破棄する", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.resetAll();
+      expect(store.undo()).toBe(false);
+    });
+
+    it("replaceAllはundo/redoの履歴も破棄する（サーバー側の内容で丸ごと置き換わるため）", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.replaceAll([]);
+      expect(store.undo()).toBe(false);
+      expect(store.getAll()).toHaveLength(0);
+    });
+
+    it("消しゴム・移動など他の操作もundoで元に戻せる", () => {
+      const store = new MemoStore();
+      const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.addPointToLastStroke(memo.id, { x: 0.1, y: 0 });
+
+      store.snapshotForUndo();
+      store.translateMemo(memo.id, 0.2, 0.2);
+      expect(store.getActive()[0].x).toBeCloseTo(0.2);
+      store.undo();
+      expect(store.getActive()[0].x).toBeCloseTo(0);
+
+      store.snapshotForUndo();
+      store.eraseAt({ x: 0, y: 0 }, 100);
+      expect(store.getActive()).toHaveLength(0);
+      store.undo();
+      expect(store.getActive()).toHaveLength(1);
+    });
+  });
+});
+
+describe("共有キャンバス用のonOp（メモ単位の操作通知、issue #99）", () => {
+  it("createMemoは作成したメモをupsertsとして通知する", () => {
+    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
+    const store = new MemoStore(undefined, false, (op) => ops.push(op));
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toEqual({ upserts: [memo], deletes: [] });
+  });
+
+  it("メモを編集する操作（追記・移動）は、そのメモをupsertsとして通知する", () => {
+    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
+    const store = new MemoStore(undefined, false, (op) => ops.push(op));
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    ops.length = 0;
+
+    store.addPointToLastStroke(memo.id, { x: 0.1, y: 0 });
+    expect(ops).toEqual([{ upserts: [memo], deletes: [] }]);
+
+    ops.length = 0;
+    store.translateMemo(memo.id, 0.1, 0.1);
+    expect(ops).toEqual([{ upserts: [memo], deletes: [] }]);
+  });
+
+  it("translateMemoが実際には動けなかった場合（境界一杯など）は通知しない", () => {
+    const ops: unknown[] = [];
+    const store = new MemoStore(undefined, false, (op) => ops.push(op));
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    ops.length = 0;
+
+    store.translateMemo(memo.id, 0, 0); // dx=dy=0なので何も起きない
+    expect(ops).toHaveLength(0);
+  });
+
+  it("deleteMemoは削除したIDをdeletesとして通知する。存在しないIDでは通知しない", () => {
+    const ops: { upserts: unknown[]; deletes: string[] }[] = [];
+    const store = new MemoStore(undefined, false, (op) => ops.push(op));
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    ops.length = 0;
+
+    store.deleteMemo("no-such-id");
+    expect(ops).toHaveLength(0);
+
+    store.deleteMemo(memo.id);
+    expect(ops).toEqual([{ upserts: [], deletes: [memo.id] }]);
+  });
+
+  it("eraseAtは、消え切ったメモはdeletesに、一部だけ消えたメモはupsertsに振り分けて通知する", () => {
+    const ops: { upserts: { id: string }[]; deletes: string[] }[] = [];
+    const store = new MemoStore(undefined, false, (op) => ops.push(op));
+    // 完全に消される予定のメモ(原点付近の1点)
+    const erased = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    // 一部だけ消される予定のメモ: 原点の点を消しても、残り2点(半径外)で
+    // ストロークとして生き残るよう3点で作る(eraseFromStrokeは1点だけの
+    // 断片は消え残りとして扱わないため、geometry.ts参照)。
+    const partial = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    store.addPointToLastStroke(partial.id, { x: 0.5, y: 0 });
+    store.addPointToLastStroke(partial.id, { x: 0.9, y: 0 });
+    ops.length = 0;
+
+    store.eraseAt({ x: 0, y: 0 }, 0.05);
+
+    expect(ops).toHaveLength(1);
+    expect(ops[0].deletes).toEqual([erased.id]);
+    expect(ops[0].upserts.map((m) => m.id)).toEqual([partial.id]);
+  });
+
+  it("applyRemoteUpsert/applyRemoteDeleteは、取り込んだ内容をonOp/onChangeへ押し戻さない", () => {
+    const ops: unknown[] = [];
+    const changes: unknown[] = [];
+    const store = new MemoStore((memos) => changes.push(memos), false, (op) => ops.push(op));
+    const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+    ops.length = 0;
+    changes.length = 0;
+
+    store.applyRemoteUpsert({ ...memo, x: 0.5 });
+    expect(store.getAll()[0].x).toBe(0.5);
+    expect(ops).toHaveLength(0);
+    expect(changes).toHaveLength(0);
+
+    store.applyRemoteDelete(memo.id);
+    expect(store.getAll()).toHaveLength(0);
+    expect(ops).toHaveLength(0);
+    expect(changes).toHaveLength(0);
+  });
 });

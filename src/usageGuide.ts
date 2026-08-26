@@ -90,7 +90,7 @@ class UsageGuide {
     this.sheet.className = "usage-guide-sheet";
     this.sheet.setAttribute("role", "dialog");
     this.sheet.setAttribute("aria-modal", "true");
-    this.sheet.setAttribute("aria-labelledby", "usage-guide-title");
+    this.sheet.setAttribute("aria-label", "使い方");
     this.sheet.tabIndex = -1;
     this.root.appendChild(this.sheet);
 
@@ -106,15 +106,6 @@ class UsageGuide {
     const head = document.createElement("header");
     head.className = "usage-guide-head";
 
-    const heading = document.createElement("div");
-    const title = document.createElement("h2");
-    title.id = "usage-guide-title";
-    title.className = "usage-guide-title";
-    title.textContent = "円相";
-    const lede = document.createElement("p");
-    lede.className = "usage-guide-lede";
-    heading.append(title, lede);
-
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "usage-guide-close";
@@ -122,7 +113,7 @@ class UsageGuide {
     closeBtn.textContent = "×";
     closeBtn.addEventListener("click", () => this.close());
 
-    head.append(heading, closeBtn);
+    head.append(closeBtn);
     this.sheet.appendChild(head);
 
     const pagesEl = document.createElement("div");

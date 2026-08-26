@@ -9,34 +9,39 @@ import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { setupControlPanelPages } from "./controlPanelPages";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
-import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
+import { pushOp, refreshFromCloud, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
+import { SettingsMenu } from "./settingsMenu";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
 import {
   loadFramePattern,
   loadFrameShape,
-  loadUsageGuideSeen,
-  markUsageGuideSeen,
+  loadThemePreference,
   saveFramePattern,
   saveFrameShape,
+  saveThemePreference,
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
-import { openUsageGuide } from "./usageGuide";
+import { applyTheme } from "./theme";
+
+// テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
+// 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
+// ため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
+applyTheme(loadThemePreference());
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="app-header">
     <div class="app-header-left">
       <h1 class="app-wordmark">円相</h1>
+    </div>
+    <div class="app-header-right">
       <nav class="view-nav">
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
-    </div>
-    <div class="app-header-right">
-      <button type="button" id="usage-guide-btn" class="usage-guide-btn">使い方</button>
-      <div id="account-slot"></div>
+      <div id="settings-slot"></div>
     </div>
   </header>
   <main class="app-main">
@@ -61,10 +66,11 @@ app.innerHTML = `
   </footer>
 `;
 
-// ログイン中は、ローカルの変更（描画・削除・移動など）が起きるたびに
-// クラウド保存を予約する（連続する変更はデバウンスされ、まとめて1回送られる）。
-// 未ログイン時はsetTokenGetter(null)状態なのでschedulePushは何もしない。
-const store = new MemoStore((memos) => schedulePush(memos));
+// ログイン中は、ローカルの変更（描画・削除・移動など）が起きるたびに、触れた
+// メモ単位でクラウド保存を予約する（連続する変更は短くデバウンスされ、まとめて
+// 送られる、issue #99）。未ログイン時はsetTokenGetter(null)状態なのでpushOpは
+// 何もしない。
+const store = new MemoStore(undefined, true, (op) => pushOp(op));
 
 // ログイン中は、他端末での変更をWebSocket通知で受け取り、その都度クラウドから
 // 取得し直してローカルに反映する（＝ページを開いたままでも他端末の変更が自動で見える）。
@@ -75,17 +81,34 @@ let disconnectRealtime: (() => void) | null = null;
 // onSelectRoomから呼ぶ。selectRoom自体はスクロールの都合でsmuiViewが持つ）。
 let subscribeToRoom: ((canvasId: string) => void) | null = null;
 
-void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!, (session) => {
+// 設定メニュー（テーマ・使い方に加え、アカウント区画を持つ）を先に作り、その
+// アカウント区画の枠にmountAccountWidgetでClerkの中身（未ログイン時のログイン
+// ボタン／ログイン中のユーザーアイコン・メニュー）を描き込む——以前はヘッダーに
+// 独立した専用の枠(#account-slot)を持っていたが、設定ボタンの隣に並んでいるのが
+// 冗長という指摘のため、設定メニューの中へ完全に統合した。
+const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
+const settingsMenu = new SettingsMenu(settingsSlot, loadThemePreference(), (pref) => {
+  saveThemePreference(pref);
+  applyTheme(pref);
+});
+
+void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   if (session) {
     setTokenGetter(session.getToken);
     void syncOnSignIn(store);
-    const realtime = connectRealtimeSync(
-      session,
-      () => void refreshFromCloud(store),
-      (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
-      (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
-      (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat)
-    );
+    const realtime = connectRealtimeSync(session, {
+      onPersonalMemoUpserted: (memo) => store.applyRemoteUpsert(memo),
+      onPersonalMemoDeleted: (memoId) => store.applyRemoteDelete(memoId),
+      onSharedChanged: (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
+      onSessionChanged: (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
+      onHeatChanged: (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
+      onMemoUpserted: (canvasId, memo) => smuiView.notifyMemoUpserted(canvasId, memo),
+      onMemoDeleted: (canvasId, memoId) => smuiView.notifyMemoDeleted(canvasId, memoId),
+      onReconnected: () => {
+        void refreshFromCloud(store);
+        smuiView.notifyReconnected();
+      },
+    });
     disconnectRealtime = realtime.disconnect;
     subscribeToRoom = realtime.subscribeToRoom;
   } else {
@@ -112,12 +135,21 @@ const onToolChange = () => {
   smuiView.closeWritingSessions();
   smuiView.finishTextEditingIfOpen();
 };
-// テンプレート挿入は「今表示中の画面」の共有キャンバス／通常キャンバスに置く
-// （道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回すため）。
-const toolbar = new Toolbar(primarySlot, onToolChange, (id) => {
-  if (currentView === "shared") smuiView.beginPlacingTemplate(id);
-  else canvasView.beginPlacingTemplate(id);
-});
+// テンプレート挿入・「戻る」はどちらも「今表示中の画面」の共有キャンバス／
+// 通常キャンバスに対して行う（道具バー自体はキャンバス・共有の両画面で
+// 共通の1つのインスタンスを使い回すため）。
+const toolbar = new Toolbar(
+  primarySlot,
+  onToolChange,
+  (id) => {
+    if (currentView === "shared") smuiView.beginPlacingTemplate(id);
+    else canvasView.beginPlacingTemplate(id);
+  },
+  () => {
+    if (currentView === "shared") smuiView.undo();
+    else canvasView.undo();
+  }
+);
 // 「消えるまでの期間」は選べる仕様をやめ常に1日固定にした（fade.tsのFIXED_LIFESPAN_DAYS）
 // ため、この枠は旧振り返りビューが持っていた「過去に遡って見る」スライダーとして
 // 転用する（ユーザー指示）。個人キャンバス専用の機能なので、キャンバス表示中だけ
@@ -149,22 +181,7 @@ setupControlPanelPages(
 // ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
 // 変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介する使い方ページを
-// 挟む（読み物として静的に見せるだけで、実キャンバス・実storeには一切触れない。
-// usageGuide.ts参照）。見終えた／閉じた後は、これまで通りテンプレート選択へ続く。
-const openTemplatePicker = () => {
-  if (!loadUsageGuideSeen()) {
-    openUsageGuide(() => {
-      markUsageGuideSeen();
-      templatePicker.open();
-    });
-    return;
-  }
-  templatePicker.open();
-};
-
-const usageGuideBtn = document.querySelector<HTMLButtonElement>("#usage-guide-btn")!;
-usageGuideBtn.addEventListener("click", () => openUsageGuide());
+const openTemplatePicker = () => templatePicker.open();
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
@@ -322,9 +339,11 @@ if (initialView === "shared") setView("shared");
 function frame(): void {
   const now = Date.now();
   store.tick(now);
+  let zoomed = false;
   if (currentView === "canvas") {
     canvasView.render(now);
     canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
+    zoomed = canvasView.isZoomed();
   }
   if (currentView === "shared") {
     smuiView.render(now);
@@ -339,7 +358,12 @@ function frame(): void {
     } else {
       appearanceSelector.setLocked(false);
     }
+    zoomed = smuiView.isZoomed();
   }
+  // ヘッダー/ツールバーは画面全体に広がったキャンバスの上に固定オーバーレイ
+  // として乗っているため、ズーム中（1倍より拡大）は下の絵が見えるよう薄くする
+  // （style.css `#app.is-zoomed`、ユーザー指示）。
+  app.classList.toggle("is-zoomed", zoomed);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

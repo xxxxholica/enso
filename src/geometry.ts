@@ -63,6 +63,16 @@ export function isInsideCircle(p: Point, radius: number): boolean {
 }
 
 /**
+ * pがclampの境界の内側にあるか。clamp系の関数（clampToCircle等）は境界の内側の点を
+ * 値そのまま返す実装になっているため、clamp(p)とpを値比較するだけで内外判定できる
+ * （restrictTranslation・clampToGlassesの内側判定と同じイディオム）。
+ */
+export function isInsideClamp(p: Point, clamp: (p: Point) => Point): boolean {
+  const clamped = clamp(p);
+  return clamped.x === p.x && clamped.y === p.y;
+}
+
+/**
  * 楕円（原点中心・半径rx,ry）の内側に点を丸め込む。原点からpへの向きはそのまま
  * 保ち、その方向の楕円境界までの距離に縮める（clampToCircleのrx=ry=radius版と
  * 同じ考え方の一般化）。

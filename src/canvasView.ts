@@ -5,8 +5,8 @@ import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
-import { circleIntersectsBox, pointNearStrokes } from "./geometry";
-import { drawRadialGlow, renderHeatGlow, renderMemoAt } from "./memoRenderer";
+import { circleIntersectsBox, isInsideClamp, pointNearStrokes } from "./geometry";
+import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
 import { currentReviveInfoTarget } from "./reviveInfoTarget";
@@ -37,6 +37,14 @@ const EMPTY_STATE_OFFSET_Y = 0.32;
  *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
+
+/** 投票フェーズ中、相対密度が最も低い(0)メモでもインクが完全には薄くなり
+ *  切らないための下限——確定前のアイデアが読めなくなるほど薄まるのを防ぐ
+ *  （確定後(fadeExempt)はこの下限を適用せず、0まで薄くなり得る＝従来通り）。 */
+const VOTING_DENSITY_OPACITY_FLOOR = 0.3;
+/** displayDensityが目標値に追いつく速さ。この時間が経つごとに、残りの差の
+ *  半分だけ縮まる（フレームレートに依存しない指数イージング）。 */
+const DENSITY_EASE_HALF_LIFE_MS = 300;
 
 /** 画面ピクセルでの当たり判定の許容範囲。円のサイズが変わっても指先の精度感が一定になるよう、
  *  実際に使うときは現在の半径で正規化してから比較する（normalizedThreshold = PX / radius）。 */
@@ -69,9 +77,30 @@ function rotateStepAmountMs(streak: number): number {
 /** 書き終えてから何 ms 操作がなければ「同じメモへの継続」を打ち切るか */
 const WRITING_SESSION_IDLE_MS = 1400;
 /** ピンチズームの倍率の範囲。1未満（フィット範囲より縮小して余白を見せる）は
- *  意味がないため許可しない。 */
+ *  意味がないため許可しない。上限は、キャンバス要素がヘッダー/ツールバーの
+ *  下まで広がった（issue #83）後、最大までズーム+パンした時にその下まで
+ *  確実に絵が届くよう2倍から引き上げた（ユーザー指摘：2倍だとギリギリ
+ *  届かないことがある）。 */
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 2;
+const MAX_ZOOM = 3;
+
+/**
+ * モバイルの複数指タップ（issue #90：2本指=直前の操作の取り消し(undo)、
+ * 3本指=やり直し(redo)、GoodNotes等のノートアプリで一般的なジェスチャー）
+ * の判定に使うしきい値。ピンチズームは「選択」道具の間だけ始まる
+ * （beginPinch/onGlobalPointerDownのコメント参照）が、複数指タップの判定
+ * 自体は道具に関わらず常に行う——undo/redoはどの道具を選んでいても使いたい
+ * 操作のため。
+ * TAP_MAX_MOVEMENT_PXは、指が触れてから離れるまでの間にこれを超えて動いたら
+ * 「タップ」ではなくドラッグ（ピンチ・パン、または各道具の通常操作）とみなす。
+ * TAP_MAX_DURATION_MSは、この一連のマルチタッチ（最初の指が触れてから、
+ * 関わった指が全て離れるまで）の最大時間（ms）——長押しや、1本の指で長く
+ * 描き続けている間に別の指が一瞬触れた、といったケースはタップとみなさない
+ * （後者は、最後まで描き続けているその指自体がこの時間を超えるため自然に
+ * 除外される）。
+ */
+const TAP_MAX_MOVEMENT_PX = 12;
+const TAP_MAX_DURATION_MS = 400;
 
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -281,6 +310,14 @@ export class CircularCanvas {
    *  実際に消している最中（mode==="erasing"）のカーソル表示はstate.lastPoint
    *  を使う既存の仕組みのままなので、ここでは触らない。 */
   private eraserHoverPoint: Point | null = null;
+  /** 今の1回のジェスチャー（1回のドラッグでの描画・消去・移動・振り回し、
+   *  または1回のテキスト編集セッション）の中で、undo履歴用のスナップショット
+   *  （store.snapshotForUndo()）を既に積んだかどうか（issue #89）。
+   *  onPointerDown・openTextEditorでfalseに戻し、ジェスチャー中で最初に
+   *  ストアを書き換える直前だけtrueにして呼ぶ——ポインタが動くたびに何度も
+   *  積んでしまうと、1回のドラッグが何十もの細かいundoステップに分かれて
+   *  しまうため。 */
+  private undoSnapshotTaken = false;
   /** 1本指ジェスチャー（描画・消しゴム・なぞる・移動）を今進行させている
    *  ポインタのid（nullなら未使用）。キャンバス要素上のpointerdownでのみ
    *  設定される——ピンチ中はbeginPinch()がnullに戻し、以後の1本指ジェス
@@ -291,11 +328,21 @@ export class CircularCanvas {
    *  「キャンバスの外側どこでタッチしても構わない」という指示により、
    *  canvas要素にのみ登録されたactivePointerIdとは別に、windowレベルで
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
-   *  最新クライアント座標——2本目の指が乗るとピンチ開始。 */
-  private pinchPointers = new Map<number, Point>();
+   *  現在位置に加え、複数指タップ判定（issue #90、tapGesture*参照）に使う
+   *  「触れた瞬間の位置」も持つ——2本目の指が乗るとピンチ開始（「選択」道具の
+   *  間だけ、onGlobalPointerDown参照）。 */
+  private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** 複数指タップ（issue #90）の判定用。一連のマルチタッチ（最初の指が触れて
+   *  から関わった指が全て離れるまで）で同時に触れていた指の最大本数。 */
+  private tapGesturePeakCount = 0;
+  /** 上と同じ一連のマルチタッチの中で、いずれかの指がTAP_MAX_MOVEMENT_PXを
+   *  超えて動いた（＝タップではなくドラッグ）場合はfalseになる。 */
+  private tapGestureValid = true;
+  /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
+  private tapGestureStartAt = 0;
   /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
    *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
    *  ROTATE_MIN_RADIUS_PXになる。 */
@@ -310,6 +357,21 @@ export class CircularCanvas {
    *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
    *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
   private locked = false;
+  /** 共同アイデア出しセッションのフェーズ③(投票)で、「選択」道具での
+   *  掴んで回転させる投票ジェスチャーだけに絞るためのロック（issue #79：
+   *  参加者がペン等で描画・消去できてしまっていた不具合の修正）。
+   *  投票の回転はupdateRotationGestureが担い、これは「選択」道具で
+   *  掴んだ(mode: "moving")時にしか始まらないため、ここで通すのは
+   *  「選択」道具だけでよい——lockedと違い、その開始（onPointerDown内の
+   *  moving突入）だけは通す。 */
+  private voteOnly = false;
+  /** 投票フェーズの相対密度（人気度）を、メモの色の濃さへ滑らかに反映させる
+   *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/maxHeatや
+   *  frozenDensity)が変わっても瞬時に飛ばず、render()のたびに少しずつ
+   *  追いつかせることで、投票が増える・確定するたびの見た目の変化を
+   *  なめらかにする（issue #79、熱グローに代わる表現）。 */
+  private displayDensity = new Map<string, number>();
+  private lastDensityFrameAt: number | null = null;
 
   constructor(
     container: HTMLElement,
@@ -434,6 +496,16 @@ export class CircularCanvas {
     this.locked = locked;
   }
 
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ③(投票)で、
+   *  「選択」道具での掴んで回転させる投票ジェスチャーだけに絞るために呼ぶ
+   *  （smuiView.ts）。主催者を含め全員に掛ける（issue #79：投票中は主催者も
+   *  含めて選択ツール以外は使えないようにしたい、というユーザー指示）。
+   *  setLockedと同時にはtrueにしない——setLocked(true)は新しい操作の
+   *  開始そのものを一括で止めるため、投票の「選択」も道連れに止まってしまう。 */
+  setVoteOnly(voteOnly: boolean): void {
+    this.voteOnly = voteOnly;
+  }
+
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
    *  入れる（position:absolute、containerに付けた.canvas-hostが基準）——画面固定
    *  (position:fixed)でbody直下に置く.text-editor-overlayと違い、この案内は
@@ -507,13 +579,20 @@ export class CircularCanvas {
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
-   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
-  private toNormalized(clientX: number, clientY: number): Point {
+   *  クランプ前の生の値——輪郭の外側かどうかの判定（onPointerDown参照）に使う。 */
+  private toNormalizedRaw(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const scale = this.effectiveScale();
-    const x = (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale;
-    const y = (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale;
-    return this.frame.currentShape().clamp({ x, y });
+    return {
+      x: (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale,
+      y: (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale,
+    };
+  }
+
+  /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
+   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
+  private toNormalized(clientX: number, clientY: number): Point {
+    return this.frame.currentShape().clamp(this.toNormalizedRaw(clientX, clientY));
   }
 
   private scheduleSessionClose(): void {
@@ -532,6 +611,15 @@ export class CircularCanvas {
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
     this.state.activeMemoId = null;
     this.state.idleTimer = null;
+  }
+
+  /** 今のジェスチャーで初めてストアを書き換える直前に呼ぶ（issue #89のundo/
+   *  redo）。同じジェスチャー中の2回目以降の呼び出しは何もしない
+   *  （undoSnapshotTakenのコメント参照）。 */
+  private ensureUndoSnapshot(): void {
+    if (this.undoSnapshotTaken) return;
+    this.undoSnapshotTaken = true;
+    this.store.snapshotForUndo();
   }
 
   private hitTestMemo(p: Point): Memo | null {
@@ -556,10 +644,22 @@ export class CircularCanvas {
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
     if (this.rewindAt !== null || this.locked) return; // 過去を遡って見ている間・ロック中は描画・操作を受け付けない
+    // 投票専用ロック中は、「選択」以外の道具（ペン・消しゴム・なぞる・テキスト）
+    // では何も始めない——投票フェーズの操作は「選択」で掴んで回すジェスチャー
+    // だけに絞る（issue #79：参加者がペンで描画できてしまっていた不具合）。
+    if (this.voteOnly && this.getToolState().tool !== "move") return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
     if (this.state.mode === "pinching" || this.activePointerId !== null) return;
+
+    // 見た目の枠（円/楕円/長方形）の外側は、<canvas>要素自体はその外側まで矩形で
+    // 広がっているため座標としては拾えてしまう——クランプ前の生の座標で内外を
+    // 判定し、外側ならジェスチャーを始めずに無視する（issue: 円の外にpointerdown
+    // すると、toNormalizedのクランプで円周上の点として扱われ描画されてしまう）。
+    const raw = this.toNormalizedRaw(ev.clientX, ev.clientY);
+    if (!isInsideClamp(raw, this.frame.currentShape().clamp)) return;
+
     // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
     // （pointerdown/moveはcanvas要素、pointerup/cancelはwindowという非対称な
     // 登録なので、captureで一本化しておく）。
@@ -571,13 +671,16 @@ export class CircularCanvas {
     this.activePointerId = ev.pointerId;
 
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
-    const p = this.toNormalized(ev.clientX, ev.clientY);
+    const p = raw;
 
     const tool = this.getToolState().tool;
+    // 新しいジェスチャーの開始（issue #89のundo/redo、undoSnapshotTaken参照）。
+    this.undoSnapshotTaken = false;
 
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
+      this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
     }
@@ -608,6 +711,7 @@ export class CircularCanvas {
         this.state.mode = "tracing";
         this.state.tracingMemoId = hitMemo.id;
         this.state.lastPoint = p;
+        this.ensureUndoSnapshot();
         this.store.reviveMemo(hitMemo.id);
         this.tracedMemoIdsThisGesture.add(hitMemo.id);
       }
@@ -628,6 +732,7 @@ export class CircularCanvas {
     // ペン・マーカー：既存メモの上に重なっても常に新規描画のみを行う
     // （なぞって復活はしない——なぞる操作は専用の「なぞる」道具に分離した）。
     this.state.mode = "drawing";
+    this.ensureUndoSnapshot();
     if (this.state.activeMemoId) {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
@@ -642,30 +747,114 @@ export class CircularCanvas {
    *  できるよう、windowレベルですべてのpointerdownを監視する。今表示中の
    *  インタラクティブなキャンバスだけが反応する——非表示のタブ・
    *  interactive:falseのプレースホルダーは無視する（ユーザー指示：
-   *  「どこを2本指でしてもキャンバスのみをズームしたい」）。 */
+   *  「どこを2本指でしてもキャンバスのみをズームしたい」）。
+   *
+   *  2本目の指が乗った瞬間にev.preventDefault()する——style.cssのtouch-action
+   *  だけでは、iOS Safariでヘッダー/ツールバー（position:fixedの帯）の上だと
+   *  純正のピンチズームが発動してしまう不具合があった（ユーザー報告）。
+   *  canvas自身の単指描画（onPointerDown）は最初からpreventDefault()で
+   *  純正ジェスチャーを止めており実際に機能しているため、同じ考え方を
+   *  2本指検知にも適用する——1本目だけの間は呼ばない（通常のタップ・
+   *  ボタン操作を妨げないため）。
+   *
+   *  ピンチズーム自体（beginPinch）は「選択」道具（move）を選んでいる時だけ
+   *  始める——ペン・マーカー・消しゴム・なぞる・テキストの間に指が2本乗っても
+   *  （誤って触れた・手のひらが触れた等）、進行中の描画等を中断してズームに
+   *  切り替えてしまうのはユーザーにとって意図しない挙動のため（ユーザー指示）。
+   *  ただしpreventDefault自体は道具に関わらず呼ぶ——ここで止めないと、
+   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。
+   *
+   *  複数指タップ（issue #90）の判定用の記録も、道具に関わらず常にここで行う
+   *  ——undo/redoはどの道具を選んでいても使いたい操作のため。今回の
+   *  マルチタッチの塊の最初の指（pinchPointersが0→1になった瞬間）で判定を
+   *  リセットし、以後この塊に加わった指の最大本数（tapGesturePeakCount）を
+   *  更新し続ける。有効性（tapGestureValid）の判定はonGlobalPointerMoveで、
+   *  実際にundo/redoを呼ぶ判定はonGlobalPointerUpで行う。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.pinchPointers.size === 2) this.beginPinch();
+
+    const pos = { x: ev.clientX, y: ev.clientY };
+    if (this.pinchPointers.size === 0) {
+      this.tapGesturePeakCount = 0;
+      this.tapGestureValid = true;
+      this.tapGestureStartAt = Date.now();
+    }
+    this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
+    this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
+
+    if (this.pinchPointers.size === 2) {
+      ev.preventDefault();
+      if (this.getToolState().tool === "move") {
+        this.beginPinch();
+      }
+    }
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上の指を
+   *  追跡している間は道具に関わらず常にev.preventDefault()し続ける——2本目の
+   *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
+   *  以前は選択ツールでのピンチ中(mode==="pinching")に限っていたが、それ以外の
+   *  道具では2本目以降の指の動きをSafari純正のジェスチャー（ダブルタップ/
+   *  マルチタッチでのズーム等）が横取りしてしまい、指の位置がブレて複数指
+   *  タップ（issue #90）の判定まで狂う不具合になっていた（ユーザー報告・
+   *  実機Safariで再現確認）。触れている指がTAP_MAX_MOVEMENT_PXを超えて
+   *  動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
+   *  （ドラッグ・ピンチとして進行する）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
-    if (!this.pinchPointers.has(ev.pointerId)) return;
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.state.mode === "pinching") this.updatePinch();
+    const tracked = this.pinchPointers.get(ev.pointerId);
+    if (!tracked) return;
+    tracked.pos = { x: ev.clientX, y: ev.clientY };
+    if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
+      this.tapGestureValid = false;
+    }
+    if (this.pinchPointers.size >= 2) {
+      ev.preventDefault();
+    }
+    if (this.state.mode === "pinching") {
+      this.updatePinch();
+    }
   };
 
-  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
+   *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
+   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ（issue #90）。
+   *  「選択」道具を選んでいる間だけ判定する——ペン・消しゴム等では1本目の指が
+   *  触れた瞬間に即座にストアを書き換える（ensureUndoSnapshot）ため、タップと
+   *  確定する前の暫定的な書き換えがundo/redoの履歴と絡み合ってしまい、特に
+   *  3本指タップ（redo）はその暫定書き換え自体がredo履歴を消してしまって
+   *  正しく機能しないことがあった（実機で再現確認）。選択道具は1本目の指
+   *  だけでは何も書き換えない（実際に動かして初めてtranslateMemoが呼ばれる）
+   *  ため、この問題が起きない。ペン等でも取り消したい場合は、道具バーの
+   *  「戻る」ボタン（toolbar.ts）を使う。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
+    // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
+    // 間隔（touchend/pointerupのタイミング）で判定される——onGlobalPointerMove
+    // 側のpreventDefault()（指が動く間だけ効く）では止められないため、こちらも
+    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する
+    // （複数指タップ自体がSafari純正のズームと誤認されないようにするため。
+    // ユーザー報告・実機Safariで再現確認：3本指タップを2回繰り返すと時々
+    // ズームしてしまっていた）。
+    if (this.tapGesturePeakCount >= 2) ev.preventDefault();
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
       this.state.mode = "idle";
       this.pinch = null;
+    }
+    if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
+    if (this.getToolState().tool !== "move") return;
+
+    const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
+    if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
+
+    if (this.tapGesturePeakCount === 2) {
+      this.store.undo();
+    } else {
+      this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
     }
   };
 
@@ -676,7 +865,7 @@ export class CircularCanvas {
       this.endSinglePointerGesture();
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     this.state.mode = "pinching";
     this.pinch = {
       startDist: pointerDistance(a, b),
@@ -690,7 +879,7 @@ export class CircularCanvas {
    *  中点の移動量でパンを更新する。 */
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     const dist = pointerDistance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
@@ -773,6 +962,10 @@ export class CircularCanvas {
    */
   private openTextEditor(anchor: Point, editingMemo: TextMemo | null = null, initialText?: string): void {
     if (this.textEditor) return;
+    // 新しいジェスチャー（1回のテキスト編集セッション）の開始（issue #89の
+    // undo/redo、undoSnapshotTaken参照）。Escapeで取り消した場合はストアを
+    // 一切書き換えないため、スナップショットも積まれない。
+    this.undoSnapshotTaken = false;
     const { color: toolColor, fontSize: toolFontSize } = this.getToolState();
     const color = editingMemo?.color ?? toolColor;
     const fontSize = editingMemo?.fontSize ?? toolFontSize;
@@ -917,12 +1110,14 @@ export class CircularCanvas {
 
       if (editingMemo) {
         if (!value) {
+          this.ensureUndoSnapshot();
           this.store.deleteMemo(editingMemo.id);
           return;
         }
         const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
         const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
         const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
+        this.ensureUndoSnapshot();
         this.store.updateTextMemo(editingMemo.id, value, lines, width, height);
         return;
       }
@@ -931,6 +1126,7 @@ export class CircularCanvas {
       const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
       const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
       const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
+      this.ensureUndoSnapshot();
       this.store.createTextMemo(anchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
     };
     el.addEventListener("blur", commit);
@@ -959,6 +1155,13 @@ export class CircularCanvas {
   /** 編集中のテキストがあれば確定する（画面切り替え・道具切り替え時に呼ぶ）。 */
   finishTextEditingIfOpen(): void {
     this.textEditor?.blur();
+  }
+
+  /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
+   *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
+   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。 */
+  undo(): void {
+    this.store.undo();
   }
 
   /**
@@ -1028,18 +1231,29 @@ export class CircularCanvas {
       if (hitMemo) {
         this.state.tracingMemoId = hitMemo.id;
         if (!this.tracedMemoIdsThisGesture.has(hitMemo.id)) {
+          this.ensureUndoSnapshot();
           this.store.reviveMemo(hitMemo.id);
           this.tracedMemoIdsThisGesture.add(hitMemo.id);
         }
       }
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
+      // updateRotationGestureは内部でstore.nudgeMemoClockを呼び得るため、
+      // このジェスチャーで最初にストアを書き換わる可能性がある処理より前で
+      // スナップショットを取る（ensureUndoSnapshotのコメント参照）。
+      this.ensureUndoSnapshot();
       this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
-      const dx = p.x - this.state.lastPoint.x;
-      const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
+      // 投票フェーズ中は「選択」道具を回転投票専用として使うため、位置は
+      // 動かさない——同期されるのは熱量(投票)だけでよい（issue #79、
+      // ユーザー指示：回した結果だけ同期し、実際の位置は移動させないでほしい）。
+      if (!this.rotationVoteHandler) {
+        const dx = p.x - this.state.lastPoint.x;
+        const dy = p.y - this.state.lastPoint.y;
+        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
+      }
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
+      this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
   };
@@ -1151,15 +1365,31 @@ export class CircularCanvas {
     this.repositionTextEditor?.();
   };
 
+  /**
+   * issue #89: PC版でCtrl+Z（Cmd+Z）による直前操作の取り消し（undo）、
+   * Ctrl+Shift+Z（Cmd+Shift+Z）によるやり直し（redo）を使えるようにする。
+   * 印字可能キー1文字での新規テキストメモ作成（下記）と同じ関数にまとめ、
+   * 「今表示中のタブのキャンバスか」「他の入力欄にフォーカスが無いか」の
+   * ガードを共有する——ルーム名の入力欄などにフォーカスがある間は、ブラウザ
+   * 標準のundoを横取りしないよう素通りする。
+   */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
+    if (this.rewindAt !== null || this.locked || this.voteOnly || this.textEditor || this.state.mode !== "idle") return;
+    if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     const active = document.activeElement;
-    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active as HTMLElement | null)?.isContentEditable) {
+    const isEditableFocus =
+      active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active as HTMLElement | null)?.isContentEditable;
+
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "z" && !isEditableFocus) {
+      ev.preventDefault();
+      if (ev.shiftKey) this.store.redo();
+      else this.store.undo();
       return;
     }
-    if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
+
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key.length !== 1) return; // 矢印・Enter・Tab等の非文字キーは無視
+    if (isEditableFocus) return;
     ev.preventDefault();
     this.openTextEditor({ x: 0, y: 0 }, null, ev.key);
   };
@@ -1173,6 +1403,20 @@ export class CircularCanvas {
     const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
     if (!target) return null;
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
+
+  /** 上と同じ対象（なぞる/移動で実際に触れている、またはPCでホバーしている
+   *  メモ）のIDだけを返す。投票フェーズ中、smuiView.tsが残り時間の代わりに
+   *  支持率(%)を出すために使う（issue #79）。 */
+  getHoverMemoId(): string | null {
+    return currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint)?.memoId ?? null;
+  }
+
+  /** フィット(1倍)より拡大しているか。main.tsがヘッダー/ツールバー（画面全体に
+   *  広がったキャンバスの上に固定オーバーレイとして乗る）を薄くするかどうかの
+   *  判定に使う（ユーザー指示：ズーム中は下の絵が見えるよう薄くしたい）。 */
+  isZoomed(): boolean {
+    return this.viewZoom > MIN_ZOOM;
   }
 
   render(now: number): void {
@@ -1240,7 +1484,7 @@ export class CircularCanvas {
     }
 
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
-    // 専用インスタンス）ため、このループ・以下のグロー等は自然に何もしない。
+    // 専用インスタンス）ため、このループは自然に何もしない。
     const activeMemos = this.store.getActive();
     // 遡り中（rewindAt !== null）は、消滅済みメモも含めた全メモを対象に、
     // traceHistoryから過去の時刻tにおける不透明度を再現する（旧ArchiveViewの
@@ -1251,18 +1495,42 @@ export class CircularCanvas {
     // fadeExempt済み(既に確定済み)のメモは母集団から除く——バックエンドの
     // endSession()と同じ考え方（多重セッションで確定済み密度を歪めないため）。
     const maxHeat = Math.max(1, ...memosToRender.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
+    // 投票フェーズが今まさに進行中かどうか（rotationVoteHandlerはvotingの
+    // 間だけ設定されるため、これをそのまま流用する）。
+    const votingActive = this.rotationVoteHandler !== null;
+    const dtMs = this.lastDensityFrameAt === null ? 0 : Math.max(0, now - this.lastDensityFrameAt);
+    this.lastDensityFrameAt = now;
+    const densityEase = dtMs > 0 ? 1 - Math.pow(0.5, dtMs / DENSITY_EASE_HALF_LIFE_MS) : 1;
+    const seenMemoIds = new Set<string>();
     for (const memo of memosToRender) {
-      // 投票フェーズで確定した(fadeExempt)メモは、遡り表示中であっても常に確定した
-      // 濃さのまま——時間経過フェードから恒久的に外れているという仕様のため。
-      const opacity = memo.fadeExempt
-        ? memo.frozenDensity ?? 1
-        : rewindAt !== null
-          ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt)
-          : this.store.opacityOf(memo, now);
-      if (opacity === null || opacity <= 0) continue;
-      const relativeDensity = memo.fadeExempt ? (memo.frozenDensity ?? 0) : (memo.heat ?? 0) / maxHeat;
-      if (relativeDensity > 0) renderHeatGlow(ctx, memo, r, relativeDensity);
-      renderMemoAt(ctx, memo, r, opacity);
+      seenMemoIds.add(memo.id);
+      // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
+      // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
+      // 密度による見た目の変化を適用しない(=1)。
+      const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
+      const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
+      const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
+      this.displayDensity.set(memo.id, displayDensity);
+
+      if (memo.fadeExempt) {
+        // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
+        // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
+        // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
+        renderMemoAt(ctx, memo, r, displayDensity);
+        continue;
+      }
+      const baseOpacity =
+        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+      if (baseOpacity === null || baseOpacity <= 0) continue;
+      // 投票フェーズ中は、人気度(displayDensity)に応じてインクの濃さ自体を
+      // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
+      // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
+      const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
+      renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+    }
+    // 描画対象から外れたメモの補間状態は溜め込まない。
+    for (const id of this.displayDensity.keys()) {
+      if (!seenMemoIds.has(id)) this.displayDensity.delete(id);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
@@ -1282,7 +1550,7 @@ export class CircularCanvas {
     if (eraserCursorPoint) {
       const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
       ctx.beginPath();
-      ctx.arc(p.x, p.y, this.getToolState().eraserRadius, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
       ctx.strokeStyle = ERASER_CURSOR;
       ctx.lineWidth = 1.2;
       ctx.stroke();

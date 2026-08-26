@@ -4,6 +4,7 @@ import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import {
   createSharedCanvas,
+  getSharedCanvas,
   joinSharedCanvas,
   leaveSharedCanvas,
   listSharedCanvases,
@@ -14,6 +15,20 @@ import {
 const JOIN_PARAM = "join";
 const CREATE_LABEL = "+ 新しい共有キャンバスを作る";
 const COPY_LABEL = "コピー";
+
+/** ルーム一覧の各項目に添えるステータス。一覧取得API(listSharedCanvases)は
+ *  セッション状態を返さないため、行ごとに個別にgetSharedCanvas(id)を叩いて
+ *  判定する（issue #79：一覧でも進行中/終了が分かるようにしたいというユーザー指示）。
+ *  - active: セッション進行中(session !== null)
+ *  - ended: セッションは今動いていないが、確定済み(fadeExempt)のメモが残っている
+ *    ＝過去にセッションを実施済み
+ *  - not-started: セッションを一度も実施していない */
+type RoomStatus = "active" | "ended" | "not-started";
+const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
+  active: "進行中",
+  ended: "終了",
+  "not-started": "未実施",
+};
 
 /**
  * 眼鏡キャンバスの下（smuiView.getRoomMenuSlot()）に置く、共有キャンバス
@@ -36,6 +51,7 @@ export class SharedRoomMenu {
   private open = false;
   private readonly closeRef = () => this.close();
 
+  private anchor!: HTMLElement;
   private btn!: HTMLButtonElement;
   private btnIconEl!: HTMLElement;
   private btnLabelEl!: HTMLElement;
@@ -53,6 +69,12 @@ export class SharedRoomMenu {
 
   private rooms: SharedCanvasSummary[] = [];
   private selectedId: string | null = null;
+  /** ルームIDごとのステータス取得結果のキャッシュ。refreshRoomList()の
+   *  たびにクリアし、開き直すたびに最新の状態を取り直す。 */
+  private roomStatus = new Map<string, RoomStatus>();
+  /** 非同期で届いたステータスを、再描画済みの最新のDOM要素へ正しく反映する
+   *  ための対応表（renderRoomList()のたびに作り直す）。 */
+  private roomStatusBadgeEls = new Map<string, HTMLElement>();
 
   /** ルームごとの「その他の操作」メニュー（今は「名前を変更」の1件のみ、
    *  今後増える操作もここに並べていく想定）。同時に1つしか開かない。 */
@@ -77,8 +99,8 @@ export class SharedRoomMenu {
   }
 
   private buildDom(container: HTMLElement): void {
-    const anchor = document.createElement("div");
-    anchor.className = "icon-anchor";
+    this.anchor = document.createElement("div");
+    this.anchor.className = "icon-anchor";
 
     // 以前はアイコンのみのボタンだったが、何のボタンか一目で分かりにくかった
     // （ユーザー指摘）ため、文字を持たせる——未接続時は「＋ルームを作成」、
@@ -98,7 +120,7 @@ export class SharedRoomMenu {
     this.btn.appendChild(this.btnIconEl);
     this.btnLabelEl = document.createElement("span");
     this.btn.appendChild(this.btnLabelEl);
-    anchor.appendChild(this.btn);
+    this.anchor.appendChild(this.btn);
 
     this.popover = document.createElement("div");
     // ボタンが眼鏡キャンバスの下（画面下寄り）に置かれるようになったため、
@@ -191,8 +213,8 @@ export class SharedRoomMenu {
     this.mainEl.appendChild(listSection);
 
     this.popover.appendChild(this.mainEl);
-    anchor.appendChild(this.popover);
-    container.appendChild(anchor);
+    this.anchor.appendChild(this.popover);
+    container.appendChild(this.anchor);
   }
 
   private toggle(): void {
@@ -202,7 +224,7 @@ export class SharedRoomMenu {
 
   private openMenu(): void {
     if (this.open) return;
-    notifyOpen(this.closeRef);
+    notifyOpen(this.closeRef, this.anchor);
     this.open = true;
     this.btn.dataset.active = "true";
     this.popoverFade(true);
@@ -346,7 +368,35 @@ export class SharedRoomMenu {
       this.setStatus(e instanceof Error ? e.message : "一覧の取得に失敗しました");
       this.rooms = [];
     }
+    // 開き直すたびに最新のステータスを取り直す（進行中→終了等の変化を拾うため）。
+    this.roomStatus.clear();
     this.renderRoomList();
+  }
+
+  /** 1ルームぶんのステータスを取得し、そのルームの行がまだ表示中であれば
+   *  バッジへ反映する。一覧の行を再構築するのではなく該当バッジだけを
+   *  差し替えるため、他の行の表示（リネーム中の入力欄等）を巻き込まない。 */
+  private async loadRoomStatus(id: string): Promise<void> {
+    let status: RoomStatus;
+    try {
+      const detail = await getSharedCanvas(id);
+      status = detail.session ? "active" : detail.memos.some((m) => m.fadeExempt) ? "ended" : "not-started";
+    } catch {
+      return; // 取得できなければバッジ無しのまま（一覧自体の表示は既に済んでいるため致命的ではない）
+    }
+    this.roomStatus.set(id, status);
+    const badge = this.roomStatusBadgeEls.get(id);
+    if (badge) this.applyRoomStatusBadge(badge, status);
+  }
+
+  private applyRoomStatusBadge(el: HTMLElement, status: RoomStatus | undefined): void {
+    if (!status) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.textContent = ROOM_STATUS_LABEL[status];
+    el.dataset.status = status;
   }
 
   /** ルームの行は[ルーム名(操作トリガー付き)][退出]の2要素だけに絞る
@@ -356,6 +406,7 @@ export class SharedRoomMenu {
   private renderRoomList(): void {
     this.closeRoomActionsMenu();
     this.roomListEl.innerHTML = "";
+    this.roomStatusBadgeEls.clear();
     this.emptyEl.hidden = this.rooms.length > 0;
     for (const room of this.rooms) {
       const li = document.createElement("li");
@@ -374,6 +425,13 @@ export class SharedRoomMenu {
       btn.title = label;
       btn.setAttribute("aria-pressed", String(room.id === this.selectedId));
       nameWrap.appendChild(btn);
+
+      const statusBadge = document.createElement("span");
+      statusBadge.className = "shared-room-status-badge";
+      this.applyRoomStatusBadge(statusBadge, this.roomStatus.get(room.id));
+      this.roomStatusBadgeEls.set(room.id, statusBadge);
+      nameWrap.appendChild(statusBadge);
+      if (!this.roomStatus.has(room.id)) void this.loadRoomStatus(room.id);
 
       const actionsBtn = document.createElement("button");
       actionsBtn.type = "button";

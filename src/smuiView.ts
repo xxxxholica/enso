@@ -13,9 +13,12 @@ import {
 } from "./sharedCanvas";
 import { SharedRoomSync } from "./sharedCanvasSync";
 import { MemoStore } from "./memoStore";
+import type { Memo } from "./types";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
+import { phaseCutInLabel } from "./phaseCutInLabel";
+import { showPhaseCutIn } from "./phaseCutIn";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
 import { loadFramePattern, loadFrameShape } from "./storage";
@@ -70,9 +73,12 @@ const STATUS_X_FRACTION = 0.5 + GLASSES_CENTER_OFFSET / (2 * GLASSES_HORIZONTAL_
  *
  * 選んだ共有キャンバス（ルーム）のMemoStoreを表示・編集する。このMemoStoreは
  * localStorageを一切使わないメモリ限定の永続化（sharedCanvasSync.ts）を使い、
- * 真の保存先はサーバー（PUT /shared-canvases/:id）——ローカルの個人メモの
- * localStorage["memos"]と衝突しない。書き込みのデバウンス送信と定期ポーリングに
- * よる他メンバーの変更取り込みはSharedRoomSyncが担う（WebSocketが無いため）。
+ * 真の保存先はサーバー（メモ単位のPUT/DELETE /shared-canvases/:id/memos/:memoId、
+ * issue #99）——ローカルの個人メモのlocalStorage["memos"]と衝突しない。触れた
+ * メモ単位の短いデバウンス送信はSharedRoomSyncが担い、他メンバーの変更取り込みは
+ * WebSocketで届くメモの中身(notifyMemoUpserted/notifyMemoDeleted)をその場で
+ * 反映する形が主経路、名前・見た目の変更や再接続直後のresyncだけSharedRoomSync
+ * のpoll(GETでの全件取得し直し)を使う。
  *
  * ルームがまだ接続されていない間は、非対話（interactive: false）のCircularCanvas
  * として存在し続ける——中身は空の白い罫線の紙のままの「空のキャンバス」で、
@@ -112,8 +118,8 @@ export class SmuiView {
   private session: SessionState | null = null;
   /** selectRoom()の多重呼び出し（招待リンク自動参加と手動クリックが競合する
    *  等）に対するレース対策。呼び出しごとに採番し、awaitから戻った時点で
-   *  自分がまだ最新かを確認する——古い方はSharedRoomSyncのsetIntervalを
-   *  作らず即座に諦めることで、置き去りのポーリングが残るのを防ぐ。 */
+   *  自分がまだ最新かを確認する——古い方はSharedRoomSyncを作らず即座に
+   *  諦めることで、置き去りのインスタンスが残るのを防ぐ。 */
   private roomRequestSeq = 0;
   private statusResizeObserver!: ResizeObserver;
   private onRequestTemplatePicker?: () => void;
@@ -183,46 +189,67 @@ export class SmuiView {
     return null;
   }
 
-  /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効)と
-   *  実際のキャンバスの書き込み可否(CircularCanvas.setLocked)を揃える。
-   *  フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする——
-   *  「話し合いの時間」であって、書き込むための時間ではないため。 */
+  /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
+   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked/
+   *  setVoteOnly)を揃える。フェーズ②(議論)はルームマスター以外を完全に
+   *  読み取り専用にする——「話し合いの時間」であって、書き込むための時間
+   *  ではないため。フェーズ③(投票)は「選択」道具で掴んで回す投票ジェスチャー
+   *  だけに絞る——主催者を含め全員が対象（issue #79：ユーザー指示）。
+   *  setOnlyToolEnabled("move")で道具バー側もそれ以外を実際に押せなく＆
+   *  薄くし、setVoteOnlyでキャンバス側も同様に絞る（片方だけだと、道具バー上は
+   *  選べないのにキャンバスへの旧来の直接操作は残る、または逆に道具バー上は
+   *  選べてしまうのにキャンバスだけ弾く、という食い違いが起きるため両方合わせる）。 */
   private applyRestrictions(): void {
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
+      this.lens.setVoteOnly(false);
       return;
     }
     const isMaster = this.isRoomMaster();
     if (this.session.phase === "discussion") {
       this.toolbar.setEnabled(isMaster);
       this.toolbar.setColorLocked(true);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(!isMaster);
+      this.lens.setVoteOnly(false);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
+      this.lens.setVoteOnly(false);
     } else {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
+      this.toolbar.setOnlyToolEnabled("move");
       this.lens.setLocked(false);
+      this.lens.setVoteOnly(true);
     }
   }
 
   /** セッション状態が変わるたびに呼ぶ(selectRoom/session系コールバック/
    *  notifySessionChanged共通)。道具バー・書き込み制限・投票フェーズの
-   *  回転ジェスチャーの意味づけをまとめて更新する。 */
-  private applySession(session: SessionState | null): void {
-    const wasVoting = this.session?.phase === "voting";
+   *  回転ジェスチャーの意味づけをまとめて更新する。
+   *  silent=trueは、ルーム入室時の初期ハイドレート専用——既に進行中の
+   *  セッションに途中参加しただけなのに「アイデア出し開始」等のカットインが
+   *  出てしまうのを防ぐ（issue #79）。 */
+  private applySession(session: SessionState | null, options: { silent?: boolean } = {}): void {
+    const prevPhase = this.session?.phase ?? null;
+    const wasVoting = prevPhase === "voting";
     this.session = session;
     this.applyRestrictions();
     this.lens.setRotationVoteHandler(session?.phase === "voting" ? (memoId) => this.handleRotationVote(memoId) : null);
     // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
-    // fadeExempt/frozenDensityを確定させた直後なので、次のポーリングを待たず
-    // すぐ取得し直す——待つと、確定したはずのメモが最大SHARED_POLL_INTERVAL_MSの
-    // 間、古いlastTracedAtのままフェードし続けてしまう。
+    // fadeExempt/frozenDensityを確定させた直後なので、すぐ取得し直す——放置すると
+    // 確定したはずのメモが古いlastTracedAtのままフェードし続けてしまう。
     if (wasVoting && !session) this.roomSync?.pollNow(true);
+    if (!options.silent) {
+      const label = phaseCutInLabel(prevPhase, session);
+      if (label) showPhaseCutIn(label);
+    }
   }
 
   /** フェーズ③(voting)専用: メモを1回転させるたびにcanvasView.tsから呼ばれる。
@@ -349,7 +376,7 @@ export class SmuiView {
     this.selectedRoomId = id;
     this.sharedStore = null;
     this.sessionPanel.reset();
-    this.applySession(null);
+    this.applySession(null, { silent: true });
     this.ownerId = null;
     // 前のルームでルームマスターが設定した見た目を次のルームへ持ち越さない
     // ように、いったんローカルの既定値へ戻す——この後、新しいルームが独自の
@@ -362,17 +389,19 @@ export class SmuiView {
     try {
       const detail = await getSharedCanvas(id);
       // 待っている間に別のselectRoom呼び出しが割り込んでいたら、自分は
-      // もう最新ではないので、SharedRoomSyncを作らず（＝ポーリングの
-      // setIntervalを残さず）ここで諦める。
+      // もう最新ではないので、SharedRoomSyncを作らずここで諦める。
       if (mySeq !== this.roomRequestSeq) return;
-      const sync = new SharedRoomSync(id, (remoteDetail) => {
-        sharedStore.replaceAll(remoteDetail.memos);
-        this.applyRemoteAppearance(remoteDetail.frameShapeId, remoteDetail.framePatternId);
-      });
-      const sharedStore = new MemoStore((memos) => sync.schedulePush(memos), false);
+      const sync = new SharedRoomSync(
+        id,
+        (remoteDetail) => {
+          sharedStore.replaceAll(remoteDetail.memos);
+          this.applyRemoteAppearance(remoteDetail.frameShapeId, remoteDetail.framePatternId);
+        },
+        (session) => this.applySession(session)
+      );
+      const sharedStore = new MemoStore(undefined, false, (op) => sync.pushOp(op));
       sharedStore.replaceAll(detail.memos);
       sync.markSynced(detail);
-      sync.start();
       this.roomSync = sync;
       this.sharedStore = sharedStore;
       this.ownerId = detail.ownerId || null;
@@ -380,7 +409,9 @@ export class SmuiView {
       this.lens.destroy();
       this.canvasContainerEl.innerHTML = "";
       this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.effectiveToolState, this.lensOptions());
-      this.applySession(detail.session); // 新しいlensに書き込み制限・投票ハンドラを適用する
+      // 新しいlensに書き込み制限・投票ハンドラを適用する。silent: 進行中の
+      // セッションに途中参加しただけでカットインが出るのを防ぐ。
+      this.applySession(detail.session, { silent: true });
       this.setStatus("");
     } catch (e) {
       if (mySeq !== this.roomRequestSeq) return;
@@ -398,6 +429,17 @@ export class SmuiView {
    *  フルGETを挟まず、手元のメモの熱量だけをその場で書き換える。 */
   notifyHeatChanged(canvasId: string, memoId: string, heat: number): void {
     if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoHeat(memoId, heat);
+  }
+
+  /** realtimeSync.tsが{type:"memo-upserted", ...}を受け取るたびに呼ぶ(issue #99)。
+   *  フルGETを挟まず、届いたメモの中身をその場で反映する。 */
+  notifyMemoUpserted(canvasId: string, memo: Memo): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteUpsert(memo);
+  }
+
+  /** 同じく{type:"memo-deleted", ...}を受け取るたびに呼ぶ。 */
+  notifyMemoDeleted(canvasId: string, memoId: string): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteDelete(memoId);
   }
 
   private startSessionForCurrentRoom(options: StartSessionOptions): void {
@@ -437,6 +479,12 @@ export class SmuiView {
    *  続けるため、今表示中のルームと一致する時だけ即座に取得し直す。 */
   notifyRemoteChangeIfCurrent(canvasId: string): void {
     if (this.selectedRoomId === canvasId) this.roomSync?.pollNow();
+  }
+
+  /** realtimeSync.tsのWebSocket再接続直後に呼ぶ。接続中は通知の取りこぼしが
+   *  無い前提のため、再接続の瞬間だけ改めて取得し直せば十分（issue #79）。 */
+  notifyReconnected(): void {
+    this.roomSync?.pollNow();
   }
 
   /** 操作パネルのAppearanceSelectorで選ばれた形状（レンズスタイル）を適用する。
@@ -485,12 +533,9 @@ export class SmuiView {
     return { locked: !this.isRoomMaster(), shapeId: this.frameShapeId, patternId: this.framePatternId };
   }
 
-  /** 表示中かどうかにかかわらず呼んでよい。「共有」タブを離れている間はルームの
-   *  ポーリングも止める——画面に映らない間、定期的なGETを続けても無駄なため。 */
+  /** 表示中かどうかにかかわらず呼んでよい。 */
   setActive(active: boolean): void {
     this.active = active;
-    if (active) this.roomSync?.resumePolling();
-    else this.roomSync?.pausePolling();
     this.applyRestrictions();
   }
 
@@ -506,10 +551,44 @@ export class SmuiView {
     this.lens.beginPlacingTemplate(id);
   }
 
+  /** 道具バーの「戻る」ボタン（issue #90）用。 */
+  undo(): void {
+    this.lens.undo();
+  }
+
   render(now: number): void {
     if (!this.active) return;
     this.lens.render(now);
-    this.reviveInfoPill.update(this.lens.getHoverRemainingMs(now));
+    this.updateReviveInfoPill(now);
     this.sessionPanel.update(now, this.isRoomMaster(), this.session);
+  }
+
+  /** 「残り時間」ピルの中身を今の状況に合わせる。投票フェーズ中は、時間で
+   *  消える猶予という個人キャンバス向けの文言をそのまま出しても意味が
+   *  無く、代わりにホバー中のメモの相対的な支持率(%)を見たい
+   *  （issue #79：共有ビューなのに「あと1日」等の個人向け表示が出てくる
+   *  というユーザー指摘への対応）。確定済み(fadeExempt)のメモも、時間経過で
+   *  フェードしない仕様である以上「残り時間」は意味を持たないため隠す。 */
+  private updateReviveInfoPill(now: number): void {
+    const memoId = this.lens.getHoverMemoId();
+    const memo = memoId ? (this.sharedStore?.getAll().find((m) => m.id === memoId) ?? null) : null;
+
+    if (this.session?.phase === "voting" && memo) {
+      const memos = this.sharedStore!.getAll();
+      const maxHeat = Math.max(1, ...memos.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
+      this.reviveInfoPill.updateSupport(Math.round(((memo.heat ?? 0) / maxHeat) * 100));
+      return;
+    }
+    if (memo?.fadeExempt) {
+      this.reviveInfoPill.update(null);
+      return;
+    }
+    this.reviveInfoPill.update(this.lens.getHoverRemainingMs(now));
+  }
+
+  /** キャンバスタブと同じく、共有タブでもズーム中はヘッダー/ツールバーを
+   *  薄くするための判定（main.ts参照）。 */
+  isZoomed(): boolean {
+    return this.lens.isZoomed();
   }
 }

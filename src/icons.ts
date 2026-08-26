@@ -23,13 +23,18 @@ export const ICONS: Record<
   | "sharedRooms"
   | "moreActions"
   | "appearance"
+  | "settings"
+  | "themeSystem"
+  | "themeLight"
+  | "themeDark"
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
   | "patternWood"
   | "trash"
   | "timer"
-  | "room",
+  | "room"
+  | "undo",
   string
 > = {
   pen: `
@@ -123,6 +128,12 @@ export const ICONS: Record<
       <path d="M8.5 11l1.5 1.5L13 9" />
       <path d="M8.5 16l1.5 1.5L13 14" />
     </svg>`,
+  // 道具バーの「戻る」ボタン（issue #90）。反時計回りに巻き戻る矢印。
+  undo: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M7 10L3 14L7 18" />
+      <path d="M3 14H16C18.76 14 21 11.76 21 9C21 6.24 18.76 4 16 4H11" />
+    </svg>`,
   shapeRound: `
     <svg viewBox="0 0 24 24" ${common}>
       <circle cx="12" cy="12" r="8" />
@@ -151,6 +162,32 @@ export const ICONS: Record<
   appearance: `
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M9 4L4 7.5L6.5 10.5L9 8.5V20H15V8.5L17.5 10.5L20 7.5L15 4H14C14 5.38 13.1 6.4 12 6.4C10.9 6.4 10 5.38 10 4Z" />
+    </svg>`,
+  // 「設定」トリガー用の歯車。外周のリングと太めの短い8本のスポークで、
+  // sun（放射状の細い線のみ）と見分けが付くようにしている。
+  settings: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="12" cy="12" r="7.2" />
+      <circle cx="12" cy="12" r="3" />
+      <path
+        stroke-width="2.2"
+        d="M12 3.3v1.6M12 19.1v1.6M3.3 12h1.6M19.1 12h1.6M6.3 6.3l1.1 1.1M16.6 16.6l1.1 1.1M17.7 6.3l-1.1 1.1M7.4 16.6l-1.1 1.1"
+      />
+    </svg>`,
+  // テーマ選択（自動/ライト/ダーク）の3アイコン。
+  themeSystem: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <rect x="3.5" y="5" width="17" height="12" rx="1.5" />
+      <path d="M9 20h6M12 17v3" />
+    </svg>`,
+  themeLight: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <circle cx="12" cy="12" r="4.5" />
+      <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" />
+    </svg>`,
+  themeDark: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
     </svg>`,
   // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
   // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。

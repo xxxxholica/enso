@@ -5,7 +5,7 @@ import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
 import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
-import { PEN_WIDTH_RANGE } from "./toolStyle";
+import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { LifespanDays, Memo, Point } from "./types";
 
 const INK = "oklch(22% 0.012 55)";
@@ -342,7 +342,7 @@ export class TutorialSandbox {
       // 切り替えるため、薄れきって掴めなくなる心配はない。
       lifespanDays: this.step === "write" ? WATCH_DEMO_LIFESPAN_DAYS : FIXED_LIFESPAN_DAYS,
       fontSize: FONT_SIZE_STEPS.medium,
-      lineWidth: PEN_WIDTH_RANGE.default,
+      lineWidth: PEN_LINE_WIDTH,
       eraserRadius: 16,
     };
   }

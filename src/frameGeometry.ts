@@ -1,4 +1,11 @@
-import { computeAutoScale, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
+import {
+  computeAutoScale,
+  computeChromeCenterOffsetY,
+  computeContainerSize,
+  computeRectSize,
+  computeSquareSize,
+  fitCanvasToContainer,
+} from "./canvasSizing";
 import {
   getFrameShape,
   getGlassesFrameShape,
@@ -123,11 +130,20 @@ export class FrameGeometry {
     return this.frameKindValue === "glasses" ? getGlassesFrameShape(this.frameShapeId) : getFrameShape(this.frameShapeId);
   }
 
-  /** 利用可能な幅・高さのうち小さい方いっぱいまで円を広げ、上下限だけ設ける
-   *  （frameKind==="single"）。frameKind==="glasses"の場合は、正方形ではなく
-   *  GLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の横長矩形として
-   *  広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
-   *  computeAutoScaleした小さい方をscaleとして採用する。 */
+  /** キャンバス要素自体は、利用可能な幅・高さいっぱいの矩形として広げる
+   *  （frameKind==="single"）。フレーム（円/楕円/長方形）の描画基準サイズは
+   *  これとは別に、利用可能な幅・高さのうち小さい方（上下限だけ設ける）を
+   *  そのまま使う——キャンバス領域を画面いっぱいに広げても、フレームの見た目の
+   *  大きさ自体は変えないため（issue #83、ユーザー指示）。frameKind==="glasses"の
+   *  場合は、正方形ではなくGLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の
+   *  横長矩形として広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
+   *  computeAutoScaleした小さい方をscaleとして採用する。
+   *
+   *  中心（centerPxValue）はキャンバス要素の幾何中心からcomputeChromeCenterOffsetY()
+   *  ぶんだけ上へ補正する——ヘッダー・フッターは画面の真の上端／下端に固定表示
+   *  される半透明の帯で、キャンバス要素自体はその下まで含めて画面いっぱいに
+   *  広がるため、補正しないとフッター（ヘッダーより背が高い）側へ円が寄って
+   *  見えてしまう（ユーザー指摘）。 */
   resize(): void {
     // #app（style.css）はmin-height:100dvhで最低限のみ保証しており、キャンバスの
     // 実サイズ（style幅高さ）自体もその祖先の「中身から決まる高さ」に数えられる
@@ -142,38 +158,52 @@ export class FrameGeometry {
     if (this.frameKindValue === "glasses") {
       // ヒンジの鋲がキャンバス要素の外にクリップされないよう、横方向の余白は
       // GLASSES_HORIZONTAL_REACH_WITH_HINGE（鋲ぶんを含む）を基準にする。
+      // referenceWidth/Heightはフレーム（眼鏡）の描画基準サイズ専用——
+      // キャンバス要素自体はこれとは別にcomputeContainerSize（コンテナいっぱい）
+      // を使う。眼鏡は横長のアスペクト比固定のため、縦長スマホでは常に幅で
+      // 頭打ちになり、以前はそれがそのままキャンバス要素の高さにもなっていた。
+      // "single"と同様に画面全体まで広げるようにした結果、コンテナ（.smui-canvas-wrap）
+      // は画面全体に育つのに、実際の<canvas>要素は幅基準の低い高さのまま――という
+      // ズレが生まれ、ズーム・パンしてもその低い高さの外（画面の上下）には
+      // 絶対に届かなくなっていた（ユーザー指摘・実機確認済み）。
       const aspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
-      const { width, height } = computeRectSize(this.container, aspectRatio);
+      const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
+      const containerSize = computeContainerSize(this.container);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
       // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
       // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
       // 「確定済みの実寸」を基準にする。
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(height);
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceHeight);
       const scale = Math.min(
-        computeAutoScale(width, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
-        computeAutoScale(height, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
+        computeAutoScale(referenceWidth, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidth),
+        computeAutoScale(referenceHeight, GLASSES_VERTICAL_REACH, this.frameStrokeWidth)
       );
-      this.canvas.style.width = `${width}px`;
-      this.canvas.style.height = `${height}px`;
-      this.canvas.width = Math.round(width * this.dpr);
-      this.canvas.height = Math.round(height * this.dpr);
+      this.canvas.style.width = `${containerSize.width}px`;
+      this.canvas.style.height = `${containerSize.height}px`;
+      this.canvas.width = Math.round(containerSize.width * this.dpr);
+      this.canvas.height = Math.round(containerSize.height * this.dpr);
       this.scaleValue = scale;
-      this.centerPxValue = { x: width / 2, y: height / 2 };
+      this.centerPxValue = {
+        x: containerSize.width / 2,
+        y: containerSize.height / 2 - computeChromeCenterOffsetY(),
+      };
     } else {
-      const size =
+      const referenceSize =
         this.minCanvasSizePx !== undefined
           ? computeSquareSize(this.container, this.minCanvasSizePx)
           : computeSquareSize(this.container);
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(size);
+      const containerSize = computeContainerSize(this.container);
+      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(
         this.canvas,
         this.container,
         this.dpr,
         this.contentScaleFactor,
-        size
+        referenceSize,
+        containerSize
       );
       this.scaleValue = scale;
-      this.centerPxValue = centerPx;
+      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY() };
     }
     this.rebuildFramePaths();
   }

@@ -3,11 +3,27 @@ import type { Memo } from "../src/types";
 
 vi.mock("../src/sharedCanvas", () => ({
   getSharedCanvas: vi.fn(),
-  saveSharedCanvas: vi.fn(),
+  upsertSharedMemo: vi.fn(),
+  deleteSharedMemo: vi.fn(),
 }));
 
-import { getSharedCanvas, saveSharedCanvas } from "../src/sharedCanvas";
+import { getSharedCanvas, upsertSharedMemo } from "../src/sharedCanvas";
 import { SharedRoomSync } from "../src/sharedCanvasSync";
+
+const FAKE_MEMO: Memo = {
+  id: "memo-1",
+  kind: "stroke",
+  x: 0,
+  y: 0,
+  strokes: [[{ x: 0, y: 0 }]],
+  createdAt: 0,
+  lastTracedAt: 0,
+  traceHistory: [0],
+  lifespanDays: null,
+  status: "active",
+  color: "#000",
+  tool: "pen",
+};
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -23,7 +39,7 @@ describe("SharedRoomSync poll()の多重実行防止", () => {
     vi.mocked(getSharedCanvas).mockReturnValue(pending);
 
     const onRemoteChange = vi.fn();
-    const sync = new SharedRoomSync("room-1", onRemoteChange);
+    const sync = new SharedRoomSync("room-1", onRemoteChange, vi.fn());
 
     sync.pollNow();
     sync.pollNow();
@@ -46,10 +62,10 @@ describe("SharedRoomSync poll()の多重実行防止", () => {
   it("ローカルの変更が保留中（push待ち）の間は、pollNow()を呼んでもGETを飛ばさない", async () => {
     vi.useFakeTimers();
     vi.mocked(getSharedCanvas).mockResolvedValue({ id: "room-1", memos: [] });
-    vi.mocked(saveSharedCanvas).mockResolvedValue(undefined);
-    const sync = new SharedRoomSync("room-1", vi.fn());
+    vi.mocked(upsertSharedMemo).mockResolvedValue(undefined);
+    const sync = new SharedRoomSync("room-1", vi.fn(), vi.fn());
 
-    sync.schedulePush([]); // pushTimerがセットされ、hasPendingLocalChanges()がtrueになる
+    sync.pushOp({ upserts: [FAKE_MEMO], deletes: [] }); // pushTimerがセットされ、hasPendingLocalChanges()がtrueになる
     sync.pollNow();
     await Promise.resolve();
 

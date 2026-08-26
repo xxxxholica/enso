@@ -20,7 +20,10 @@ export interface CanvasGeometry {
  * コンテナの利用可能な幅・高さのうち小さい方いっぱいまで正方形として広げた時の
  * 一辺（px）。上下限（既定でMIN/MAX_CANVAS_SIZE）だけ設ける。SMUIの右レンズ
  * プレースホルダー（smuiView.ts）が、実際にCircularCanvasが無い間も同じ大きさの
- * 円に見えるよう、この計算だけを単独で使えるようにexportしている。
+ * 円に見えるよう、この計算だけを単独で使えるようにexportしている。frameKind===
+ * "single"では、キャンバス要素自体の大きさではなく、フレーム（円/楕円/長方形）
+ * の描画基準サイズ（contentScaleFactorを掛ける前の値）としてだけ使う——
+ * computeContainerSize参照。
  * minSize/maxSizeを省略時のMIN/MAX_CANVAS_SIZEから上書きできるのは、使い方
  * ページの練習用サンドボックス（tutorialSandbox.ts、CircularCanvasOptions.
  * minCanvasSizePx）専用——本物のMIN_CANVAS_SIZE(200px)のままだと、CSS側で
@@ -37,6 +40,21 @@ export function computeSquareSize(
   const rect = container.getBoundingClientRect();
   const available = Math.min(rect.width, rect.height || rect.width);
   return Math.min(maxSize, Math.max(minSize, available));
+}
+
+/**
+ * コンテナの利用可能な幅・高さを、正方形に制限せずそのまま返す（下限だけ
+ * MIN_CANVAS_SIZEで保証し、極端に狭いレイアウトでの退化を防ぐ。上限は設けない
+ * ——キャンバス要素の領域を画面いっぱいに使うのが目的のため）。frameKind==="single"の
+ * キャンバス要素の実サイズ（style幅高さ・描画バッファ）に使う。フレームの描画基準
+ * サイズ（computeSquareSize）とは別の値で、両者はfitCanvasToContainerで
+ * 組み合わせる。
+ */
+export function computeContainerSize(container: HTMLElement): { width: number; height: number } {
+  const rect = container.getBoundingClientRect();
+  const width = Math.max(MIN_CANVAS_SIZE, rect.width);
+  const height = Math.max(MIN_CANVAS_SIZE, rect.height || rect.width);
+  return { width, height };
 }
 
 /**
@@ -95,26 +113,52 @@ export function computeRectSize(container: HTMLElement, aspectRatio: number): { 
 }
 
 /**
- * コンテナの利用可能な幅・高さのうち小さい方いっぱいまで正方形として広げ、
- * 上下限だけ設ける。canvas要素の実サイズ（style幅高さ・描画バッファ）を
- * このタイミングで適用し、以後の座標計算に使う半径・中心を返す。
- * contentScaleFactorは固定の割合（数値）のほか、キャンバスの一辺（px）を
+ * canvas要素の実サイズ（style幅高さ・描画バッファ）をcontainerSize（既定は
+ * コンテナいっぱい、正方形に限らない矩形——computeContainerSize参照）に合わせ、
+ * 以後の座標計算に使うscale・中心を返す。scale自体はcontainerSizeとは別の
+ * referenceSize（既定はcomputeSquareSize(container)、正方形基準の値）に
+ * contentScaleFactorを掛けて決める——キャンバス要素の領域を画面いっぱいに
+ * 広げても、フレーム（円/楕円/長方形）の見た目の大きさ自体は変えないため、
+ * この2つを独立させている。
+ * contentScaleFactorは固定の割合（数値）のほか、referenceSize（px）を
  * 受け取ってその都度の割合を返す関数も渡せる（SMUIレンズの動的マージン計算、
- * computeAutoScale参照）。呼び出し元がすでにcomputeSquareSize(container)を
- * 計算済みなら、getBoundingClientRect()の二重呼び出しを避けるためsizeで渡せる。
+ * computeAutoScale参照）。呼び出し元がすでにcomputeSquareSize(container)/
+ * computeContainerSize(container)を計算済みなら、getBoundingClientRect()の
+ * 二重呼び出しを避けるためreferenceSize/containerSizeで渡せる。
  */
+/**
+ * ヘッダー・フッターは画面の真の上端／下端に固定表示される半透明の帯で、
+ * キャンバス要素自体はその下まで含めて画面いっぱいに広がる——ズーム・パン
+ * した絵がヘッダー/フッターの下まで透けて見えるようにするための意図的な
+ * 設計（style.css .app-header/.app-footerのコメント参照）。そのため円の
+ * 中心を単純にキャンバス要素の幾何中心へ置くと、フッター（下端の余白を
+ * 他3辺より広めに取っている・道具バーを含む）の方がヘッダーより背が高い分
+ * だけ、円が見た目にはツールバー側へ寄って見えてしまう（ユーザー指摘）。
+ * ヘッダー・フッターの高さの差の半分だけ円の中心を上へ補正する値を返す
+ * ——見えている帯の間（ヘッダー下端〜フッター上端）のちょうど中央に円が
+ * 来るようにするための量。ヘッダー/フッターが存在しない文脈（使い方ガイドの
+ * 練習用サンドボックス等）では0を返す。 */
+export function computeChromeCenterOffsetY(): number {
+  const header = document.querySelector<HTMLElement>(".app-header");
+  const footer = document.querySelector<HTMLElement>(".app-footer");
+  if (!header || !footer) return 0;
+  return (footer.getBoundingClientRect().height - header.getBoundingClientRect().height) / 2;
+}
+
 export function fitCanvasToContainer(
   canvas: HTMLCanvasElement,
   container: HTMLElement,
   dpr: number,
   contentScaleFactor: number | ((size: number) => number) = 0.43,
-  size: number = computeSquareSize(container)
+  referenceSize: number = computeSquareSize(container),
+  containerSize: { width: number; height: number } = computeContainerSize(container)
 ): CanvasGeometry {
-  const factor = typeof contentScaleFactor === "function" ? contentScaleFactor(size) : contentScaleFactor;
-  const scale = size * factor;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  canvas.width = Math.round(size * dpr);
-  canvas.height = Math.round(size * dpr);
-  return { width: size, height: size, scale, centerPx: { x: size / 2, y: size / 2 } };
+  const factor = typeof contentScaleFactor === "function" ? contentScaleFactor(referenceSize) : contentScaleFactor;
+  const scale = referenceSize * factor;
+  const { width, height } = containerSize;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  return { width, height, scale, centerPx: { x: width / 2, y: height / 2 } };
 }
