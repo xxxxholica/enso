@@ -422,6 +422,20 @@ body {
   outline: none;
 }
 
+/* モバイル（issue #87：pointer:coarseでキーボード直上に固定表示する分岐、
+   canvasView.ts openTextEditor参照）専用の見た目。上のコメントの通り通常は
+   「紙に直接書き込んでいる」ことを示すためテーマに関わらず紙色固定にして
+   いるが、この分岐では入力欄がキャンバスから切り離された画面下部固定のUI
+   部品になる（もはや紙の上ではない）ため、逆にツールバーの.control-block
+   と同じ、テーマに追従するカード風の見た目に切り替えて「これはキャンバスの
+   一部ではない」ことを見た目からも伝える（ユーザー指示）。 */
+.text-editor-overlay--fixed-bottom {
+  border: 1px solid var(--ink-12);
+  border-radius: var(--radius-lg);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-card);
+}
+
 .text-editor-overlay::placeholder {
   color: oklch(22% 0.012 55 / 0.35);
 }

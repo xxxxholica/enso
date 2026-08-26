@@ -1024,7 +1024,11 @@ export class CircularCanvas {
     const fontPx = fontPxForRender(fontSize, scaleAtOpen);
 
     const el = document.createElement("textarea");
-    el.className = "text-editor-overlay";
+    // モバイル（issue #87：キーボード直上に固定表示する分岐）では、紙の上に
+    // 直接書き込んでいるのではなくキャンバスから切り離されたUI部品であることが
+    // 見た目からも伝わるよう、ツールバーの.control-blockと同じカード風の
+    // スタイルに切り替える（--fixed-bottom、ユーザー指示）。
+    el.className = isCoarsePointerDevice() ? "text-editor-overlay text-editor-overlay--fixed-bottom" : "text-editor-overlay";
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
