@@ -16,6 +16,10 @@ export interface Reaction {
   userId: string;
   emoji: string;
   createdAt: number;
+  /** 押した人の表示名。ゲストは常に設定されるが、Clerkログイン済みメンバーは
+   *  この機能導入前から参加済みだった場合など、まだ解決できずnullのことがある
+   *  （呼び出し側でフォールバック表示が必要）。 */
+  displayName: string | null;
 }
 
 /** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。

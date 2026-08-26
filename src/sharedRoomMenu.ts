@@ -447,7 +447,7 @@ export class SharedRoomMenu {
       this.openMenu();
       this.setStatus("参加しています…");
       try {
-        await joinSharedCanvas(id);
+        await joinSharedCanvas(id, getCurrentUser()?.name);
         await this.refreshRoomList();
         this.selectedId = id;
         this.updateTriggerLabel();
@@ -473,7 +473,7 @@ export class SharedRoomMenu {
     this.createBtn.disabled = true;
     this.createBtnLabelEl.textContent = "作成中…";
     try {
-      const id = await createSharedCanvas();
+      const id = await createSharedCanvas(getCurrentUser()?.name);
       await this.refreshRoomList();
       this.selectedId = id;
       this.updateTriggerLabel();

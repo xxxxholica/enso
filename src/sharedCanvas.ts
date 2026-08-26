@@ -55,9 +55,16 @@ export interface SharedCanvasDetail {
   framePatternId: FramePatternId | null;
 }
 
-/** 新しい共有キャンバスを作る。作った本人がownerメンバーになる。ルームIDを返す。 */
-export async function createSharedCanvas(): Promise<string> {
-  const res = await authFetch("/shared-canvases", { method: "POST" });
+/** 新しい共有キャンバスを作る。作った本人がownerメンバーになる。ルームIDを返す。
+ *  displayNameを渡すと、issue #128のリアクション実名表示のためownerの
+ *  shared_canvas_members行にも保存される(省略時はnullのまま、後からjoinを
+ *  呼べば埋められる)。 */
+export async function createSharedCanvas(displayName?: string | null): Promise<string> {
+  const res = await authFetch("/shared-canvases", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName: displayName ?? null }),
+  });
   if (!res.ok) throw new Error(`共有キャンバスの作成に失敗しました (status: ${res.status})`);
   const data: unknown = await res.json();
   const id = (data as { id?: unknown }).id;
@@ -96,9 +103,14 @@ export async function mintInvite(id: string): Promise<{ token: string; expiresAt
   return { token, expiresAt: typeof expiresAt === "number" ? expiresAt : Date.now() };
 }
 
-/** 招待リンク経由で共有キャンバスのメンバーに加わる。 */
-export async function joinSharedCanvas(id: string): Promise<void> {
-  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/join`, { method: "POST" });
+/** 招待リンク経由で共有キャンバスのメンバーに加わる。displayName参照はcreateSharedCanvas
+ *  と同じ(issue #128)。 */
+export async function joinSharedCanvas(id: string, displayName?: string | null): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName: displayName ?? null }),
+  });
   if (!res.ok) throw new Error(`共有キャンバスへの参加に失敗しました (status: ${res.status})`);
 }
 

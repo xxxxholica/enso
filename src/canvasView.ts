@@ -363,11 +363,7 @@ export class CircularCanvas {
   private textEditorMinWidthPx: number | undefined;
   /** 共有キャンバスの共同アイデア出しセッション、フェーズ②(議論)で
    *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
-   *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。
-   *  issue #128: 旧「投票フェーズ専用の掴んで回転させる投票ジェスチャー」
-   *  (rotationVoteHandler/voteOnly)は廃止済み(実装計画上のリアクション
-   *  スタンプUIは別issueで別途配線予定)——rank/votingフェーズも当面は
-   *  このlockedによる読み取り専用表示のみ。 */
+   *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
   private locked = false;
   /** 確定済み(fadeExempt)メモの相対密度（人気度）を、メモの色の濃さへ滑らかに
    *  反映させるためのイージング用の現在値（メモID→0..1）。目標値(frozenDensity)が
@@ -376,6 +372,15 @@ export class CircularCanvas {
   private lastDensityFrameAt: number | null = null;
   /** レンズ分割表示(issue #79)の状態。null=通常の単一クリップ表示。 */
   private lensSplitState: LensSplitState | null = null;
+  /** issue #128: 共有ルームのリアクションスタンプ用。setReactionMode(true)の間は、
+   *  道具に関わらずメモに軽く触れて離す(タップ)操作だけをreactionTapHandlerへ
+   *  渡す——描画・移動・消去などは一切始めない(lockedと同時併用はしない。
+   *  lockedはpointerdown自体を止めてしまいタップも拾えなくなるため)。 */
+  private reactionModeActive = false;
+  private reactionTapHandler: ((memoId: string) => void) | null = null;
+  /** タップ判定用: pointerdownで触れたメモと、その時の画面座標(px)。pointerupで
+   *  TAP_MAX_MOVEMENT_PXを超えて動いていなければタップとみなす。 */
+  private reactionTapCandidate: { memoId: string | null; downClientPoint: Point } | null = null;
 
   constructor(
     container: HTMLElement,
@@ -493,6 +498,20 @@ export class CircularCanvas {
    *  （onPointerDown参照）。 */
   setLocked(locked: boolean): void {
     this.locked = locked;
+  }
+
+  /** issue #128: 共有ルームのリアクションスタンプ用。序列づけ(rank)・審議(voting)・
+   *  発散(ideation)・議論(discussion)の各フェーズで、書き込み操作の代わりに
+   *  「タップでリアクション」だけを受け付けたい間trueにする（smuiView.ts）。
+   *  setLockedとは併用しない——lockedはpointerdown自体を止めるため、これが
+   *  trueだとタップも拾えなくなる。 */
+  setReactionMode(active: boolean): void {
+    this.reactionModeActive = active;
+  }
+
+  /** setReactionMode(true)の間、メモをタップするたびに呼ばれる。 */
+  setReactionTapHandler(handler: ((memoId: string) => void) | null): void {
+    this.reactionTapHandler = handler;
   }
 
   /** 共有キャンバスの共同アイデア出しセッション、フェーズ①(発散)のレンズ分割表示
@@ -679,6 +698,15 @@ export class CircularCanvas {
       // ブラウザ差異等でcaptureに失敗しても致命的ではないため無視する。
     }
     this.activePointerId = ev.pointerId;
+
+    if (this.reactionModeActive) {
+      // 道具に関わらず、触れた瞬間のヒット結果と画面座標だけを覚えておき、
+      // 実際の判定・発火はonPointerUpでTAP_MAX_MOVEMENT_PX以内だったかを見てから行う
+      // （ドラッグして離した場合はタップ扱いにしない）。
+      const hit = this.hitTestMemo(raw);
+      this.reactionTapCandidate = { memoId: hit?.id ?? null, downClientPoint: { x: ev.clientX, y: ev.clientY } };
+      return;
+    }
 
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = raw;
@@ -1402,8 +1430,20 @@ export class CircularCanvas {
   private onPointerUp = (ev: PointerEvent): void => {
     if (ev.pointerId !== this.activePointerId) return; // ピンチ中の指、または元々無関係な指
     this.activePointerId = null;
+    this.maybeFireReactionTap(ev);
     this.endSinglePointerGesture();
   };
+
+  /** setReactionMode(true)中: pointerdownで触れたメモがあり、離すまでの移動量が
+   *  TAP_MAX_MOVEMENT_PX以内なら「タップ」とみなしreactionTapHandlerへ渡す。 */
+  private maybeFireReactionTap(ev: PointerEvent): void {
+    const candidate = this.reactionTapCandidate;
+    this.reactionTapCandidate = null;
+    if (!candidate || !candidate.memoId) return;
+    const upPoint = { x: ev.clientX, y: ev.clientY };
+    if (pointerDistance(candidate.downClientPoint, upPoint) > TAP_MAX_MOVEMENT_PX) return;
+    this.reactionTapHandler?.(candidate.memoId);
+  }
 
   /**
    * 何も選択していない状態（テキスト編集中でも、道具でのドラッグ中でもない）で

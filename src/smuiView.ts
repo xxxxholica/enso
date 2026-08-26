@@ -1,10 +1,12 @@
 import { CircularCanvas } from "./canvasView";
 import type { CircularCanvasOptions, ToolState } from "./canvasView";
 import {
+  addMemoReaction,
   advanceSession,
   endSession as endSessionApi,
   extendSession,
   getSharedCanvas,
+  REACTION_EMOJI,
   startSession,
   updateSharedAppearance,
   VOTING_EMOJI,
@@ -21,6 +23,7 @@ import { computeLensSplitPairCount, LENS_COUNT } from "./lensSplit";
 import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
+import { ReactionPicker } from "./reactionPicker";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
 import { loadFramePattern, loadFrameShape } from "./storage";
@@ -41,6 +44,20 @@ export const SMUI_FRAME_WEIGHT_RATIO = 0.04;
  *  ——実測値ではなく比率なので、レンズスタイル・ウィンドウサイズが変わっても
  *  常に右レンズの中心に合う。 */
 const STATUS_X_FRACTION = 0.5 + GLASSES_CENTER_OFFSET / (2 * GLASSES_HORIZONTAL_REACH_WITH_HINGE);
+
+/** issue #128: ReactionPickerの見出しに出す、タップされたメモの短い要約。
+ *  TextMemoはtitle(rankフェーズ用に追加、issue #128)があればそれを、無ければ
+ *  本文の1行目を使う。StrokeMemo(描画のみ)はタイトルに相当するものを持たない
+ *  ため固定文言にする。 */
+function reactionPickerLabel(memo: Memo): string {
+  if (memo.kind === "text") {
+    const title = memo.title?.trim();
+    if (title) return title;
+    const firstLine = memo.text.split("\n")[0]?.trim() ?? "";
+    return firstLine.length > 0 ? firstLine.slice(0, 40) : "(無題のメモ)";
+  }
+  return "(描画メモ)";
+}
 
 /**
  * SMUI（鯖江メガネUI）: 「共有」タブの画面。旧デュアルレンズ構成（#9）を置き換え、
@@ -91,6 +108,14 @@ export class SmuiView {
   private sharedStore: MemoStore | null = null;
   private toolbar: Toolbar;
   private sessionPanel!: SessionPanel;
+  private reactionPicker!: ReactionPicker;
+  /** issue #128: このクライアントが今セッション中に既にリアクションを送った
+   *  memoIdの記録。1人1メモ1スタンプ・変更不可(サーバー仕様)なので、再送信を
+   *  防ぐためのローカルな二重送信ガード——「自分がどれを押したか」の厳密な
+   *  判定にはゲスト自身のuserIdが必要でフロントに持たせていないため、ここでは
+   *  「押した/押していない」の二値のみ管理する(最終サマリ参照)。ルーム切り替え
+   *  ごとにリセットする。 */
+  private reactedMemoIds = new Set<string>();
   /** ルームの作成者=ルームマスター。セッションの開始・進行操作の可否判定に使う。 */
   private ownerId: string | null = null;
   private session: SessionState | null = null;
@@ -165,19 +190,23 @@ export class SmuiView {
   }
 
   /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
-   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked)を
-   *  揃える。フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする
-   *  ——「話し合いの時間」であって、書き込むための時間ではないため。
-   *  序列づけ(rank)・審議(voting)はサーバー側がメモの新規作成・編集・削除を
-   *  一切許可しない(requireMemoWritable、issue #128)ため、主催者を含め全員を
-   *  読み取り専用にする——リアクションスタンプによる操作UIは別途配線が必要
-   *  (このコミット時点では未実装、最終サマリ参照)。 */
+   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked)、
+   *  リアクションスタンプの受付(setReactionMode、issue #128)を揃える。
+   *  フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする——
+   *  「話し合いの時間」であって、書き込むための時間ではないため（マスター以外は
+   *  そのままリアクションを受け付ける）。序列づけ(rank)・審議(voting)は
+   *  サーバー側がメモの新規作成・編集・削除を一切許可しない
+   *  (requireMemoWritable)ため、主催者を含め全員をリアクションのみ受け付ける
+   *  状態にする。フェーズ①(発散)は各参加者が自分のレンズへ実際に描画している
+   *  最中で、タップ操作の意味がドラッグ開始と衝突するため、このコミット時点では
+   *  リアクションを配線していない（最終サマリ参照）。 */
   private applyRestrictions(): void {
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
+      this.lens.setReactionMode(false);
       this.lens.setLensSplit(null);
       return;
     }
@@ -186,12 +215,17 @@ export class SmuiView {
       this.toolbar.setEnabled(isMaster);
       this.toolbar.setColorLocked(true);
       this.toolbar.setOnlyToolEnabled(null);
-      this.lens.setLocked(!isMaster);
+      // マスターはそのまま描画、非マスターはロックの代わりにリアクション
+      // モードにする(setReactionModeがドラッグ・消去等の開始を一括で防ぐため、
+      // setLocked(true)と重ねて呼ぶ必要はない——タップだけ拾えなくなってしまう)。
+      this.lens.setLocked(false);
+      this.lens.setReactionMode(!isMaster);
       this.lens.setLensSplit(null);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
       this.toolbar.setOnlyToolEnabled(null);
+      this.lens.setReactionMode(false);
       // レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが
       // 4以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
       // 製品判断）。maxParticipants自体もLENS_COUNTと同じ4が上限のため
@@ -214,11 +248,12 @@ export class SmuiView {
           : null
       );
     } else {
-      // rank / voting
+      // rank / voting: 全員リアクションのみ受け付ける読み取り専用。
       this.toolbar.setEnabled(false);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled(null);
-      this.lens.setLocked(true);
+      this.lens.setLocked(false);
+      this.lens.setReactionMode(true);
       this.lens.setLensSplit(null);
     }
   }
@@ -233,6 +268,8 @@ export class SmuiView {
     const wasVoting = prevPhase === "voting";
     this.session = session;
     this.applyRestrictions();
+    // フェーズが変わったのに前のフェーズ基準で開いたままのシートが残らないように閉じる。
+    if (session?.phase !== prevPhase) this.reactionPicker.close();
     // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
     // fadeExempt/frozenDensityを確定させた直後なので、すぐ取得し直す——放置すると
     // 確定したはずのメモが古いlastTracedAtのままフェードし続けてしまう。
@@ -241,6 +278,39 @@ export class SmuiView {
       const label = phaseCutInLabel(prevPhase, session);
       if (label) showPhaseCutIn(label);
     }
+  }
+
+  /** issue #128: リアクションモード中(setReactionMode(true))にメモがタップされる
+   *  たびにcanvasView.tsから呼ばれる。序列づけ(rank)フェーズはStrokeMemo(描画のみ)
+   *  を対象外とする決定事項があるため、その組み合わせでは何もしない。 */
+  private handleMemoTap(memoId: string): void {
+    const store = this.sharedStore;
+    const session = this.session;
+    if (!store || !session) return;
+    const memo = store.getAll().find((m) => m.id === memoId);
+    if (!memo) return;
+    if (session.phase === "rank" && memo.kind === "stroke") return;
+    const allowedEmoji = session.phase === "voting" ? [VOTING_EMOJI] : REACTION_EMOJI;
+    this.reactionPicker.open(memoId, reactionPickerLabel(memo), allowedEmoji, memo.reactions ?? [], this.reactedMemoIds.has(memoId));
+  }
+
+  /** ReactionPickerでスタンプが選ばれた時に呼ばれる。1人1メモ1スタンプ・
+   *  変更不可(サーバー仕様)なので、送信開始と同時にローカルの二重送信ガード
+   *  (reactedMemoIds)を立てる——連打やレスポンス待ち中の再選択を防ぐ。 */
+  private pickReaction(memoId: string, emoji: string): void {
+    const roomId = this.selectedRoomId;
+    if (!roomId) return;
+    this.reactedMemoIds.add(memoId);
+    void addMemoReaction(roomId, memoId, emoji)
+      .then(({ reactions }) => {
+        this.sharedStore?.setMemoReactions(memoId, reactions);
+        this.reactionPicker.markReacted(memoId, reactions);
+      })
+      .catch((e) => {
+        // 失敗時（既に送信済みの409を含む）もreactedMemoIdsは戻さない——
+        // サーバー側はINSERT ONLYで変更不可のため、リトライしても意味が無い。
+        console.error("[smuiView] reaction post failed", e);
+      });
   }
 
   /** 共有キャンバス（プレースホルダー/実体）に共通するCircularCanvasオプション。 */
@@ -293,6 +363,10 @@ export class SmuiView {
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);
+
+    this.reactionPicker = new ReactionPicker(container, {
+      onPick: (memoId, emoji) => this.pickReaction(memoId, emoji),
+    });
   }
 
   private setStatus(message: string): void {
@@ -346,6 +420,8 @@ export class SmuiView {
     this.selectedRoomId = id;
     this.sharedStore = null;
     this.sessionPanel.reset();
+    this.reactionPicker.close();
+    this.reactedMemoIds.clear();
     this.applySession(null, { silent: true });
     this.ownerId = null;
     // 前のルームでルームマスターが設定した見た目を次のルームへ持ち越さない
@@ -379,7 +455,8 @@ export class SmuiView {
       this.lens.destroy();
       this.canvasContainerEl.innerHTML = "";
       this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.effectiveToolState, this.lensOptions());
-      // 新しいlensに書き込み制限・投票ハンドラを適用する。silent: 進行中の
+      this.lens.setReactionTapHandler((memoId) => this.handleMemoTap(memoId));
+      // 新しいlensに書き込み制限・リアクションモードを適用する。silent: 進行中の
       // セッションに途中参加しただけでカットインが出るのを防ぐ。
       this.applySession(detail.session, { silent: true });
       this.setStatus("");
