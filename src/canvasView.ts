@@ -1055,9 +1055,14 @@ export class CircularCanvas {
       }
     } else if (this.state.mode === "moving" && this.state.movingMemoId && this.state.lastPoint) {
       this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
-      const dx = p.x - this.state.lastPoint.x;
-      const dy = p.y - this.state.lastPoint.y;
-      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
+      // 投票フェーズ中は「選択」道具を回転投票専用として使うため、位置は
+      // 動かさない——同期されるのは熱量(投票)だけでよい（issue #79、
+      // ユーザー指示：回した結果だけ同期し、実際の位置は移動させないでほしい）。
+      if (!this.rotationVoteHandler) {
+        const dx = p.x - this.state.lastPoint.x;
+        const dy = p.y - this.state.lastPoint.y;
+        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
+      }
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;

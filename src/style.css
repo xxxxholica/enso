@@ -441,7 +441,10 @@ body {
   touch-action: pan-x pan-y;
   display: flex;
   justify-content: center;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  /* 下端の余白が窮屈だった（ユーザー指摘）ため、他の3辺(8px)より広めに取る
+   *  ——個人キャンバス・共有ビュー共通の単一の.app-footerなので、両方に
+   *  自然に反映される。 */
+  padding: 8px 16px calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
   /* .app-footer自体は背景を持たない——中身の3ブロック（.control-block）が
      それぞれ個別に不透明な背景（var(--paper-1)）を持っているため、コンテナ
      側で重ねて背景を敷くと色浮きするだけで意味が無かった（ユーザー指摘）。 */
@@ -1551,10 +1554,11 @@ body {
   left: 0;
   right: 0;
   /* .app-footer（position:fixed、高さはcontrol-panelの72px＋自身のpadding＋
-     セーフエリアでおおよそ80〜90px）の裏に隠れないよう、その高さぶん＋
-     見た目の隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずが
-     bottom:0だとツールバーの裏＝画面の真下に来てしまい隠れていた）。 */
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+     セーフエリアでおおよそ90〜100px、下端の余白を広げた分(+12px)を含む）の
+     裏に隠れないよう、その高さぶん＋見た目の隙間(8px)だけ上げる
+     （ユーザー指摘：ツールバー直上に見えるはずがbottom:0だとツールバーの裏＝
+     画面の真下に来てしまい隠れていた）。 */
+  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: center;
   align-items: center;
