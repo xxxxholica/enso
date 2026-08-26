@@ -2729,8 +2729,20 @@ body[data-view="shared"] #duration-slot {
 
 .reaction-picker-summary {
   margin: 12px 0 0;
+  max-height: 30dvh;
+  overflow-y: auto;
   font-size: var(--text-sm);
   color: var(--ink-55);
+}
+
+.reaction-picker-summary-line {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.reaction-picker-summary-note {
+  margin: 8px 0 0;
+  color: var(--ink-45);
 }
 
 /* --- issue #128: 序列づけ(rank)フェーズ専用のタイトル一覧（rankList.ts）。

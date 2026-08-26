@@ -11,7 +11,10 @@ import type { Reaction } from "./types";
  * に追従させる座標計算が不要になり、実装・見た目とも単純になる。
  *
  * 1人1メモにつき1スタンプまで・変更不可（バックエンド仕様）なので、押した後は
- * ボタンを押せなくする。「自分が既にどれを押したか」はサーバー側のuserIdでしか
+ * ボタンを押せなくする。「誰が押したかは実名で表示する」(issue決定事項)ため、
+ * emojiごとに押した人の表示名を並べて見せる(renderReactionSummary、db.jsの
+ * JOINでサーバーがdisplayNameを解決して返す)。ただし「自分が既にどれを押したか
+ * (=送信済みボタンのうちどれが自分の選択か)」はサーバー側のuserIdでしか
  * 判定できずゲストの自分のuserIdをフロントが持っていないため、この画面内では
  * 「押した/押していない」の二値までしか出さない（正確な自分の選択の可視化は、
  * ゲストの自分のuserId自体をフロントに持たせる別途対応が必要——最終サマリ参照）。
@@ -67,7 +70,7 @@ export class ReactionPicker {
     this.buttonsEl.className = "reaction-picker-buttons";
     this.sheet.appendChild(this.buttonsEl);
 
-    this.summaryEl = document.createElement("p");
+    this.summaryEl = document.createElement("div");
     this.summaryEl.className = "reaction-picker-summary";
     this.sheet.appendChild(this.summaryEl);
 
@@ -97,7 +100,7 @@ export class ReactionPicker {
       this.buttonsEl.appendChild(btn);
     }
 
-    this.summaryEl.textContent = summarizeReactions(reactions, alreadyReacted);
+    renderReactionSummary(this.summaryEl, reactions, alreadyReacted);
 
     this.isOpen = true;
     this.overlay.hidden = false;
@@ -112,7 +115,7 @@ export class ReactionPicker {
     for (const btn of Array.from(this.buttonsEl.children)) {
       (btn as HTMLButtonElement).disabled = true;
     }
-    this.summaryEl.textContent = summarizeReactions(reactions, true);
+    renderReactionSummary(this.summaryEl, reactions, true);
   }
 
   close(): void {
@@ -124,13 +127,34 @@ export class ReactionPicker {
   }
 }
 
-/** 集計を「👍3 😱1」のように短くまとめる。実名の一覧は数が増えると読みにくく
- *  なるため、ここでは合計数のみ表示する（issue決定事項の「リアルタイム公開」＝
- *  誰でも見えることは満たしつつ、実名一覧はホバー等の別UIに譲る想定）。 */
-function summarizeReactions(reactions: Reaction[], alreadyReacted: boolean): string {
-  const counts = new Map<string, number>();
-  for (const r of reactions) counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1);
-  const parts = Array.from(counts.entries()).map(([emoji, count]) => `${emoji}${count}`);
-  const summary = parts.length > 0 ? parts.join(" ") : "まだリアクションがありません";
-  return alreadyReacted ? `${summary}（あなたはリアクション済み）` : summary;
+/** 「誰が押したかは実名で表示する」(issue #128の決定事項)。emojiごとに
+ *  押した人の表示名を並べる（例: 「👍 太郎さん、花子さん」）。displayNameが
+ *  未解決(null)のリアクションは、この機能導入前から参加済みだったClerkメンバー
+ *  由来の可能性がある(joinAsMemberのコメント参照)ため「名前未設定」で表示する。 */
+function renderReactionSummary(container: HTMLElement, reactions: Reaction[], alreadyReacted: boolean): void {
+  container.innerHTML = "";
+  if (reactions.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "まだリアクションがありません";
+    container.appendChild(empty);
+    return;
+  }
+  const byEmoji = new Map<string, Reaction[]>();
+  for (const r of reactions) {
+    if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+    byEmoji.get(r.emoji)!.push(r);
+  }
+  for (const [emoji, group] of byEmoji) {
+    const line = document.createElement("p");
+    line.className = "reaction-picker-summary-line";
+    const names = group.map((r) => `${r.displayName ?? "名前未設定"}さん`).join("、");
+    line.textContent = `${emoji} ${names}`;
+    container.appendChild(line);
+  }
+  if (alreadyReacted) {
+    const note = document.createElement("p");
+    note.className = "reaction-picker-summary-note";
+    note.textContent = "あなたはリアクション済みです";
+    container.appendChild(note);
+  }
 }
