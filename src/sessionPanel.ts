@@ -26,10 +26,11 @@ function formatMinutesSeconds(ms: number): string {
 
 /** フェーズの長さ・参加人数上限のスライダー範囲。 */
 const MINUTES_RANGE = { min: 1, max: 30, step: 1, default: 5 } as const;
-// 上限は8——フェーズ①の色プール(smuiView.ts PARTICIPANT_COLORS)が色覚検証済みの
-// 固定8色までしか用意していないため（検証の結果、色相だけを増やして人数分の
-// 色を用意する方式は見分けが困難なペアが出ることが分かった）。
-const MAX_PARTICIPANTS_RANGE = { min: 1, max: 8, step: 1, default: 8 } as const;
+// 上限は4(=眼鏡2組)——3組(6人)は実機確認の結果、画面上での表示が安定しない
+// (組数が増えるほど1組あたりが小さくなりすぎる・レイアウト崩れが目立つ)と
+// 判断し、レンズ分割(lensSplit.ts LENS_COUNT)自体の上限を4に引き下げた
+// （issue #79、ユーザー指示）。
+const MAX_PARTICIPANTS_RANGE = { min: 1, max: 4, step: 1, default: 4 } as const;
 
 export interface SessionPanelCallbacks {
   onStart: (options: StartSessionOptions) => void;

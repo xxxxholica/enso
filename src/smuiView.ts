@@ -24,7 +24,6 @@ import { showPhaseCutIn } from "./phaseCutIn";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
 import { loadFramePattern, loadFrameShape } from "./storage";
-import type { TemplateId } from "./templates";
 import { DEFAULT_INK, type Toolbar } from "./toolbar";
 import { getCurrentUser } from "./authState";
 
@@ -101,7 +100,6 @@ export class SmuiView {
    *  諦めることで、置き去りのインスタンスが残るのを防ぐ。 */
   private roomRequestSeq = 0;
   private statusResizeObserver!: ResizeObserver;
-  private onRequestTemplatePicker?: () => void;
 
   private active = false;
 
@@ -110,11 +108,9 @@ export class SmuiView {
     getToolState: () => ToolState,
     initialFrameShapeId: FrameShapeId,
     initialFramePatternId: FramePatternId,
-    toolbar: Toolbar,
-    onRequestTemplatePicker?: () => void
+    toolbar: Toolbar
   ) {
     this.getToolState = getToolState;
-    this.onRequestTemplatePicker = onRequestTemplatePicker;
     this.frameShapeId = initialFrameShapeId;
     this.framePatternId = initialFramePatternId;
     this.toolbar = toolbar;
@@ -200,12 +196,14 @@ export class SmuiView {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
       this.toolbar.setOnlyToolEnabled(null);
-      // レンズ枚数(LENS_COUNT=6)を超える7・8人目の参加者(色は割り当て済みだが
-      // 6以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
-      // 製品判断。maxParticipants自体は8のまま変更しない）。myColorIndexが
-      // そもそもnull（色プール自体が枯渇——maxParticipantsを超えて参加した場合）
-      // は、このレンズ分割とは無関係の既存の別経路なので従来通り自由に書ける
-      // ままにする（回帰させない）。
+      // レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが
+      // 4以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
+      // 製品判断）。maxParticipants自体もLENS_COUNTと同じ4が上限のため
+      // (sessionPanel.ts MAX_PARTICIPANTS_RANGE)、通常はここに該当しない
+      // ——過去に開始した8人上限のセッションが残っている場合の後方互換として
+      // 残す。myColorIndexがそもそもnull（色プール自体が枯渇——maxParticipants
+      // を超えて参加した場合）は、このレンズ分割とは無関係の既存の別経路なので
+      // 従来通り自由に書けるままにする（回帰させない）。
       const myLensIndex =
         this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
       const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
@@ -280,7 +278,6 @@ export class SmuiView {
       framePatternId: this.framePatternId,
       frameStrokeColor: SMUI_FRAME_COLOR,
       frameStrokeWidth: (canvasSizePx) => canvasSizePx * SMUI_FRAME_WEIGHT_RATIO,
-      onRequestTemplatePicker: this.onRequestTemplatePicker,
       ...overrides,
     };
   }
@@ -553,10 +550,6 @@ export class SmuiView {
 
   finishTextEditingIfOpen(): void {
     this.lens.finishTextEditingIfOpen();
-  }
-
-  beginPlacingTemplate(id: TemplateId): void {
-    this.lens.beginPlacingTemplate(id);
   }
 
   /** 道具バーの「戻る」ボタン（issue #90）用。 */

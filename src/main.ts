@@ -135,16 +135,15 @@ const onToolChange = () => {
   smuiView.closeWritingSessions();
   smuiView.finishTextEditingIfOpen();
 };
-// テンプレート挿入・「戻る」はどちらも「今表示中の画面」の共有キャンバス／
-// 通常キャンバスに対して行う（道具バー自体はキャンバス・共有の両画面で
-// 共通の1つのインスタンスを使い回すため）。
+// 道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回す。
+// テンプレート挿入は通常キャンバス専用（共有画面には「＋テンプレートを使用」
+// を用意しない、issue #79ユーザー指示）で、選択画面自体もそのボタンからしか
+// 開けない全画面の幕（開いている間はタブ切り替え不可）ため、常にcanvasViewへ
+// 挿入すればよい。「戻る」は「今表示中の画面」に対して行う。
 const toolbar = new Toolbar(
   primarySlot,
   onToolChange,
-  (id) => {
-    if (currentView === "shared") smuiView.beginPlacingTemplate(id);
-    else canvasView.beginPlacingTemplate(id);
-  },
+  (id) => canvasView.beginPlacingTemplate(id),
   () => {
     if (currentView === "shared") smuiView.undo();
     else canvasView.undo();
@@ -206,7 +205,7 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
 // 個別のフェード処理は不要。
 let frameShapeId = loadFrameShape();
 let framePatternId = loadFramePattern();
-const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, toolbar, openTemplatePicker);
+const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, toolbar);
 const toolbarEl = primarySlot.querySelector<HTMLElement>(".toolbar")!;
 
 // 画面切り替え時、道具バー・振り返りスライダーをふわっとフェードイン／

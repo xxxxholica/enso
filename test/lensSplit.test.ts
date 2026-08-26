@@ -6,18 +6,16 @@ describe("computeLensSplitPairCount（issue #79: 参加人数以上の眼鏡が�
     expect(computeLensSplitPairCount(2)).toBe(1);
     expect(computeLensSplitPairCount(3)).toBe(2);
     expect(computeLensSplitPairCount(4)).toBe(2);
-    expect(computeLensSplitPairCount(5)).toBe(3);
-    expect(computeLensSplitPairCount(6)).toBe(3);
   });
 
   it("1人でも最低1組は用意する", () => {
     expect(computeLensSplitPairCount(1)).toBe(1);
   });
 
-  it("LENS_COUNT(6)を超える参加人数は、レンズ分割の対象外の人数を組数に数えない", () => {
-    expect(computeLensSplitPairCount(7)).toBe(3);
-    expect(computeLensSplitPairCount(8)).toBe(3);
-    expect(LENS_COUNT).toBe(6);
+  it("LENS_COUNT(4)を超える参加人数は、レンズ分割の対象外の人数を組数に数えない(3組は表示が不安定なため上限2組)", () => {
+    expect(computeLensSplitPairCount(5)).toBe(2);
+    expect(computeLensSplitPairCount(8)).toBe(2);
+    expect(LENS_COUNT).toBe(4);
   });
 });
 
