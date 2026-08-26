@@ -5,7 +5,7 @@ import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
-import { circleIntersectsBox, pointNearStrokes } from "./geometry";
+import { circleIntersectsBox, isInsideClamp, pointNearStrokes } from "./geometry";
 import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -519,13 +519,20 @@ export class CircularCanvas {
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
-   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
-  private toNormalized(clientX: number, clientY: number): Point {
+   *  クランプ前の生の値——輪郭の外側かどうかの判定（onPointerDown参照）に使う。 */
+  private toNormalizedRaw(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
     const scale = this.effectiveScale();
-    const x = (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale;
-    const y = (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale;
-    return this.frame.currentShape().clamp({ x, y });
+    return {
+      x: (clientX - rect.left - this.frame.centerPx.x - this.viewPan.x) / scale,
+      y: (clientY - rect.top - this.frame.centerPx.y - this.viewPan.y) / scale,
+    };
+  }
+
+  /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
+   *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
+  private toNormalized(clientX: number, clientY: number): Point {
+    return this.frame.currentShape().clamp(this.toNormalizedRaw(clientX, clientY));
   }
 
   private scheduleSessionClose(): void {
@@ -585,6 +592,14 @@ export class CircularCanvas {
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
     if (this.state.mode === "pinching" || this.activePointerId !== null) return;
+
+    // 見た目の枠（円/楕円/長方形）の外側は、<canvas>要素自体はその外側まで矩形で
+    // 広がっているため座標としては拾えてしまう——クランプ前の生の座標で内外を
+    // 判定し、外側ならジェスチャーを始めずに無視する（issue: 円の外にpointerdown
+    // すると、toNormalizedのクランプで円周上の点として扱われ描画されてしまう）。
+    const raw = this.toNormalizedRaw(ev.clientX, ev.clientY);
+    if (!isInsideClamp(raw, this.frame.currentShape().clamp)) return;
+
     // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
     // （pointerdown/moveはcanvas要素、pointerup/cancelはwindowという非対称な
     // 登録なので、captureで一本化しておく）。
@@ -596,7 +611,7 @@ export class CircularCanvas {
     this.activePointerId = ev.pointerId;
 
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
-    const p = this.toNormalized(ev.clientX, ev.clientY);
+    const p = raw;
 
     const tool = this.getToolState().tool;
     // 新しいジェスチャーの開始（issue #89のundo/redo、undoSnapshotTaken参照）。
