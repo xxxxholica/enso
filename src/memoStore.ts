@@ -163,14 +163,14 @@ export class MemoStore {
     return this.memos;
   }
 
-  /** 共有キャンバスの投票フェーズ専用: 1件のメモのheatだけをサーバー側の値
-   *  （楽観的な+1、またはheat-changed通知/APIレスポンスでの確定値）で直接
-   *  書き換える。replaceAllと同じく、取り込んだ内容をそのまま押し戻す必要は
-   *  ないためpersist/onChangeは経由しない。 */
-  setMemoHeat(memoId: string, heat: number): void {
+  /** 共有ルームのリアクションスタンプ(issue #128)専用: 1件のメモのreactionsだけを
+   *  サーバー側の値(reaction-changed通知/APIレスポンス)で直接書き換える。
+   *  replaceAllと同じく、取り込んだ内容をそのまま押し戻す必要はないため
+   *  persist/onChangeは経由しない。 */
+  setMemoReactions(memoId: string, reactions: Memo["reactions"]): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo) return;
-    memo.heat = heat;
+    memo.reactions = reactions;
   }
 
   getActive(): Memo[] {

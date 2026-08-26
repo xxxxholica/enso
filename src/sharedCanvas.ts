@@ -4,7 +4,7 @@ import { FRAME_PATTERN_ORDER } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { FRAME_SHAPE_ORDER } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
-import type { Memo } from "./types";
+import type { Memo, Reaction } from "./types";
 
 /**
  * 共有キャンバス（コラボ機能）のAPI呼び出し。api.onunu.me の /shared-canvases 系。
@@ -27,14 +27,17 @@ export interface SharedCanvasSummary {
   ownerId: string;
 }
 
-/** 進行中の「共同アイデア出し」セッションの状態（未開始の間はnull）。 */
+/** 進行中の「共同アイデア出し」セッションの状態（未開始の間はnull）。
+ *  issue #128: rankフェーズ(序列づけ)を追加——ideation→rank→discussion→votingの順。 */
 export interface SessionState {
-  phase: "ideation" | "discussion" | "voting";
+  phase: "ideation" | "rank" | "discussion" | "voting";
   /** このフェーズが自動的に次へ進む予定時刻(ms epoch)。ルームマスターの延長操作で伸びる。 */
   phaseEndsAt: number;
   phase1Ms: number;
   phase2Ms: number;
   phase3Ms: number;
+  /** rankフェーズの所要時間。 */
+  phase4Ms: number;
   maxParticipants: number;
   /** フェーズ①用に自分に払い出された色インデックス。未割当(色プール枯渇時)はnull。 */
   myColorIndex: number | null;
@@ -186,12 +189,20 @@ export async function deleteSharedMemo(id: string, memoId: string): Promise<void
   if (!res.ok) throw new Error(`メモの削除に失敗しました (status: ${res.status})`);
 }
 
+// issue #128: 審議(voting)フェーズ専用の排除判定スタンプ。バックエンドの
+// sessionEngine.js VOTING_EMOJIと同じ値(サーバー側が正典、フロントはこの値を
+// フィルタ・表示にのみ使う)。
+export const VOTING_EMOJI = "🔥";
+// アイデア出し〜話し合い(ideation/rank/discussion)共通の5種。
+export const REACTION_EMOJI = ["👍", "😱", "☑️", "🤔", "💡"] as const;
+
 // --- 共同アイデア出しセッション（ルームマスターのみ開始・進行・延長・終了できる） ---
 
 export interface StartSessionOptions {
   phase1Ms: number;
   phase2Ms: number;
   phase3Ms: number;
+  phase4Ms: number;
   maxParticipants: number;
 }
 
@@ -234,16 +245,21 @@ export async function endSession(id: string): Promise<void> {
   if (!res.ok) throw new Error(`セッションの終了に失敗しました (status: ${res.status})`);
 }
 
-/** 投票フェーズ専用: メモを1回転させた時に呼ぶ。熱量+1後の値をサーバーから受け取る
- *  （楽観的にローカルへ反映済みの値をここで確定値に合わせ直す想定）。相対密度の
- *  計算は毎フレーム全メモから計算し直す(canvasView.ts)ため、サーバーが返す
- *  maxHeatは使わない——レスポンスにはheatだけを残す。 */
-export async function addMemoHeat(id: string, memoId: string): Promise<{ heat: number }> {
-  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/memos/${encodeURIComponent(memoId)}/heat`, {
-    method: "POST",
-  });
-  if (!res.ok) throw new Error(`熱量の加算に失敗しました (status: ${res.status})`);
+/** issue #128: 関心表明用リアクションスタンプを1件押す。フェーズごとに許可される
+ *  emoji種別はサーバー側で検証される(アイデア出し〜話し合いは5種、審議は🔥のみ)。
+ *  1人1メモにつき1件までで、既に押していれば409で失敗する（変更・取り消し不可）。
+ *  レスポンスにはそのメモの最新reactions一覧を含む。 */
+export async function addMemoReaction(id: string, memoId: string, emoji: string): Promise<{ reactions: Reaction[] }> {
+  const res = await authFetch(
+    `/shared-canvases/${encodeURIComponent(id)}/memos/${encodeURIComponent(memoId)}/reactions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Client-Id": CLIENT_ID },
+      body: JSON.stringify({ emoji }),
+    }
+  );
+  if (!res.ok) throw new Error(`リアクションの送信に失敗しました (status: ${res.status})`);
   const data: unknown = await res.json();
-  const heat = (data as { heat?: unknown }).heat;
-  return { heat: typeof heat === "number" ? heat : 0 };
+  const reactions = (data as { reactions?: unknown }).reactions;
+  return { reactions: Array.isArray(reactions) ? (reactions as Reaction[]) : [] };
 }

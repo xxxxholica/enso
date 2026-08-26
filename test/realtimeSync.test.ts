@@ -59,7 +59,7 @@ function fakeCallbacks(overrides: Partial<Parameters<typeof connectRealtimeSync>
     onPersonalMemoDeleted: vi.fn(),
     onSharedChanged: vi.fn(),
     onSessionChanged: vi.fn(),
-    onHeatChanged: vi.fn(),
+    onReactionChanged: vi.fn(),
     onMemoUpserted: vi.fn(),
     onMemoDeleted: vi.fn(),
     onReconnected: vi.fn(),

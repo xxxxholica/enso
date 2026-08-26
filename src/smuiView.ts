@@ -1,19 +1,19 @@
 import { CircularCanvas } from "./canvasView";
 import type { CircularCanvasOptions, ToolState } from "./canvasView";
 import {
-  addMemoHeat,
   advanceSession,
   endSession as endSessionApi,
   extendSession,
   getSharedCanvas,
   startSession,
   updateSharedAppearance,
+  VOTING_EMOJI,
   type SessionState,
   type StartSessionOptions,
 } from "./sharedCanvas";
 import { SharedRoomSync } from "./sharedCanvasSync";
 import { MemoStore } from "./memoStore";
-import type { Memo } from "./types";
+import type { Memo, Reaction } from "./types";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
@@ -86,8 +86,8 @@ export class SmuiView {
   private roomSync: SharedRoomSync | null = null;
   private selectedRoomId: string | null = null;
   /** selectRoom()で読み込んだ実体（プレースホルダーでない）のMemoStore。
-   *  投票フェーズの熱量をnotifyHeatChanged/handleRotationVoteから直接
-   *  書き換えるために保持しておく。 */
+   *  リアクションの反映(notifyReactionChanged)から直接書き換えるために
+   *  保持しておく。 */
   private sharedStore: MemoStore | null = null;
   private toolbar: Toolbar;
   private sessionPanel!: SessionPanel;
@@ -165,22 +165,19 @@ export class SmuiView {
   }
 
   /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
-   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked/
-   *  setVoteOnly)を揃える。フェーズ②(議論)はルームマスター以外を完全に
-   *  読み取り専用にする——「話し合いの時間」であって、書き込むための時間
-   *  ではないため。フェーズ③(投票)は「選択」道具で掴んで回す投票ジェスチャー
-   *  だけに絞る——主催者を含め全員が対象（issue #79：ユーザー指示）。
-   *  setOnlyToolEnabled("move")で道具バー側もそれ以外を実際に押せなく＆
-   *  薄くし、setVoteOnlyでキャンバス側も同様に絞る（片方だけだと、道具バー上は
-   *  選べないのにキャンバスへの旧来の直接操作は残る、または逆に道具バー上は
-   *  選べてしまうのにキャンバスだけ弾く、という食い違いが起きるため両方合わせる）。 */
+   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked)を
+   *  揃える。フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする
+   *  ——「話し合いの時間」であって、書き込むための時間ではないため。
+   *  序列づけ(rank)・審議(voting)はサーバー側がメモの新規作成・編集・削除を
+   *  一切許可しない(requireMemoWritable、issue #128)ため、主催者を含め全員を
+   *  読み取り専用にする——リアクションスタンプによる操作UIは別途配線が必要
+   *  (このコミット時点では未実装、最終サマリ参照)。 */
   private applyRestrictions(): void {
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
-      this.lens.setVoteOnly(false);
       this.lens.setLensSplit(null);
       return;
     }
@@ -190,7 +187,6 @@ export class SmuiView {
       this.toolbar.setColorLocked(true);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(!isMaster);
-      this.lens.setVoteOnly(false);
       this.lens.setLensSplit(null);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
@@ -208,7 +204,6 @@ export class SmuiView {
         this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
       const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
       this.lens.setLocked(isOverflowLensParticipant);
-      this.lens.setVoteOnly(false);
       this.lens.setLensSplit(
         myLensIndex !== null
           ? {
@@ -219,18 +214,17 @@ export class SmuiView {
           : null
       );
     } else {
-      this.toolbar.setEnabled(true);
+      // rank / voting
+      this.toolbar.setEnabled(false);
       this.toolbar.setColorLocked(false);
-      this.toolbar.setOnlyToolEnabled("move");
-      this.lens.setLocked(false);
-      this.lens.setVoteOnly(true);
+      this.toolbar.setOnlyToolEnabled(null);
+      this.lens.setLocked(true);
       this.lens.setLensSplit(null);
     }
   }
 
   /** セッション状態が変わるたびに呼ぶ(selectRoom/session系コールバック/
-   *  notifySessionChanged共通)。道具バー・書き込み制限・投票フェーズの
-   *  回転ジェスチャーの意味づけをまとめて更新する。
+   *  notifySessionChanged共通)。道具バー・書き込み制限をまとめて更新する。
    *  silent=trueは、ルーム入室時の初期ハイドレート専用——既に進行中の
    *  セッションに途中参加しただけなのに「アイデア出し開始」等のカットインが
    *  出てしまうのを防ぐ（issue #79）。 */
@@ -239,7 +233,6 @@ export class SmuiView {
     const wasVoting = prevPhase === "voting";
     this.session = session;
     this.applyRestrictions();
-    this.lens.setRotationVoteHandler(session?.phase === "voting" ? (memoId) => this.handleRotationVote(memoId) : null);
     // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
     // fadeExempt/frozenDensityを確定させた直後なので、すぐ取得し直す——放置すると
     // 確定したはずのメモが古いlastTracedAtのままフェードし続けてしまう。
@@ -248,26 +241,6 @@ export class SmuiView {
       const label = phaseCutInLabel(prevPhase, session);
       if (label) showPhaseCutIn(label);
     }
-  }
-
-  /** フェーズ③(voting)専用: メモを1回転させるたびにcanvasView.tsから呼ばれる。
-   *  楽観的にローカルの熱量を+1しておき、サーバーの確定値で追って合わせ直す
-   *  （他の参加者の同時加算と多少ズレても、次のheat-changed通知/ポーリングで
-   *  自然に収束する）。熱量は単調増加のはずなので、ネットワークの遅延で
-   *  レスポンスが前後しても、受け取った値が今の値より小さければ無視する
-   *  （古いレスポンスで新しい値を巻き戻さないため）。 */
-  private handleRotationVote(memoId: string): void {
-    const roomId = this.selectedRoomId;
-    const store = this.sharedStore;
-    if (!roomId || !store) return;
-    const memo = store.getAll().find((m) => m.id === memoId);
-    store.setMemoHeat(memoId, (memo?.heat ?? 0) + 1);
-    void addMemoHeat(roomId, memoId)
-      .then(({ heat }) => {
-        const current = store.getAll().find((m) => m.id === memoId)?.heat ?? 0;
-        if (heat > current) store.setMemoHeat(memoId, heat);
-      })
-      .catch((e) => console.error("[smuiView] heat post failed", e));
   }
 
   /** 共有キャンバス（プレースホルダー/実体）に共通するCircularCanvasオプション。 */
@@ -422,10 +395,10 @@ export class SmuiView {
     if (this.selectedRoomId === canvasId) this.applySession(session);
   }
 
-  /** realtimeSync.tsが{type:"heat-changed", ...}を受け取るたびに呼ぶ。
-   *  フルGETを挟まず、手元のメモの熱量だけをその場で書き換える。 */
-  notifyHeatChanged(canvasId: string, memoId: string, heat: number): void {
-    if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoHeat(memoId, heat);
+  /** realtimeSync.tsが{type:"reaction-changed", ...}を受け取るたびに呼ぶ(issue #128)。
+   *  フルGETを挟まず、手元のメモのreactionsだけをその場で書き換える。 */
+  notifyReactionChanged(canvasId: string, memoId: string, reactions: Reaction[]): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoReactions(memoId, reactions);
   }
 
   /** realtimeSync.tsが{type:"memo-upserted", ...}を受け取るたびに呼ぶ(issue #99)。
@@ -578,20 +551,23 @@ export class SmuiView {
     this.sessionPanel.update(now, this.isRoomMaster(), this.session);
   }
 
-  /** 「残り時間」ピルの中身を今の状況に合わせる。投票フェーズ中は、時間で
+  /** 「残り時間」ピルの中身を今の状況に合わせる。審議(voting)フェーズ中は、時間で
    *  消える猶予という個人キャンバス向けの文言をそのまま出しても意味が
    *  無く、代わりにホバー中のメモの相対的な支持率(%)を見たい
    *  （issue #79：共有ビューなのに「あと1日」等の個人向け表示が出てくる
-   *  というユーザー指摘への対応）。確定済み(fadeExempt)のメモも、時間経過で
-   *  フェードしない仕様である以上「残り時間」は意味を持たないため隠す。 */
+   *  というユーザー指摘への対応）。issue #128: 旧heatベースの計算を、審議
+   *  フェーズ専用の🔥リアクション数ベースの計算に置き換え。確定済み
+   *  (fadeExempt)のメモも、時間経過でフェードしない仕様である以上
+   *  「残り時間」は意味を持たないため隠す。 */
   private updateReviveInfoPill(now: number): void {
     const memoId = this.lens.getHoverMemoId();
     const memo = memoId ? (this.sharedStore?.getAll().find((m) => m.id === memoId) ?? null) : null;
 
     if (this.session?.phase === "voting" && memo) {
+      const fireCount = (m: Memo) => (m.reactions ?? []).filter((r) => r.emoji === VOTING_EMOJI).length;
       const memos = this.sharedStore!.getAll();
-      const maxHeat = Math.max(1, ...memos.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
-      this.reviveInfoPill.updateSupport(Math.round(((memo.heat ?? 0) / maxHeat) * 100));
+      const maxFireCount = Math.max(1, ...memos.filter((m) => !m.fadeExempt).map(fireCount));
+      this.reviveInfoPill.updateSupport(Math.round((fireCount(memo) / maxFireCount) * 100));
       return;
     }
     if (memo?.fadeExempt) {

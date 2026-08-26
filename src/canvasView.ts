@@ -39,10 +39,6 @@ const EMPTY_STATE_OFFSET_Y = 0.32;
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
 
-/** 投票フェーズ中、相対密度が最も低い(0)メモでもインクが完全には薄くなり
- *  切らないための下限——確定前のアイデアが読めなくなるほど薄まるのを防ぐ
- *  （確定後(fadeExempt)はこの下限を適用せず、0まで薄くなり得る＝従来通り）。 */
-const VOTING_DENSITY_OPACITY_FLOOR = 0.3;
 /** displayDensityが目標値に追いつく速さ。この時間が経つごとに、残りの差の
  *  半分だけ縮まる（フレームレートに依存しない指数イージング）。 */
 const DENSITY_EASE_HALF_LIFE_MS = 300;
@@ -235,11 +231,6 @@ export interface CircularCanvasOptions {
    *  省略時はいずれも本物と同じ値になり、既存の呼び出し元の挙動は変わらない。 */
   rotateStepRad?: number;
   rotateMinRadiusPx?: number;
-  /** 共有キャンバスの投票フェーズ(voting)専用: 指定された間はupdateRotationGestureが
-   *  nudgeMemoClock(時間巻き戻し)を呼ぶ代わりにこちらを呼ぶ（回転方向・連続回数を
-   *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
-   *  ここでの初期値指定は必須ではない。 */
-  onRotationStep?: (memoId: string) => void;
   /** text-editor-overlay（.text-editor-overlay、既定z-index:20）の実際のz-indexを
    *  呼び出し側で上書きする。全画面モーダル（テンプレート選択・使い方ページ、
    *  いずれもz-index 40番台）は「モーダルの中の本物のキャンバスへ書きかけの
@@ -370,26 +361,17 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
-  /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
-   *  熱量(投票)カウントとして扱われる。 */
-  private rotationVoteHandler: ((memoId: string) => void) | null = null;
   /** 共有キャンバスの共同アイデア出しセッション、フェーズ②(議論)で
    *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
-   *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
+   *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。
+   *  issue #128: 旧「投票フェーズ専用の掴んで回転させる投票ジェスチャー」
+   *  (rotationVoteHandler/voteOnly)は廃止済み(実装計画上のリアクション
+   *  スタンプUIは別issueで別途配線予定)——rank/votingフェーズも当面は
+   *  このlockedによる読み取り専用表示のみ。 */
   private locked = false;
-  /** 共同アイデア出しセッションのフェーズ③(投票)で、「選択」道具での
-   *  掴んで回転させる投票ジェスチャーだけに絞るためのロック（issue #79：
-   *  参加者がペン等で描画・消去できてしまっていた不具合の修正）。
-   *  投票の回転はupdateRotationGestureが担い、これは「選択」道具で
-   *  掴んだ(mode: "moving")時にしか始まらないため、ここで通すのは
-   *  「選択」道具だけでよい——lockedと違い、その開始（onPointerDown内の
-   *  moving突入）だけは通す。 */
-  private voteOnly = false;
-  /** 投票フェーズの相対密度（人気度）を、メモの色の濃さへ滑らかに反映させる
-   *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/maxHeatや
-   *  frozenDensity)が変わっても瞬時に飛ばず、render()のたびに少しずつ
-   *  追いつかせることで、投票が増える・確定するたびの見た目の変化を
-   *  なめらかにする（issue #79、熱グローに代わる表現）。 */
+  /** 確定済み(fadeExempt)メモの相対密度（人気度）を、メモの色の濃さへ滑らかに
+   *  反映させるためのイージング用の現在値（メモID→0..1）。目標値(frozenDensity)が
+   *  変わっても瞬時に飛ばず、render()のたびに少しずつ追いつかせる。 */
   private displayDensity = new Map<string, number>();
   private lastDensityFrameAt: number | null = null;
   /** レンズ分割表示(issue #79)の状態。null=通常の単一クリップ表示。 */
@@ -407,7 +389,6 @@ export class CircularCanvas {
     this.interactive = options.interactive ?? true;
     this.rotateStepRad = options.rotateStepRad ?? ROTATE_STEP_RAD;
     this.rotateMinRadiusPx = options.rotateMinRadiusPx ?? ROTATE_MIN_RADIUS_PX;
-    this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
     this.canvas = document.createElement("canvas");
@@ -471,10 +452,6 @@ export class CircularCanvas {
       this.buildEmptyState(options.onRequestTemplatePicker);
     }
   }
-  /** 投票フェーズ(voting)の間だけ渡す。null(既定)に戻すと通常の時間巻き戻し操作に戻る。 */
-  setRotationVoteHandler(handler: ((memoId: string) => void) | null): void {
-    this.rotationVoteHandler = handler;
-  }
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
   setFrameShape(id: FrameShapeId): void {
@@ -516,16 +493,6 @@ export class CircularCanvas {
    *  （onPointerDown参照）。 */
   setLocked(locked: boolean): void {
     this.locked = locked;
-  }
-
-  /** 共有キャンバスの共同アイデア出しセッション、フェーズ③(投票)で、
-   *  「選択」道具での掴んで回転させる投票ジェスチャーだけに絞るために呼ぶ
-   *  （smuiView.ts）。主催者を含め全員に掛ける（issue #79：投票中は主催者も
-   *  含めて選択ツール以外は使えないようにしたい、というユーザー指示）。
-   *  setLockedと同時にはtrueにしない——setLocked(true)は新しい操作の
-   *  開始そのものを一括で止めるため、投票の「選択」も道連れに止まってしまう。 */
-  setVoteOnly(voteOnly: boolean): void {
-    this.voteOnly = voteOnly;
   }
 
   /** 共有キャンバスの共同アイデア出しセッション、フェーズ①(発散)のレンズ分割表示
@@ -691,10 +658,6 @@ export class CircularCanvas {
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
     if (this.rewindAt !== null || this.locked) return; // 過去を遡って見ている間・ロック中は描画・操作を受け付けない
-    // 投票専用ロック中は、「選択」以外の道具（ペン・消しゴム・なぞる・テキスト）
-    // では何も始めない——投票フェーズの操作は「選択」で掴んで回すジェスチャー
-    // だけに絞る（issue #79：参加者がペンで描画できてしまっていた不具合）。
-    if (this.voteOnly && this.getToolState().tool !== "move") return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。
@@ -1351,14 +1314,9 @@ export class CircularCanvas {
       // スナップショットを取る（ensureUndoSnapshotのコメント参照）。
       this.ensureUndoSnapshot();
       this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
-      // 投票フェーズ中は「選択」道具を回転投票専用として使うため、位置は
-      // 動かさない——同期されるのは熱量(投票)だけでよい（issue #79、
-      // ユーザー指示：回した結果だけ同期し、実際の位置は移動させないでほしい）。
-      if (!this.rotationVoteHandler) {
-        const dx = p.x - this.state.lastPoint.x;
-        const dy = p.y - this.state.lastPoint.y;
-        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
-      }
+      const dx = p.x - this.state.lastPoint.x;
+      const dy = p.y - this.state.lastPoint.y;
+      this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
@@ -1399,20 +1357,12 @@ export class CircularCanvas {
     const targetSteps = Math.trunc(this.state.rotateAccumRad / this.rotateStepRad);
     while (this.state.rotateFiredSteps < targetSteps) {
       this.state.rotateStreak = this.state.rotateStreak > 0 ? this.state.rotateStreak + 1 : 1;
-      if (this.rotationVoteHandler) {
-        this.rotationVoteHandler(memoId); // 投票フェーズ: 方向・連続回数を問わず熱量+1
-      } else {
-        this.store.nudgeMemoClock(memoId, -rotateStepAmountMs(this.state.rotateStreak)); // 時計回りに1回転進むごと: 寿命を進める
-      }
+      this.store.nudgeMemoClock(memoId, -rotateStepAmountMs(this.state.rotateStreak)); // 時計回りに1回転進むごと: 寿命を進める
       this.state.rotateFiredSteps++;
     }
     while (this.state.rotateFiredSteps > targetSteps) {
       this.state.rotateStreak = this.state.rotateStreak < 0 ? this.state.rotateStreak - 1 : -1;
-      if (this.rotationVoteHandler) {
-        this.rotationVoteHandler(memoId); // 投票フェーズ: 方向・連続回数を問わず熱量+1
-      } else {
-        this.store.nudgeMemoClock(memoId, rotateStepAmountMs(-this.state.rotateStreak)); // 反時計回りに1回転戻るごと: 復活
-      }
+      this.store.nudgeMemoClock(memoId, rotateStepAmountMs(-this.state.rotateStreak)); // 反時計回りに1回転戻るごと: 復活
       this.state.rotateFiredSteps--;
     }
   }
@@ -1483,7 +1433,7 @@ export class CircularCanvas {
    * 標準のundoを横取りしないよう素通りする。
    */
   private onGlobalKeyDown = (ev: KeyboardEvent): void => {
-    if (this.rewindAt !== null || this.locked || this.voteOnly || this.textEditor || this.state.mode !== "idle") return;
+    if (this.rewindAt !== null || this.locked || this.textEditor || this.state.mode !== "idle") return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
     const active = document.activeElement;
     const isEditableFocus =
@@ -1684,13 +1634,6 @@ export class CircularCanvas {
     // renderPreviewAtと同じロジック。fade.tsのopacityAtTime参照）。
     const rewindAt = this.rewindAt;
     const memosToRender = rewindAt !== null ? this.store.getAll() : activeMemos;
-    // 投票フェーズ中に積み上がった熱量を相対密度に変換するための基準値。
-    // fadeExempt済み(既に確定済み)のメモは母集団から除く——バックエンドの
-    // endSession()と同じ考え方（多重セッションで確定済み密度を歪めないため）。
-    const maxHeat = Math.max(1, ...memosToRender.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
-    // 投票フェーズが今まさに進行中かどうか（rotationVoteHandlerはvotingの
-    // 間だけ設定されるため、これをそのまま流用する）。
-    const votingActive = this.rotationVoteHandler !== null;
     const dtMs = this.lastDensityFrameAt === null ? 0 : Math.max(0, now - this.lastDensityFrameAt);
     this.lastDensityFrameAt = now;
     const densityEase = dtMs > 0 ? 1 - Math.pow(0.5, dtMs / DENSITY_EASE_HALF_LIFE_MS) : 1;
@@ -1745,10 +1688,10 @@ export class CircularCanvas {
 
       for (const memo of memos) {
         seenMemoIds.add(memo.id);
-        // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
-        // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
+        // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、それ以外
+        // (発散・序列づけ・議論・審議フェーズ進行中や個人キャンバス)では
         // 密度による見た目の変化を適用しない(=1)。
-        const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
+        const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : 1;
         const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
         const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
         this.displayDensity.set(memo.id, displayDensity);
@@ -1763,11 +1706,7 @@ export class CircularCanvas {
         const baseOpacity =
           rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
         if (baseOpacity === null || baseOpacity <= 0) continue;
-        // 投票フェーズ中は、人気度(displayDensity)に応じてインクの濃さ自体を
-        // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
-        // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
-        const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+        renderMemoAt(ctx, memo, r, baseOpacity);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";

@@ -1,7 +1,7 @@
 import { CLIENT_ID } from "./clientId";
 import type { AuthSession } from "./clerkAccount";
 import type { SessionState } from "./sharedCanvas";
-import type { Memo } from "./types";
+import type { Memo, Reaction } from "./types";
 
 /**
  * 個人キャンバス・共有キャンバスの両方で使う、単一のWebSocket接続。
@@ -74,10 +74,9 @@ export interface RealtimeSyncCallbacks {
   // 伴わないため、onSharedChangedのような「フルGETし直し」を挟まず、
   // このDTOをそのまま反映すればよい。
   onSessionChanged: (canvasId: string, session: SessionState | null) => void;
-  // 投票フェーズ中、熱量が変わるたびに届く軽量な通知。フルGETを挟まず、
-  // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
-  // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
-  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void;
+  // issue #128: リアクションスタンプが押されるたびに届く軽量な通知(旧onHeatChangedの
+  // 置き換え)。フルGETを挟まず、手元のメモのreactionsをその場で置き換える。
+  onReactionChanged: (canvasId: string, memoId: string, reactions: Reaction[]) => void;
   // 共有キャンバスのメモ1件が作成・編集されるたびに届く(issue #99)。onPersonalMemoUpserted
   // と同じ考え方で、GETし直さずその場でメモの中身を反映する。
   onMemoUpserted: (canvasId: string, memo: Memo) => void;
@@ -98,7 +97,7 @@ export function connectRealtimeSync(session: AuthSession, callbacks: RealtimeSyn
     onPersonalMemoDeleted,
     onSharedChanged,
     onSessionChanged,
-    onHeatChanged,
+    onReactionChanged,
     onMemoUpserted,
     onMemoDeleted,
     onReconnected,
@@ -157,7 +156,7 @@ export function connectRealtimeSync(session: AuthSession, callbacks: RealtimeSyn
         canvasId?: unknown;
         session?: unknown;
         memoId?: unknown;
-        heat?: unknown;
+        reactions?: unknown;
         memo?: unknown;
         originClientId?: unknown;
       };
@@ -166,12 +165,14 @@ export function connectRealtimeSync(session: AuthSession, callbacks: RealtimeSyn
         return;
       }
       if (
-        parsed.type === "heat-changed" &&
+        parsed.type === "reaction-changed" &&
         typeof parsed.canvasId === "string" &&
         typeof parsed.memoId === "string" &&
-        typeof parsed.heat === "number"
+        Array.isArray(parsed.reactions)
       ) {
-        onHeatChanged(parsed.canvasId, parsed.memoId, parsed.heat);
+        if (parsed.originClientId !== CLIENT_ID) {
+          onReactionChanged(parsed.canvasId, parsed.memoId, parsed.reactions as Reaction[]);
+        }
         return;
       }
       if (parsed.originClientId === CLIENT_ID) return; // 自分が送った変更のエコーは無視する

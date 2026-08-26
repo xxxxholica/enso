@@ -3,10 +3,12 @@ import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import type { SessionState, StartSessionOptions } from "./sharedCanvas";
 
+// issue #128: rank(序列づけ)を追加、votingは「審議」に役割変更(🔥のみでの排除判定)。
 export const PHASE_LABEL: Record<SessionState["phase"], string> = {
   ideation: "アイデア出し",
+  rank: "序列づけ",
   discussion: "議論",
-  voting: "採択・絞り込み",
+  voting: "審議",
 };
 
 /** 延長ボタン1回あたりの延長量。 */
@@ -63,6 +65,7 @@ export class SessionPanel {
 
   private startForm!: HTMLElement;
   private phase1Slider!: HTMLInputElement;
+  private phase4Slider!: HTMLInputElement;
   private phase2Slider!: HTMLInputElement;
   private phase3Slider!: HTMLInputElement;
   private maxParticipantsSlider!: HTMLInputElement;
@@ -102,7 +105,12 @@ export class SessionPanel {
     // 未開始時: フェーズの長さ・上限人数をスライダーで決めて開始する。
     this.startForm = document.createElement("div");
     this.startForm.className = "session-start-form";
+    // フォーム上のスライダーは実際のフロー順(ideation→rank→discussion→voting)で並べる。
+    // 変数名がphase1/4/2/3の順になるのは、バックエンドのDB列(phase1〜4_duration_ms)が
+    // 既存3列の位置を変えず4列目としてrank用を追加した構成(sessionEngine.js
+    // durationForPhase参照)に合わせているため。
     this.phase1Slider = this.buildSlider(this.startForm, PHASE_LABEL.ideation, MINUTES_RANGE, "分");
+    this.phase4Slider = this.buildSlider(this.startForm, PHASE_LABEL.rank, MINUTES_RANGE, "分");
     this.phase2Slider = this.buildSlider(this.startForm, PHASE_LABEL.discussion, MINUTES_RANGE, "分");
     this.phase3Slider = this.buildSlider(this.startForm, PHASE_LABEL.voting, MINUTES_RANGE, "分");
     this.maxParticipantsSlider = this.buildSlider(this.startForm, "参加人数の上限", MAX_PARTICIPANTS_RANGE, "人");
@@ -115,6 +123,7 @@ export class SessionPanel {
         phase1Ms: Number(this.phase1Slider.value) * 60 * 1000,
         phase2Ms: Number(this.phase2Slider.value) * 60 * 1000,
         phase3Ms: Number(this.phase3Slider.value) * 60 * 1000,
+        phase4Ms: Number(this.phase4Slider.value) * 60 * 1000,
         maxParticipants: Number(this.maxParticipantsSlider.value),
       });
       this.close();

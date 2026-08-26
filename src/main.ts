@@ -109,7 +109,7 @@ void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
       onPersonalMemoDeleted: (memoId) => store.applyRemoteDelete(memoId),
       onSharedChanged: (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
       onSessionChanged: (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
-      onHeatChanged: (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
+      onReactionChanged: (canvasId, memoId, reactions) => smuiView.notifyReactionChanged(canvasId, memoId, reactions),
       onMemoUpserted: (canvasId, memo) => smuiView.notifyMemoUpserted(canvasId, memo),
       onMemoDeleted: (canvasId, memoId) => smuiView.notifyMemoDeleted(canvasId, memoId),
       onReconnected: () => {
@@ -279,7 +279,7 @@ new SharedRoomMenu(
         onPersonalMemoDeleted: () => {},
         onSharedChanged: (cid) => smuiView.notifyRemoteChangeIfCurrent(cid),
         onSessionChanged: (cid, sessionState) => smuiView.notifySessionChanged(cid, sessionState),
-        onHeatChanged: (cid, memoId, heat) => smuiView.notifyHeatChanged(cid, memoId, heat),
+        onReactionChanged: (cid, memoId, reactions) => smuiView.notifyReactionChanged(cid, memoId, reactions),
         onMemoUpserted: (cid, memo) => smuiView.notifyMemoUpserted(cid, memo),
         onMemoDeleted: (cid, memoId) => smuiView.notifyMemoDeleted(cid, memoId),
         onReconnected: () => smuiView.notifyReconnected(),

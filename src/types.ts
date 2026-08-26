@@ -10,6 +10,14 @@ export type LifespanDays = number | null;
 
 export type MemoStatus = "active" | "faded";
 
+/** 共有ルームの関心表明用リアクションスタンプ(issue #128)。1人1メモにつき1件までで、
+ *  一度押したら変更・取り消しは不可(バックエンドのUNIQUE制約・INSERT ONLY)。 */
+export interface Reaction {
+  userId: string;
+  emoji: string;
+  createdAt: number;
+}
+
 /** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。
  *  以前は鉛筆／ペン／マーカーの3種類だったが、鉛筆とペンはほぼ同じ機能
  *  だったため1つ（pen）に統合した（ユーザー指示）。 */
@@ -33,10 +41,10 @@ interface MemoBase {
   status: MemoStatus;
   /** CSS色文字列（既定は本体のインク色と同じoklch文字列、ユーザーが選べば任意の色になる） */
   color: string;
-  /** 共有キャンバスの投票フェーズ(voting)で積み上がる熱量。掴んで1回転させるごとに
-   *  +1され、誰が回したか・何回目かは問わない単純な累積値（サーバー側で加算）。
-   *  投票フェーズに参加したことのないメモではundefinedのまま。 */
-  heat?: number;
+  /** 共有ルームのリアクションスタンプ(issue #128)。shared_canvas_reactionsテーブル側で
+   *  管理される値をサーバーが都度合流させて返す(=このメモ自身のPUTでは変更できない)
+   *  ため、ローカルの新規作成直後はundefinedのまま。 */
+  reactions?: Reaction[];
   /** trueになったら、以後このメモは時間経過によるフェード判定([fade.ts]参照)を
    *  一切受けない——投票が確定した後は、時間ではなく確定した濃さのまま永続する
    *  という仕様のため（サーバー側のendSessionで確定時に立てる）。 */
@@ -62,6 +70,10 @@ export interface StrokeMemo extends MemoBase {
 /** テキスト入力のメモ。 */
 export interface TextMemo extends MemoBase {
   kind: "text";
+  /** 共有ルームの序列づけ(rank)フェーズ(issue #128)で、本文の代わりに並べる
+   *  タイトル。未設定時はtextの先頭N文字を仮タイトルとして流用する想定
+   *  （呼び出し側で対応、このフィールド自体は省略可）。 */
+  title?: string;
   /** ユーザーが入力した元のテキスト（改行を含む）。 */
   text: string;
   /** 折り返し済みの行。作成時に一度だけ計算し、以後はこれをそのまま描画に使う
