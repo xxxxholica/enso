@@ -816,19 +816,29 @@ export class CircularCanvas {
     if (this.textEditor && this.textEditorOpenedAt !== null && this.textEditorOpenedAt >= this.tapGestureStartAt) {
       this.cancelTextEditor?.();
     }
-    // 1本目の指が触れた瞬間に暫定的に行われてしまった操作（消しゴム・
-    // なぞる復活など）があれば、無かったことにする。2本指タップの場合は
-    // これ自体が「直前の操作を取り消す」という意図をちょうど満たすため、
-    // 別途undo()は呼ばない（呼ぶとさらに1つ前の操作まで戻ってしまう）。
-    const hadPendingMutation = this.undoSnapshotTaken;
-    if (hadPendingMutation) {
+    // 1本目の指が触れた瞬間に暫定的に行われてしまった操作（ペン・マーカーの
+    // 1点だけのストローク、消しゴムでの消去、なぞる復活など）があれば、まず
+    // 無かったことにする——ここで止めて「これ自体が取り消しの意図を満たす」
+    // と扱うと、ペン・消しゴム等では常にこの暫定操作の後始末だけで終わり、
+    // 本来取り消したかった直前の実際の操作まで辿り着けなくなる（選択道具は
+    // 1本目の指だけでは何も書き換えないため、この不具合が出ず「選択道具でだけ
+    // 動く」ように見えていた——ユーザー報告・実機で再現確認）。暫定操作の
+    // 後始末はあくまで前処理とし、その上で必ず本来のundo/redoを呼ぶ。
+    if (this.undoSnapshotTaken) {
       this.store.discardPendingMutation();
       this.undoSnapshotTaken = false;
     }
     if (this.tapGesturePeakCount === 2) {
-      if (!hadPendingMutation) this.store.undo();
+      this.store.undo();
     } else {
       // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）。
+      // 既知の制約: ペン・消しゴム等（1本目の指で即座にensureUndoSnapshotが
+      // 呼ばれる道具）で3本指タップした場合、その1本目の指の暫定操作自体が
+      // snapshotForUndo経由でredo履歴を消してしまっているため、直前に
+      // 本当にredoできる操作があってもここでは何も起きないことがある
+      // （選択・テキスト道具は1本目の指で即座に書き換えないため影響しない）。
+      // 対処には「確定するまでredo履歴を消さない」仕組みが必要になり、今回の
+      // スコープでは見送った。
       this.store.redo();
     }
   };

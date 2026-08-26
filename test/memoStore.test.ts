@@ -637,6 +637,35 @@ describe("MemoStore", () => {
       expect(store.redo()).toBe(true);
       expect(store.getAll()).toHaveLength(1);
     });
+
+    it("再現: ペンツールでの2本指タップ——1本目の指の暫定ストロークを後始末した上で、直前の実際の操作もundoできる（canvasView.ts側の呼び出し順の再現）", () => {
+      const store = new MemoStore();
+      // 直前の「実際の」ストローク（2本指タップより前に描いた線）。
+      store.snapshotForUndo();
+      const realStroke = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.addPointToLastStroke(realStroke.id, { x: 0.2, y: 0 });
+      expect(store.getAll()).toHaveLength(1);
+
+      // 2本指タップの1本目の指がペンツールとして触れた瞬間の暫定ストローク
+      // （canvasView.ts: onPointerDownでensureUndoSnapshot→createMemo）。
+      store.snapshotForUndo();
+      store.createMemo({ x: 0.5, y: 0.5 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+      // ドラッグせず離したので、discardTrailingSinglePointStroke相当の
+      // 直接削除が先に走る（onPointerUpがonGlobalPointerUpより先に発火するため）。
+      const justCreated = store.getAll()[1];
+      store.deleteMemo(justCreated.id);
+      expect(store.getAll()).toHaveLength(1);
+
+      // 2本指タップと確定した時点でのonGlobalPointerUpの処理:
+      // 暫定操作を後始末した上で、必ず本来のundo()も呼ぶ。
+      store.discardPendingMutation();
+      store.undo();
+
+      // 「暫定ストロークの後始末」だけで終わらず、直前の実際のストローク
+      // （realStroke）も正しく取り消されていること。
+      expect(store.getAll()).toHaveLength(0);
+    });
   });
 });
 
