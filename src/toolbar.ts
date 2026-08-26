@@ -82,10 +82,11 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
  * 下部バーは機能ごとに3ブロックへ分けており、このToolbarクラスはそのうち
  * 左と中央の2つを受け持つ（右のブロックは、旧「消えるまでの期間」選択の枠を
  * 転用した振り返りスライダー——RewindSelectorが別に#duration-slotへ描画する）:
- *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンとテンプレートを
- *     同じ1列（.toolbar-pill）に、すべて同じ大きさ（.toolbar-btn）で並べる。
- *     「何をするか」という操作そのものの並びとして、1つのブロックにまとめている
- *     （ユーザー指示：ツールを左に1ブロックとしてまとめたい）。
+ *   - 左（.toolbar-tools）＝「ツール選択ブロック」: 道具アイコンと「戻る」
+ *     （issue #90）を同じ1列（.toolbar-pill）に、すべて同じ大きさ
+ *     （.toolbar-btn）で並べる。「何をするか」という操作そのものの並びとして、
+ *     1つのブロックにまとめている（ユーザー指示：ツールを左に1ブロックと
+ *     してまとめたい）。
  *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
  *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
  *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない。
@@ -115,6 +116,7 @@ export class Toolbar {
   private container: HTMLElement;
   private onChange?: () => void;
   private onInsertTemplate?: (id: TemplateId) => void;
+  private onUndo?: () => void;
   private tool: ToolbarTool = "pen";
   /** マーカー以外（ペン・テキスト等）で使う色。消しゴムの大きさが
    *  ツールごとに別々の値を覚えているのと同じ考え方で、マーカーの色
@@ -157,10 +159,16 @@ export class Toolbar {
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
 
-  constructor(container: HTMLElement, onChange?: () => void, onInsertTemplate?: (id: TemplateId) => void) {
+  constructor(
+    container: HTMLElement,
+    onChange?: () => void,
+    onInsertTemplate?: (id: TemplateId) => void,
+    onUndo?: () => void
+  ) {
     this.container = container;
     this.onChange = onChange;
     this.onInsertTemplate = onInsertTemplate;
+    this.onUndo = onUndo;
 
     this.el = document.createElement("div");
     // fade-visible: 画面切り替え時にこのバー全体がふわっとクロスフェードする
@@ -255,6 +263,20 @@ export class Toolbar {
       this.toolButtons.set(tool, btn);
       pill.appendChild(btn);
     }
+
+    // 「戻る」（issue #90）：モバイルの2本指タップは選択道具の間だけ動く
+    // （canvasView.ts参照）ため、道具を問わず使える取り消し手段として定番の
+    // ボタンをここに置く——道具選択とは違い押しても選んだ状態が残るわけ
+    // ではないため、toolButtons（アクティブ表示の対象）には含めない。
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.className = "toolbar-btn";
+    undoBtn.setAttribute("aria-label", "戻る");
+    undoBtn.innerHTML = ICONS.undo;
+    undoBtn.addEventListener("click", () => this.onUndo?.());
+    this.attachToolTooltip(undoBtn, "戻る");
+    pill.appendChild(undoBtn);
+
     tools.appendChild(pill);
   }
 

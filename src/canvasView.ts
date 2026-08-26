@@ -6,6 +6,7 @@ import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
+import { buildOwnLensClamp, lensAbsoluteCenter, lensIndexToPairSlot } from "./lensSplit";
 import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -84,6 +85,24 @@ const WRITING_SESSION_IDLE_MS = 1400;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
+/**
+ * モバイルの複数指タップ（issue #90：2本指=直前の操作の取り消し(undo)、
+ * 3本指=やり直し(redo)、GoodNotes等のノートアプリで一般的なジェスチャー）
+ * の判定に使うしきい値。ピンチズームは「選択」道具の間だけ始まる
+ * （beginPinch/onGlobalPointerDownのコメント参照）が、複数指タップの判定
+ * 自体は道具に関わらず常に行う——undo/redoはどの道具を選んでいても使いたい
+ * 操作のため。
+ * TAP_MAX_MOVEMENT_PXは、指が触れてから離れるまでの間にこれを超えて動いたら
+ * 「タップ」ではなくドラッグ（ピンチ・パン、または各道具の通常操作）とみなす。
+ * TAP_MAX_DURATION_MSは、この一連のマルチタッチ（最初の指が触れてから、
+ * 関わった指が全て離れるまで）の最大時間（ms）——長押しや、1本の指で長く
+ * 描き続けている間に別の指が一瞬触れた、といったケースはタップとみなさない
+ * （後者は、最後まで描き続けているその指自体がこの時間を超えるため自然に
+ * 除外される）。
+ */
+const TAP_MAX_MOVEMENT_PX = 12;
+const TAP_MAX_DURATION_MS = 400;
+
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -98,6 +117,15 @@ interface PinchState {
   startZoom: number;
   startMid: Point;
   startPan: Point;
+}
+
+/** レンズ分割表示(issue #79、共同アイデア出しフェーズ①限定)の状態。
+ *  myLensIndexは自分の担当レンズ番号(session.myColorIndexをそのまま流用)、
+ *  lensIndexForMemoは既存メモをどのレンズに属するとみなすかの判定関数
+ *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）。 */
+export interface LensSplitState {
+  myLensIndex: number;
+  lensIndexForMemo: (memo: Memo) => number | null;
 }
 
 export interface ToolState {
@@ -154,6 +182,13 @@ export interface CircularCanvasOptions {
    *  毎回もっとも大きく安全に収まる値を動的に計算したい呼び出し元（SMUIのレンズ）は、
    *  sizeを受け取る関数を渡す（canvasSizing.computeAutoScale参照）。 */
   contentScaleFactor?: number | ((size: number) => number);
+  /** computeSquareSize（canvasSizing.ts）の下限をMIN_CANVAS_SIZE(200px)から
+   *  差し替える。使い方ページの練習用サンドボックス（tutorialSandbox.ts）
+   *  専用——本物のMIN_CANVAS_SIZEのままだと、CSS側でコンテナをそれより
+   *  小さく（.tutorial-sandbox-canvas-wrap、style.css）縮めても、この下限が
+   *  優先されてcanvas要素がコンテナの外へはみ出し、下の説明文と重なって
+   *  見えてしまう（ユーザー報告）。省略時は本物と同じMIN_CANVAS_SIZE。 */
+  minCanvasSizePx?: number;
   frameShapeId?: FrameShapeId;
   /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
    *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。太さは、
@@ -195,6 +230,26 @@ export interface CircularCanvasOptions {
    *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
    *  ここでの初期値指定は必須ではない。 */
   onRotationStep?: (memoId: string) => void;
+  /** text-editor-overlay（.text-editor-overlay、既定z-index:20）の実際のz-indexを
+   *  呼び出し側で上書きする。全画面モーダル（テンプレート選択・使い方ページ、
+   *  いずれもz-index 40番台）は「モーダルの中の本物のキャンバスへ書きかけの
+   *  テキストが残っていても隠す」という前提でtext-editor-overlayより上に
+   *  意図して設計されているが、使い方ページの練習用サンドボックス
+   *  （tutorialSandbox.ts）はモーダルの内側で本物のテキスト入力を体験させる
+   *  ため、逆にモーダル自身（z-index 41）より前面に出す必要がある。 */
+  textEditorZIndex?: number;
+  /** text-editor-overlayの画面上の幅の下限(px)。既定の幅計算
+   *  （openTextEditorのwidthMeasureFontSize・resizeToContent参照）は、
+   *  「表示上のfont-sizeは16px未満に落とさない」補正の分だけ基準スケールの
+   *  文字サイズを引き上げて測るが、その測定結果（基準円スケールでの
+   *  px、MIN〜MAX_TEXT_BOX_WIDTH_PXの範囲）を画面pxへ変換する際は実際の
+   *  effectiveScale()をそのまま掛けるため、本物のキャンバスでは起きない
+   *  ほど半径が小さい（使い方ページの練習用サンドボックス、
+   *  tutorialSandbox.ts）場合、変換後の画面幅が1〜2文字ぶんしかない
+   *  極端に細い入力欄になってしまう（ユーザー報告：入力欄が下の説明文と
+   *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
+   *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
+  textEditorMinWidthPx?: number;
 }
 
 export class CircularCanvas {
@@ -283,16 +338,28 @@ export class CircularCanvas {
    *  「キャンバスの外側どこでタッチしても構わない」という指示により、
    *  canvas要素にのみ登録されたactivePointerIdとは別に、windowレベルで
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
-   *  最新クライアント座標——2本目の指が乗るとピンチ開始。 */
-  private pinchPointers = new Map<number, Point>();
+   *  現在位置に加え、複数指タップ判定（issue #90、tapGesture*参照）に使う
+   *  「触れた瞬間の位置」も持つ——2本目の指が乗るとピンチ開始（「選択」道具の
+   *  間だけ、onGlobalPointerDown参照）。 */
+  private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** 複数指タップ（issue #90）の判定用。一連のマルチタッチ（最初の指が触れて
+   *  から関わった指が全て離れるまで）で同時に触れていた指の最大本数。 */
+  private tapGesturePeakCount = 0;
+  /** 上と同じ一連のマルチタッチの中で、いずれかの指がTAP_MAX_MOVEMENT_PXを
+   *  超えて動いた（＝タップではなくドラッグ）場合はfalseになる。 */
+  private tapGestureValid = true;
+  /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
+  private tapGestureStartAt = 0;
   /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
    *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
    *  ROTATE_MIN_RADIUS_PXになる。 */
   private rotateStepRad: number;
   private rotateMinRadiusPx: number;
+  private textEditorZIndex: number | undefined;
+  private textEditorMinWidthPx: number | undefined;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -315,6 +382,8 @@ export class CircularCanvas {
    *  なめらかにする（issue #79、熱グローに代わる表現）。 */
   private displayDensity = new Map<string, number>();
   private lastDensityFrameAt: number | null = null;
+  /** レンズ分割表示(issue #79)の状態。null=通常の単一クリップ表示。 */
+  private lensSplitState: LensSplitState | null = null;
 
   constructor(
     container: HTMLElement,
@@ -329,6 +398,8 @@ export class CircularCanvas {
     this.rotateStepRad = options.rotateStepRad ?? ROTATE_STEP_RAD;
     this.rotateMinRadiusPx = options.rotateMinRadiusPx ?? ROTATE_MIN_RADIUS_PX;
     this.rotationVoteHandler = options.onRotationStep ?? null;
+    this.textEditorZIndex = options.textEditorZIndex;
+    this.textEditorMinWidthPx = options.textEditorMinWidthPx;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -343,6 +414,7 @@ export class CircularCanvas {
       frameKind: options.frameKind ?? "single",
       framePatternId: options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID,
       contentScaleFactor: options.contentScaleFactor,
+      minCanvasSizePx: options.minCanvasSizePx,
     });
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
@@ -446,6 +518,27 @@ export class CircularCanvas {
     this.voteOnly = voteOnly;
   }
 
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ①(発散)のレンズ分割表示
+   *  (issue #79)を切り替える。有効にすると自分の書き込みは担当レンズ内だけに
+   *  制限され、他の参加者のメモは色から逆引きしたレンズ番号でグルーピングして
+   *  描く。null(既定)に戻すと通常の単一クリップ表示に戻る。 */
+  setLensSplit(state: LensSplitState | null): void {
+    this.lensSplitState = state;
+    this.frame.setLensSplitEnabled(state !== null);
+    this.syncEmptyStatePosition();
+  }
+
+  /** 現在の書き込みクランプ関数。レンズ分割表示が有効な間は自分の担当レンズだけに
+   *  制限する（buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
+   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。それ以外は従来通り
+   *  現在のフレーム形状のclampをそのまま使う。 */
+  private inputClamp(): (p: Point) => Point {
+    const state = this.lensSplitState;
+    const pairCenters = state ? this.frame.lensSplitPairCenters : null;
+    if (!state || !pairCenters) return this.frame.currentShape().clamp;
+    return buildOwnLensClamp(this.frame.frameShapeId, pairCenters, state.myLensIndex);
+  }
+
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
    *  入れる（position:absolute、containerに付けた.canvas-hostが基準）——画面固定
    *  (position:fixed)でbody直下に置く.text-editor-overlayと違い、この案内は
@@ -491,9 +584,13 @@ export class CircularCanvas {
     // "glasses"（SMUI）の原点はブリッジ（書けない接合部）の真上に来るため、案内も
     // 右レンズの中心へずらす——案内メッセージ(smuiView.ts)を右レンズに寄せているのと
     // 同じ考え方。"single"（通常キャンバス）ではdx=0のまま円の中心を使う。
+    // レンズ分割表示中(issue #79)は、自分の担当レンズの中心へずらす。
     const scale = this.effectiveScale();
-    const dx = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * scale : 0;
-    const dy = EMPTY_STATE_OFFSET_Y * scale;
+    const pairCenters = this.lensSplitState ? this.frame.lensSplitPairCenters : null;
+    const lensCenter =
+      pairCenters && this.lensSplitState ? lensAbsoluteCenter(pairCenters, this.lensSplitState.myLensIndex) : null;
+    const dx = lensCenter ? lensCenter.x * scale : this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * scale : 0;
+    const dy = (lensCenter ? lensCenter.y * scale : 0) + EMPTY_STATE_OFFSET_Y * scale;
     el.style.left = `${this.canvas.offsetLeft + this.frame.centerPx.x + this.viewPan.x + dx}px`;
     el.style.top = `${this.canvas.offsetTop + this.frame.centerPx.y + this.viewPan.y + dy}px`;
   }
@@ -532,7 +629,7 @@ export class CircularCanvas {
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
    *  今選んでいるフレーム形状の輪郭の外にあれば内側に丸め込む。 */
   private toNormalized(clientX: number, clientY: number): Point {
-    return this.frame.currentShape().clamp(this.toNormalizedRaw(clientX, clientY));
+    return this.inputClamp()(this.toNormalizedRaw(clientX, clientY));
   }
 
   private scheduleSessionClose(): void {
@@ -598,7 +695,7 @@ export class CircularCanvas {
     // 判定し、外側ならジェスチャーを始めずに無視する（issue: 円の外にpointerdown
     // すると、toNormalizedのクランプで円周上の点として扱われ描画されてしまう）。
     const raw = this.toNormalizedRaw(ev.clientX, ev.clientY);
-    if (!isInsideClamp(raw, this.frame.currentShape().clamp)) return;
+    if (!isInsideClamp(raw, this.inputClamp())) return;
 
     // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
     // （pointerdown/moveはcanvas要素、pointerup/cancelはwindowという非対称な
@@ -702,41 +799,101 @@ export class CircularCanvas {
    *  （誤って触れた・手のひらが触れた等）、進行中の描画等を中断してズームに
    *  切り替えてしまうのはユーザーにとって意図しない挙動のため（ユーザー指示）。
    *  ただしpreventDefault自体は道具に関わらず呼ぶ——ここで止めないと、
-   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。 */
+   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。
+   *
+   *  複数指タップ（issue #90）の判定用の記録も、道具に関わらず常にここで行う
+   *  ——undo/redoはどの道具を選んでいても使いたい操作のため。今回の
+   *  マルチタッチの塊の最初の指（pinchPointersが0→1になった瞬間）で判定を
+   *  リセットし、以後この塊に加わった指の最大本数（tapGesturePeakCount）を
+   *  更新し続ける。有効性（tapGestureValid）の判定はonGlobalPointerMoveで、
+   *  実際にundo/redoを呼ぶ判定はonGlobalPointerUpで行う。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    const pos = { x: ev.clientX, y: ev.clientY };
+    if (this.pinchPointers.size === 0) {
+      this.tapGesturePeakCount = 0;
+      this.tapGestureValid = true;
+      this.tapGestureStartAt = Date.now();
+    }
+    this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
+    this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
+
     if (this.pinchPointers.size === 2) {
       ev.preventDefault();
-      if (this.getToolState().tool === "move") {
+      // レンズ分割表示中(issue #79)はピンチズームを無効化する——自分のレンズ以外を
+      // 中心にズームしてしまう問題を避けるv1の割り切り（フォローアップ課題）。
+      if (this.getToolState().tool === "move" && !this.lensSplitState) {
         this.beginPinch();
       }
     }
     // 3本目以降はそのまま追跡だけしておく（既存のピンチの起点は変えない）。
   };
 
-  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
-   *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
-   *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
-   *  （onGlobalPointerDownのコメント参照）。 */
+  /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。2本以上の指を
+   *  追跡している間は道具に関わらず常にev.preventDefault()し続ける——2本目の
+   *  pointerdownだけを止めても、その後の移動でSafariの純正ジェスチャーが
+   *  再度乗っ取ってくることがあるため（onGlobalPointerDownのコメント参照）。
+   *  以前は選択ツールでのピンチ中(mode==="pinching")に限っていたが、それ以外の
+   *  道具では2本目以降の指の動きをSafari純正のジェスチャー（ダブルタップ/
+   *  マルチタッチでのズーム等）が横取りしてしまい、指の位置がブレて複数指
+   *  タップ（issue #90）の判定まで狂う不具合になっていた（ユーザー報告・
+   *  実機Safariで再現確認）。触れている指がTAP_MAX_MOVEMENT_PXを超えて
+   *  動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
+   *  （ドラッグ・ピンチとして進行する）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
-    if (!this.pinchPointers.has(ev.pointerId)) return;
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (this.state.mode === "pinching") {
+    const tracked = this.pinchPointers.get(ev.pointerId);
+    if (!tracked) return;
+    tracked.pos = { x: ev.clientX, y: ev.clientY };
+    if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
+      this.tapGestureValid = false;
+    }
+    if (this.pinchPointers.size >= 2) {
       ev.preventDefault();
+    }
+    if (this.state.mode === "pinching") {
       this.updatePinch();
     }
   };
 
-  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
+   *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
+   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ（issue #90）。
+   *  「選択」道具を選んでいる間だけ判定する——ペン・消しゴム等では1本目の指が
+   *  触れた瞬間に即座にストアを書き換える（ensureUndoSnapshot）ため、タップと
+   *  確定する前の暫定的な書き換えがundo/redoの履歴と絡み合ってしまい、特に
+   *  3本指タップ（redo）はその暫定書き換え自体がredo履歴を消してしまって
+   *  正しく機能しないことがあった（実機で再現確認）。選択道具は1本目の指
+   *  だけでは何も書き換えない（実際に動かして初めてtranslateMemoが呼ばれる）
+   *  ため、この問題が起きない。ペン等でも取り消したい場合は、道具バーの
+   *  「戻る」ボタン（toolbar.ts）を使う。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
+    // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
+    // 間隔（touchend/pointerupのタイミング）で判定される——onGlobalPointerMove
+    // 側のpreventDefault()（指が動く間だけ効く）では止められないため、こちらも
+    // このマルチタッチの塊に2本以上の指が関わっていた間はpreventDefault()する
+    // （複数指タップ自体がSafari純正のズームと誤認されないようにするため。
+    // ユーザー報告・実機Safariで再現確認：3本指タップを2回繰り返すと時々
+    // ズームしてしまっていた）。
+    if (this.tapGesturePeakCount >= 2) ev.preventDefault();
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
       // 1本の指を離しただけでは描画を再開しない——残り1本になったら
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
       this.state.mode = "idle";
       this.pinch = null;
+    }
+    if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
+    if (this.getToolState().tool !== "move") return;
+
+    const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
+    if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
+
+    if (this.tapGesturePeakCount === 2) {
+      this.store.undo();
+    } else {
+      this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
     }
   };
 
@@ -747,7 +904,7 @@ export class CircularCanvas {
       this.endSinglePointerGesture();
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     this.state.mode = "pinching";
     this.pinch = {
       startDist: pointerDistance(a, b),
@@ -761,7 +918,7 @@ export class CircularCanvas {
    *  中点の移動量でパンを更新する。 */
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     const dist = pointerDistance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
@@ -861,6 +1018,7 @@ export class CircularCanvas {
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
+    if (this.textEditorZIndex !== undefined) el.style.zIndex = String(this.textEditorZIndex);
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
     // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく
@@ -941,7 +1099,10 @@ export class CircularCanvas {
       const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
       const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
 
-      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize));
+      const boxWidthPx = Math.max(
+        toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize)),
+        this.textEditorMinWidthPx ?? 0
+      );
       el.style.width = `${boxWidthPx}px`;
       el.style.height = "auto";
       const h = el.scrollHeight;
@@ -1064,6 +1225,13 @@ export class CircularCanvas {
     this.textEditor?.blur();
   }
 
+  /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
+   *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
+   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。 */
+  undo(): void {
+    this.store.undo();
+  }
+
   /**
    * 指定したテンプレートを、常に画面（形状）の中心(0,0)に置く（ユーザー指示：
    * 配置は最初から画面中央に）。以前はタップした場所に自由配置していたが、
@@ -1148,7 +1316,7 @@ export class CircularCanvas {
       if (!this.rotationVoteHandler) {
         const dx = p.x - this.state.lastPoint.x;
         const dy = p.y - this.state.lastPoint.y;
-        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.frame.currentShape().clamp);
+        this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
       }
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
@@ -1350,38 +1518,10 @@ export class CircularCanvas {
     ctx.scale(this.viewZoom, this.viewZoom);
 
     const shape = this.frame.currentShape();
-
-    // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
-    // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
-    // 重ねて内側を隠す」方式で描く——中身の描画が終わってから太い線を
-    // クリップ境界の外側にstroke()する以前の方式は、直線から曲線へ切り替わる
-    // 場所（squareの角、glassesの接合部の付け根）で「一様スケール」と「本来の
-    // 一定距離オフセット」がわずかにズレ、縁取りと紙の間にごく細い隙間ができて
-    // しまっていた（ユーザー指摘）。strokePathはframePathを原点から一様拡大した
-    // ものなので、原点を含むstar-shapedな形状であるframePath/strokePathの性質上
-    // strokePathは常にframePathを包含する——大小2つの塗りつぶしの差分として
-    // 縁取りを表現すれば、このズレの影響を受けず隙間が生まれない。
-    ctx.fillStyle = this.frame.frameStyle;
-    ctx.fill(this.frame.strokePath);
-
-    // 枠の外にはみ出さないようクリップ。
-    ctx.save();
-    ctx.clip(this.frame.framePath);
-
     const r = this.frame.scale;
-
-    if (this.frame.frameKind === "glasses" && !this.interactive) {
-      // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
-      const half = r * shape.maxReach;
-      ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
-      ctx.fillRect(-half, -half, half * 2, half * 2);
-    } else {
-      // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
-      // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
-      // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
-      // 透けて見える帯ができてしまう（ユーザー指摘）。
-      drawRuledPaper(ctx, r, r * shape.maxReach);
-    }
+    // レンズ分割表示(issue #79、共同アイデア出しフェーズ①限定)が有効な間は
+    // 3組ぶんの中心座標が入る。無効ならnull——以下は全て従来通りの単一表示になる。
+    const pairCenters = this.frame.lensSplitPairCenters;
 
     // 非対話（interactive: false）の間はstoreに常に何も無い（空のプレースホルダー
     // 専用インスタンス）ため、このループは自然に何もしない。
@@ -1402,91 +1542,170 @@ export class CircularCanvas {
     this.lastDensityFrameAt = now;
     const densityEase = dtMs > 0 ? 1 - Math.pow(0.5, dtMs / DENSITY_EASE_HALF_LIFE_MS) : 1;
     const seenMemoIds = new Set<string>();
-    for (const memo of memosToRender) {
-      seenMemoIds.add(memo.id);
-      // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
-      // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
-      // 密度による見た目の変化を適用しない(=1)。
-      const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
-      const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
-      const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
-      this.displayDensity.set(memo.id, displayDensity);
 
-      if (memo.fadeExempt) {
-        // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
-        // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
-        // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
-        renderMemoAt(ctx, memo, r, displayDensity);
-        continue;
+    /** 1組(眼鏡1つ)ぶんの枠・紙・メモを描く。pairCentersが非nullの間は3組ぶん
+     *  これを繰り返し呼ぶ。枠・紙はこの組のローカル原点(0,0)基準のPath2D
+     *  （frame.framePath/strokePath）なので、描く間だけoffsetへtranslateする。
+     *  クリップを確定させたらoffsetぶん戻してから描く——メモのnormalized座標は
+     *  既にlensAbsoluteCenter基準の絶対座標（グローバル、単一の共有座標系のまま、
+     *  データモデルは変更していない）なので、offsetを二重に適用しないため。 */
+    const renderPair = (offset: Point, memos: readonly Memo[], isOwnPair: boolean): void => {
+      // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
+      // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
+      // 重ねて内側を隠す」方式で描く——中身の描画が終わってから太い線を
+      // クリップ境界の外側にstroke()する以前の方式は、直線から曲線へ切り替わる
+      // 場所（squareの角、glassesの接合部の付け根）で「一様スケール」と「本来の
+      // 一定距離オフセット」がわずかにズレ、縁取りと紙の間にごく細い隙間ができて
+      // しまっていた（ユーザー指摘）。strokePathはframePathを原点から一様拡大した
+      // ものなので、原点を含むstar-shapedな形状であるframePath/strokePathの性質上
+      // strokePathは常にframePathを包含する——大小2つの塗りつぶしの差分として
+      // 縁取りを表現すれば、このズレの影響を受けず隙間が生まれない。
+      ctx.save();
+      ctx.translate(offset.x, offset.y);
+      ctx.fillStyle = this.frame.frameStyle;
+      ctx.fill(this.frame.strokePath);
+
+      // 枠の外にはみ出さないようクリップ。
+      ctx.save();
+      ctx.clip(this.frame.framePath);
+
+      if (this.frame.frameKind === "glasses" && !this.interactive) {
+        // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
+        const half = r * shape.maxReach;
+        ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
+        ctx.fillRect(-half, -half, half * 2, half * 2);
+      } else {
+        // Oval/Squareはクリップ境界がradius基準の正方形より外まで張り出すため、
+        // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
+        // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
+        // 透けて見える帯ができてしまう（ユーザー指摘）。
+        drawRuledPaper(ctx, r, r * shape.maxReach);
       }
-      const baseOpacity =
-        rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
-      if (baseOpacity === null || baseOpacity <= 0) continue;
-      // 投票フェーズ中は、人気度(displayDensity)に応じてインクの濃さ自体を
-      // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
-      // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
-      const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-      renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+
+      // 以降はグローバル座標（メモの実際のnormalized座標）で描く。
+      ctx.translate(-offset.x, -offset.y);
+
+      for (const memo of memos) {
+        seenMemoIds.add(memo.id);
+        // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
+        // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
+        // 密度による見た目の変化を適用しない(=1)。
+        const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
+        const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
+        const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
+        this.displayDensity.set(memo.id, displayDensity);
+
+        if (memo.fadeExempt) {
+          // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
+          // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
+          // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
+          renderMemoAt(ctx, memo, r, displayDensity);
+          continue;
+        }
+        const baseOpacity =
+          rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
+        if (baseOpacity === null || baseOpacity <= 0) continue;
+        // 投票フェーズ中は、人気度(displayDensity)に応じてインクの濃さ自体を
+        // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
+        // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
+        const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
+        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.textAlign = "start";
+      ctx.textBaseline = "alphabetic";
+
+      // なぞっている最中・移動中のかすかなグロー、消しゴムの当たり範囲プレビューは
+      // 自分の担当組でだけ描く——これらの操作は自分の担当レンズの中でしか
+      // 起こり得ないため（inputClamp参照）。
+      if (isOwnPair) {
+        if ((this.state.mode === "tracing" || this.state.mode === "moving") && this.state.lastPoint) {
+          drawRadialGlow(ctx, this.state.lastPoint.x * r, this.state.lastPoint.y * r, 22, TRACE_GLOW);
+        }
+
+        // 消しゴムの当たり範囲を示すカーソル。実際に消している最中はstate.lastPoint、
+        // それ以外（マウスでホバーしているだけ）はeraserHoverPointを使う——クリックして
+        // 実際に消し始めるまで大きさが分からない問題を解消するため（ユーザー指示）。
+        const eraserCursorPoint = this.state.mode === "erasing" ? this.state.lastPoint : this.eraserHoverPoint;
+        if (eraserCursorPoint) {
+          const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
+          ctx.strokeStyle = ERASER_CURSOR;
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore(); // clip（この時点でtranslate(offset)状態に戻る）
+
+      // ブリッジ（接合部）は書き込める領域に含めない（clampToGlasses参照）ため、
+      // 紙の罫線が透けて見えないよう、フレームと同じ柄・質感で塗りつぶした太い
+      // バーとして見せる——構造的な連結部であり、書けない場所であることが
+      // 見た目からも伝わるようにする（ユーザー指示）。クリップ(framePath)の外側
+      // （ctx.restore()の後）で描く——strokePathのブリッジ部分の高さはframePathより
+      // 大きい（接合部もframePathをoffsetぶん外側に広げた分だけ、紙で隠れない
+      // フレーム色の帯がframePathの外側にできる）ため、framePathでクリップした
+      // ままだとこの帯を覆いきれず、紙とフレーム色の境目が細い筋として見えて
+      // しまっていた（ユーザー指摘・実測確認済み）。クリップの外で、strokePath
+      // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
+      // 出なくなる。
+      if (this.frame.frameKind === "glasses") {
+        this.frame.drawGlassesBridgeBar(ctx);
+      }
+
+      // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
+      // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
+      if (this.frame.frameKind === "glasses") {
+        this.frame.drawGlassesHinges(ctx, shape);
+      }
+
+      ctx.restore();
+    };
+
+    if (pairCenters && this.lensSplitState) {
+      const { myLensIndex, lensIndexForMemo } = this.lensSplitState;
+      const { pairIndex: myPairIndex } = lensIndexToPairSlot(myLensIndex);
+      const groups: Memo[][] = pairCenters.map(() => []);
+      for (const memo of memosToRender) {
+        const lensIndex = lensIndexForMemo(memo);
+        // 未帰属メモ(参加者色と一致しない、セッション開始前に自由に書かれたもの等)は
+        // レンズ分割表示中は非表示にする（issue #79、ユーザー確認済みの製品判断）。
+        if (lensIndex === null) continue;
+        const { pairIndex } = lensIndexToPairSlot(lensIndex);
+        (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
+      }
+      pairCenters.forEach((center, i) => {
+        renderPair({ x: center.x * r, y: center.y * r }, groups[i], i === myPairIndex);
+      });
+    } else {
+      renderPair({ x: 0, y: 0 }, memosToRender, true);
     }
+
     // 描画対象から外れたメモの補間状態は溜め込まない。
     for (const id of this.displayDensity.keys()) {
       if (!seenMemoIds.has(id)) this.displayDensity.delete(id);
     }
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.textAlign = "start";
-    ctx.textBaseline = "alphabetic";
 
-    // なぞっている最中・移動中のかすかなグロー
-    if ((this.state.mode === "tracing" || this.state.mode === "moving") && this.state.lastPoint) {
-      drawRadialGlow(ctx, this.state.lastPoint.x * r, this.state.lastPoint.y * r, 22, TRACE_GLOW);
-    }
+    // 空状態の判定・中心点の位置は、レンズ分割表示中は「自分の担当レンズ」だけを
+    // 見る——他の参加者のレンズの状態に引きずられないようにする。
+    const ownLensActiveMemoCount = this.lensSplitState
+      ? activeMemos.filter((m) => this.lensSplitState!.lensIndexForMemo(m) === this.lensSplitState!.myLensIndex).length
+      : activeMemos.length;
 
-
-    // 消しゴムの当たり範囲を示すカーソル。実際に消している最中はstate.lastPoint、
-    // それ以外（マウスでホバーしているだけ）はeraserHoverPointを使う——クリックして
-    // 実際に消し始めるまで大きさが分からない問題を解消するため（ユーザー指示）。
-    const eraserCursorPoint = this.state.mode === "erasing" ? this.state.lastPoint : this.eraserHoverPoint;
-    if (eraserCursorPoint) {
-      const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
-      ctx.strokeStyle = ERASER_CURSOR;
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-    }
-
-    ctx.restore(); // clip
-
-    // ブリッジ（接合部）は書き込める領域に含めない（clampToGlasses参照）ため、
-    // 紙の罫線が透けて見えないよう、フレームと同じ柄・質感で塗りつぶした太い
-    // バーとして見せる——構造的な連結部であり、書けない場所であることが
-    // 見た目からも伝わるようにする（ユーザー指示）。クリップ(framePath)の外側
-    // （ctx.restore()の後）で描く——strokePathのブリッジ部分の高さはframePathより
-    // 大きい（接合部もframePathをoffsetぶん外側に広げた分だけ、紙で隠れない
-    // フレーム色の帯がframePathの外側にできる）ため、framePathでクリップした
-    // ままだとこの帯を覆いきれず、紙とフレーム色の境目が細い筋として見えて
-    // しまっていた（ユーザー指摘・実測確認済み）。クリップの外で、strokePath
-    // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
-    // 出なくなる。
-    if (this.frame.frameKind === "glasses") {
-      this.frame.drawGlassesBridgeBar(ctx);
-    }
-
-    // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
-    // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
-    if (this.frame.frameKind === "glasses") {
-      this.frame.drawGlassesHinges(ctx, shape);
-    }
-
-    if (this.interactive && rewindAt === null && activeMemos.length === 0) {
+    if (this.interactive && rewindAt === null && ownLensActiveMemoCount === 0) {
       // 中心点（ここが書ける領域の中心、という目印）。文字の案内はDOM側
       // （.canvas-empty-state、syncEmptyState参照）へ移したので、canvasに描くのは
       // この点だけ。"glasses"では原点がブリッジ（書けない接合部）の真上なので、
-      // DOM側の案内と同じ右レンズの中心に打つ。
-      const dotX = this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET * r : 0;
+      // DOM側の案内と同じ右レンズの中心に打つ——レンズ分割表示中は自分の担当
+      // レンズの中心に打つ。
+      const dot =
+        pairCenters && this.lensSplitState
+          ? lensAbsoluteCenter(pairCenters, this.lensSplitState.myLensIndex)
+          : { x: this.frame.frameKind === "glasses" ? GLASSES_CENTER_OFFSET : 0, y: 0 };
       ctx.beginPath();
-      ctx.arc(dotX, 0, 3, 0, Math.PI * 2);
+      ctx.arc(dot.x * r, dot.y * r, 3, 0, Math.PI * 2);
       ctx.fillStyle = CENTER_DOT;
       ctx.fill();
     }
@@ -1494,7 +1713,7 @@ export class CircularCanvas {
     ctx.restore(); // translate + setTransform
 
     // DOM側の案内（ドラッグで書き始める／＋テンプレートを使用）の出し入れ。
-    this.syncEmptyState(activeMemos.length);
+    this.syncEmptyState(ownLensActiveMemoCount);
   }
 
   /** このインスタンスを使い終えたら呼ぶ。ResizeObserverと`window`に登録した

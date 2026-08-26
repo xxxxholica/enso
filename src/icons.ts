@@ -33,7 +33,8 @@ export const ICONS: Record<
   | "patternWood"
   | "trash"
   | "timer"
-  | "room",
+  | "room"
+  | "undo",
   string
 > = {
   pen: `
@@ -126,6 +127,12 @@ export const ICONS: Record<
       <path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
       <path d="M8.5 11l1.5 1.5L13 9" />
       <path d="M8.5 16l1.5 1.5L13 14" />
+    </svg>`,
+  // 道具バーの「戻る」ボタン（issue #90）。反時計回りに巻き戻る矢印。
+  undo: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M7 10L3 14L7 18" />
+      <path d="M3 14H16C18.76 14 21 11.76 21 9C21 6.24 18.76 4 16 4H11" />
     </svg>`,
   shapeRound: `
     <svg viewBox="0 0 24 24" ${common}>

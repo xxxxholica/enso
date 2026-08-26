@@ -1,12 +1,12 @@
 import { CircularCanvas } from "./canvasView";
 import type { ToolState } from "./canvasView";
 import { createFadeVisibility } from "./fadeVisibility";
-import { FIXED_LIFESPAN_DAYS } from "./fade";
+import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
 import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
-import type { Memo, Point } from "./types";
+import type { LifespanDays, Memo, Point } from "./types";
 
 const INK = "oklch(22% 0.012 55)";
 const HOUR = 60 * 60 * 1000;
@@ -16,36 +16,118 @@ const HOUR = 60 * 60 * 1000;
  *  以前は400だったが、「振り返り」の目盛りに対してどれだけ経過したかが
  *  ユーザーが手順を終えるまでにかかった実時間（人によって大きくばらつく）
  *  に敏感すぎ、振り返っても対象が見つからない／既に完全に消えてしまっている
- *  ことがあった（ユーザー報告）。振り返りの見本自体はmountRewind()で手順に
- *  入った瞬間を基準に作り直し（reseedForRewindDemo）、以後の「たった今」も
- *  その瞬間の値（rewindNowRef）に固定してしまう——探索にどれだけ実時間を
- *  かけようと結果が変わらないため、この値はもう振り返りの見えやすさには
- *  一切影響しない。「見ている間にも自然に薄れていく」という一手順目の
- *  体感速度だけの調整値として、控えめな値に下げてある。 */
+ *  ことがあった（ユーザー報告）。「見ている間にも自然に薄れていく」という
+ *  一手順目の体感速度だけの調整値として、控えめな値に下げてある——ただし
+ *  「眺める」手順で1枚が完全に消えきるところまで見せる分には、この程度の
+ *  加速ではまだ実時間24分もかかってしまうため足りない（下のWATCH_DEMO_*
+ *  参照、そちらは専用のもっと短い寿命へ一時的に差し替えて解決している。
+ *  "watch"を出た後は必ずfreezeToRealPaceで本物の寿命へ戻すため、以後は
+ *  この控えめな加速の恩恵をそのまま受けられる）。 */
 const VIRTUAL_ACCEL = 60;
 
-/** 道具はすべて選択（移動）道具に固定する——このサンドボックスで体験させたい
- *  操作は「掴んで回す」「振り返りスライダー」の2つだけで、道具バー自体を
- *  持たない（ユーザー指示：習得させる操作を2つの時間操作に絞る）。
- *  color/fontSize/eraserRadius等は"move"では参照されないため値そのものに意味はない。 */
-const SANDBOX_TOOL_STATE: ToolState = {
-  tool: "move",
-  color: INK,
-  lifespanDays: FIXED_LIFESPAN_DAYS,
-  fontSize: 24,
-  lineWidth: PEN_LINE_WIDTH,
-  eraserRadius: 16,
-};
+/** .usage-guideモーダル自身のz-index(41、style.css)より前面に出すための値。
+ *  「書く」手順のtext-editor-overlay専用（CircularCanvasOptions.textEditorZIndex
+ *  参照）。 */
+const TEXT_EDITOR_Z_INDEX = 45;
 
-type StepId = "watch" | "keep" | "release" | "rewind" | "done";
-const STEP_ORDER: StepId[] = ["watch", "keep", "release", "rewind", "done"];
+/** text-editor-overlayの画面上の幅の下限(px)。この練習用サンドボックスの円は
+ *  本物よりひとまわり小さく（.tutorial-sandbox-canvas-wrap、style.css）、
+ *  短いビューポート高さではさらに縮む（clamp(90px, ...)）ため、既定の幅計算
+ *  だとタップ位置に対して極端に細い入力欄になり、1文字ごとに折り返されて
+ *  縦に何行分も伸び、下の説明文と重なって見えてしまう（ユーザー報告：
+ *  「メモするための円と説明文が重なってる」）。CircularCanvasOptions.
+ *  textEditorMinWidthPx参照。 */
+const TEXT_EDITOR_MIN_WIDTH_PX = 120;
+
+/** canvasSizing.tsのMIN_CANVAS_SIZE(200px)を、この練習用サンドボックスに
+ *  限って差し替える下限——.tutorial-sandbox-canvas-wrapのCSS側の下限
+ *  （clamp(90px, ...)、style.css）と揃えてある。揃えないと、CSS側が90pxまで
+ *  縮めたつもりでもcanvas要素の実サイズ計算（fitCanvasToContainer）が
+ *  本物と同じ200px下限のまま譲らず、canvas要素がコンテナからはみ出して
+ *  下の説明文と重なって見えてしまう（ユーザー報告：「メモするための円と
+ *  説明文が重なってる」——真の原因はここで、text-editor-overlayの幅
+ *  （TEXT_EDITOR_MIN_WIDTH_PX）だけでは直らなかった）。 */
+const MIN_CANVAS_SIZE_PX = 90;
+
+/** 「眺める」手順専用: 盤面の3枚全部（添え物2枚＋「書く」手順でユーザーが
+ *  書いた1枚）が、この手順の待ち時間のうちに薄れていく様子を見せる
+ *  （ユーザー指示：「書き込みが全部薄くなるといいかも」——当初はambient
+ *  1枚だけだったが、他の2枚も本物の寿命（FIXED_LIFESPAN_DAYS、1日）の
+ *  ままだと、VIRTUAL_ACCELで60倍してもこの手順の間（数秒〜十数秒）では
+ *  見た目がまったく変わらない）。ただし添え物2枚（ambient・decoy）と
+ *  「書く」手順の1枚はこの後の「残す/手放す」手順で掴む対象でもあるため、
+ *  薄れきって掴めなくなる（reviveMemo/nudgeMemoClockは共にstatus==="active"
+ *  の間しか効かない、memoStore.ts参照）と手順が進められなくなる恐れがある
+ *  ——「つぎへ」が押せるようになる瞬間（syncNextBtnVisibility→
+ *  freezeToRealPace）に、その時点でまだ生きているものだけ本物の寿命へ
+ *  切り替える。「眺める」を出た後は"watch"の短い寿命に戻ることは無い
+ *  （＝以後ずっと安全）。既に消えきったものはそのまま消えたまま——
+ *  「眺める」の間に本当に手を出せなかったものは戻さない（ユーザー指示：
+ *  「眺めるの部分を除いて、チュートリアルメモの状態は引き継ぐように」）。 */
+const WATCH_DEMO_FADE_REAL_MS = 10_000;
+/** 上のWATCH_DEMO_FADE_REAL_MSを、実際に寿命として使えるlifespanDays（日数）に
+ *  換算したもの——VIRTUAL_ACCELで割るのではなく掛けているのは、
+ *  「経過した仮想ms = 経過した実ms × VIRTUAL_ACCEL」（currentVirtualNow参照）
+ *  だからで、実時間WATCH_DEMO_FADE_REAL_MSぶんで寿命を使い切らせるには
+ *  寿命の総量（仮想ms）をその分だけ短く設定する必要があるため。 */
+const WATCH_DEMO_LIFESPAN_DAYS: LifespanDays = (WATCH_DEMO_FADE_REAL_MS * VIRTUAL_ACCEL) / MS_PER_DAY;
+const WATCH_DEMO_TOTAL_VIRTUAL_MS = WATCH_DEMO_LIFESPAN_DAYS * MS_PER_DAY;
+/** 添え物2枚（ambient・decoy、reseedForWatchDemo参照）のバックデートは、
+ *  あえて2枚で違う値にしてある——「全部が同時に同じ濃さで薄れて消える」と
+ *  見た目が単調な一斉フェードになってしまい、「時間の経ち方は一律ではない」
+ *  という一手順目で伝えたいことと逆行してしまう（ユーザー指摘：「ぜんぶ
+ *  均一に薄くするべきではない」）。ambientは寿命の55%（fade.tsの
+ *  computeOpacityでいう60%→20%の境目3/7≒0.43を過ぎた「かなり薄い」状態）
+ *  から始めて比較的早く消えきり、decoyは20%（100%→60%の境目1/7≒0.14を
+ *  少し過ぎただけの「まだ濃い」状態）から始めてゆっくり薄れる——「書く」
+ *  手順でユーザーが書いた1枚は書いたその瞬間（経過0、最も濃い）から
+ *  WATCH_DEMO_LIFESPAN_DAYSで薄れ始める（toolStateFor参照）ため、この3枚
+ *  それぞれ違うタイミング・違う速さで薄れていく様子になる。 */
+const WATCH_AMBIENT_BACKDATE_MS = WATCH_DEMO_TOTAL_VIRTUAL_MS * 0.55;
+const WATCH_DECOY_BACKDATE_MS = WATCH_DEMO_TOTAL_VIRTUAL_MS * 0.2;
+/** 「つぎへ」を"watch"手順に入って即座にではなく、この時間だけ待たせてから
+ *  出す（ユーザー指示：消える様子を見れるように、しばらくしてから表示する）。
+ *  一番遅く消えきるdecoy（バックデート20%ぶんを引いた残り80%、実時間8秒）
+ *  より長めに取り、3枚それぞれ違うタイミングで薄れ消えていく様子を
+ *  見届けられる余裕を持たせてある。 */
+const WATCH_NEXT_BTN_DELAY_MS = 9_000;
+
+/** freezeToRealPaceの中で、「つぎへ」が押せるようになる瞬間までに既に
+ *  完全に消えきっていた（status!=="active"）ものを復活させる際のバック
+ *  デート。seed()の元々のdecoyのバックデートと同じ値——真っ白より少し
+ *  薄れかけている方が「時間が経つと薄れる」という前提が伝わりやすい、
+ *  という元々の意図をそのまま踏襲している。ユーザー報告：「眺めるの
+ *  部分で全部消えてしまってそのままなので一向に進めない」——消えた
+ *  ままだと「残す/手放す」で掴める対象が無くなり手順が進められなく
+ *  なってしまうため、この一度きり位置・文面を保ったまま復活させる
+ *  （ユーザー指示：「一度そこで復活させてほしい。位置は保持する
+ *  前提で」）。 */
+const REVIVE_BACKDATE_MS = 5 * HOUR;
+
+type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
+const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  watch: "いくつか、思いつきを置いてみました。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
+  write: "円の中をタップして、思いついたことを書いてみましょう。",
+  watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
   release: "今度は、要らない一枚に触れたまま、時計回りに回して早く手放してみましょう。",
   rewind: "下のスライダーを動かして、少し前の盤面を振り返ってみましょう。",
   done: "全部は残せません。だからこそ、そうやって選び続けた一枚には意味があります。",
+};
+
+/** 見出し（usageGuide.tsのbuildPracticePageが表示するタイトル）を、今の
+ *  手順の内容に合わせて短い動詞で言い換える（ユーザー指示：「手を動かして
+ *  みましょう」という固定文言ではなく、書き込む・眺める・巻き戻す・進める
+ *  のように手順ごとの見出しにしたい）。onStepTitle経由でusageGuide.tsへ
+ *  渡す。 */
+const STEP_TITLES: Record<StepId, string> = {
+  write: "書き込む",
+  watch: "眺める",
+  keep: "巻き戻す",
+  release: "進める",
+  rewind: "振り返る",
+  done: "選びとる",
 };
 
 /** 掴んで回す対象の追跡用。lastTracedAtは移動道具の振り回し操作
@@ -71,15 +153,24 @@ interface TrackedMemo {
  *
  * ポインタ操作（pointerdown/move/leave）はこのインスタンス自身のcanvas要素に
  * 閉じたリスナーのため、使い方ページの全画面オーバーレイが背後の本物の
- * キャンバスを覆っている間は本物には一切届かない。window単位のkeydownは
- * usageGuide.ts側がcapture段でstopPropagationして本物のonGlobalKeyDown
- * （ブラインドタイピング）に一切渡さない——このサンドボックス自身もテキスト
- * 入力を持たないため、キー入力を横取りされても機能に支障はない。window単位の
- * pointerup/pointercancelだけは意図的に横取りしていない：本物のonPointerUpは
+ * キャンバスを覆っている間は本物には一切届かない。window単位の
+ * pointerup/pointercancelは意図的に横取りしていない：本物のonPointerUpは
  * 自身の状態がidleの間は何もしない（=このサンドボックスを操作している間、
  * 本物は必ずidleのまま）ため無害であり、かつこのサンドボックス自身の
  * ジェスチャー終了処理もwindow単位のpointerupに依存しているため、
  * window全体でstopPropagationするとこちらの操作まで巻き込んで壊れてしまう。
+ *
+ * 「書く」手順だけは本物のテキスト入力（道具を"text"にしてタップ→
+ * canvasView.tsのopenTextEditor）を使う。それ以外の手順ではキー入力を
+ * 一切必要としないため、使い方ページ側（usageGuide.ts）がwindow単位の
+ * keydownをcapture段でstopPropagationして本物のonGlobalKeyDown
+ * （ブラインドタイピング）に渡さないようにしているが、「書く」手順で
+ * このサンドボックス自身のtext-editor-overlay（.text-editor-overlay）に
+ * フォーカスがある間だけは例外的に素通しする——それでも本物へブラインド
+ * タイピングが漏れないのは、本物のonGlobalKeyDownがdocument.activeElementが
+ * テキストエリアの間は横取りしないという既存のガード（他の入力欄にフォーカスが
+ * ある間は横取りしないためのもの）にそのまま守られるため。詳しくは
+ * usageGuide.tsのonKeyDown参照。
  */
 export class TutorialSandbox {
   private canvasWrap: HTMLElement;
@@ -92,6 +183,9 @@ export class TutorialSandbox {
   /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
    *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
   private onComplete: (() => void) | null;
+  /** 手順が変わるたびSTEP_TITLES[step]を渡して呼ばれる。usageGuide.tsが
+   *  練ページの見出し（マーカー隣のタイトル）を差し替えるためのフック。 */
+  private onStepTitle: ((title: string) => void) | null;
 
   private store: MemoStore | null = null;
   private canvasView: CircularCanvas | null = null;
@@ -101,14 +195,26 @@ export class TutorialSandbox {
   private running = false;
   private realStartMs = 0;
   private virtualBaseMs = 0;
+  /** "watch"手順の「つぎへ」表示を遅らせるためのタイマー。syncStep()参照。 */
+  private nextBtnTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private step: StepId = "watch";
-  /** seed()で置いた3枚（種類は問わない）の初期lastTracedAt。checkProgressは
-   *  この中のどれか1枚でも増減していればkeep/releaseを達成扱いにする。 */
+  private step: StepId = "write";
+  /** seed()で置いた添え物＋「書く」手順でユーザー自身が書いたものの初期
+   *  lastTracedAt。checkProgressはこの中のどれか1枚でも増減していれば
+   *  keep/releaseを達成扱いにする。 */
   private memoBaselines: TrackedMemo[] = [];
-  private ambientMemoId: string | null = null;
-  private memoAId: string | null = null;
-  private memoBId: string | null = null;
+  /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
+   *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
+   *  （内容は問わない）。 */
+  private knownMemoIds = new Set<string>();
+  /** seed()で置いた添え物2枚のid。"watch"に入った瞬間どちらも短い寿命へ
+   *  作り直す（reseedForWatchDemo）。「つぎへ」が押せるようになる瞬間、
+   *  その時点でまだ生きていればfreezeToRealPaceが本物の寿命へ切り替える
+   *  ——ambientは判定対象に戻さない（seed()のとおり、結の「全部は残せ
+   *  ません」という主題に残しておく1枚として扱う）ため、実質decoyだけが
+   *  戻る対象。作り直すたびに新しいidへ更新する。 */
+  private ambientId: string | null = null;
+  private decoyId: string | null = null;
   /** 「振り返り」手順に入った瞬間の仮想時刻を固定した基準点。以降このスライダーの
    *  「N時間前」は、その都度のcurrentVirtualNow()ではなく常にこの値から引く
    *  ——探索にどれだけ実時間をかけても（数秒でも数分でも）見え方が変わらない
@@ -118,8 +224,9 @@ export class TutorialSandbox {
    *  見えてしまうことはない。 */
   private rewindNowRef: number | null = null;
 
-  constructor(container: HTMLElement, onComplete?: () => void) {
+  constructor(container: HTMLElement, onComplete?: () => void, onStepTitle?: (title: string) => void) {
     this.onComplete = onComplete ?? null;
+    this.onStepTitle = onStepTitle ?? null;
     container.className = "tutorial-sandbox";
 
     this.canvasWrap = document.createElement("div");
@@ -139,7 +246,13 @@ export class TutorialSandbox {
     this.nextBtn.type = "button";
     this.nextBtn.className = "pill-btn";
     this.nextBtn.textContent = "つぎへ";
-    this.nextBtn.addEventListener("click", () => this.advanceTo("keep"));
+    // "watch"→"keep"だけでなく"rewind"→"done"でも同じボタンを再利用する
+    // （syncNextBtnVisibility/checkProgress参照）ため、決め打ちの遷移先では
+    // なく「今の手順の次」へ進める。
+    this.nextBtn.addEventListener("click", () => {
+      const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
+      if (nextStep) this.advanceTo(nextStep);
+    });
     this.skipBtn = document.createElement("button");
     this.skipBtn.type = "button";
     this.skipBtn.className = "text-link tutorial-sandbox-skip";
@@ -161,11 +274,11 @@ export class TutorialSandbox {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.step = "watch";
+    this.step = "write";
     this.syncStep();
 
     this.store = new MemoStore(undefined, false);
-    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => SANDBOX_TOOL_STATE, {
+    this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => this.toolStateFor(), {
       // 本物のキャンバスと同じ「1回転まるごと・掴んだ点から半径24px以上」を
       // そのまま求めると、この操作を初めて知る人には難しすぎて手順で止まって
       // しまうことがあった（ユーザー報告）。この練習用サンドボックスに限り、
@@ -174,6 +287,14 @@ export class TutorialSandbox {
       // 完全に同じ厳しさを課す必要はない。
       rotateStepRad: Math.PI,
       rotateMinRadiusPx: 16,
+      minCanvasSizePx: MIN_CANVAS_SIZE_PX,
+      // 「書く」手順で開くtext-editor-overlayは、既定z-index(20)のままだと
+      // 使い方ページのモーダル自身（z-index 41）の背後に隠れてしまう
+      // ——全画面モーダルは本来「本物のキャンバスの書きかけテキストを隠す」
+      // 前提でtext-editor-overlayより手前に設計されているが、ここではその
+      // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
+      textEditorZIndex: TEXT_EDITOR_Z_INDEX,
+      textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
     });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
@@ -187,20 +308,49 @@ export class TutorialSandbox {
   stop(): void {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    if (this.nextBtnTimer !== null) {
+      clearTimeout(this.nextBtnTimer);
+      this.nextBtnTimer = null;
+    }
     this.canvasView?.destroy();
     this.canvasView = null;
     this.store = null;
     this.memoBaselines = [];
-    this.ambientMemoId = null;
-    this.memoAId = null;
-    this.memoBId = null;
+    this.knownMemoIds = new Set();
+    this.ambientId = null;
+    this.decoyId = null;
     this.rewindNowRef = null;
     this.rewindSelector = null;
     this.rewindWrap.replaceChildren();
     this.rewindWrap.hidden = true;
     this.rewindWrap.classList.remove("is-visible");
+    this.rewindWrap.style.pointerEvents = "";
   }
 
+  /** 「書く」手順だけテキスト道具、それ以外は選択（移動）道具——このサンドボックスで
+   *  体験させたい操作を、書く・掴んで回す・振り返りスライダーの3つに絞る
+   *  （道具バー自体は持たない。ユーザー指示）。 */
+  private toolStateFor(): ToolState {
+    return {
+      tool: this.step === "write" ? "text" : "move",
+      color: INK,
+      // 「書く」手順で書いた1枚も、添え物2枚と一緒に薄れていく様子を見せたい
+      // （ユーザー指示：「書き込みが全部薄くなるといいかも」）ため、"write"の
+      // 間だけWATCH_DEMO_LIFESPAN_DAYS（短い寿命）で作る——書いたその瞬間
+      // （経過0）から薄れ始め、"watch"の待ち時間のうちに目に見えて変化する。
+      // 「つぎへ」が押せるようになる瞬間freezeToRealPaceが本物の寿命へ
+      // 切り替えるため、薄れきって掴めなくなる心配はない。
+      lifespanDays: this.step === "write" ? WATCH_DEMO_LIFESPAN_DAYS : FIXED_LIFESPAN_DAYS,
+      fontSize: FONT_SIZE_STEPS.medium,
+      lineWidth: PEN_LINE_WIDTH,
+      eraserRadius: 16,
+    };
+  }
+
+  /** 「書く」手順の前に、添え物を2枚だけ仕込んでおく——ユーザー自身が
+   *  これから書く1枚と合わせて、後の手順（残す・消す・振り返る）で
+   *  触る対象が最低3枚になるようにする。手を出さなくても物語が進むよう、
+   *  どの手順にも紐付けない添え物として置く。 */
   private seed(): void {
     if (!this.store) return;
     const now0 = this.virtualBaseMs;
@@ -209,22 +359,30 @@ export class TutorialSandbox {
     // 潰れて見えてしまう（ユーザー指摘）ため、位置だけがまとめてクランプされる
     // テキストメモに変えた。
     const measureCtx = document.createElement("canvas").getContext("2d")!;
-    // 放っておくと消えていく様子を最初から見せるための、既に薄れかけた1枚
-    // （じきに完全に消える）。手を出さなくても物語が進むよう、どの手順にも
-    // 紐付けない添え物として置く。
-    const ambient = seedTextThought(measureCtx, this.store, { x: 0, y: 0.45 }, "夢の続き", 11 * HOUR, now0);
+    // 「薄れる」手順ですぐ見比べられるよう、既に薄れかけた状態で置く
+    // （自分がこれから書く1枚は真新しいまま、という対比になる）。位置は
+    // 左下寄り——decoyと対角に離すのに加え、円のほぼ中央（「書く」手順で
+    // 最初にタップされやすい場所、ユーザー報告：中央に書いた自分のメモと
+    // 添え物2枚の文字が重なって見えていた）から縦にも横にも離すため。
+    // テキストメモの最小幅（MIN_TEXT_BOX_WIDTH_PX=140px、textLayout.ts）は
+    // 正規化すると0.41もあり円の直径の2割に達するため、縦方向だけでなく
+    // 横方向にもある程度離さないと、短いテキストどうしでも箱がすぐ隣接して
+    // 窮屈に見えてしまう。
+    const ambient = seedTextThought(measureCtx, this.store, { x: -0.25, y: 0.5 }, "夢の続き", 11 * HOUR, now0);
     // 掴んで振り回すと、その分だけメモ自体もポインタに追従して動く
     // （canvasView.tsのupdateRotationGesture参照）。縁ぎりぎりに置くと、
     // 少し振り回しただけで縁の外にはみ出して欠けて見えてしまうため、
-    // 中心寄りに置いて振り回す余地を持たせる。
-    const memoA = seedTextThought(measureCtx, this.store, { x: -0.32, y: -0.22 }, "行きたい場所", 5 * HOUR, now0);
-    const memoB = seedTextThought(measureCtx, this.store, { x: 0.32, y: -0.22 }, "買い物リスト", 0.5 * HOUR, now0);
-    this.ambientMemoId = ambient.id;
-    this.memoAId = memoA.id;
-    this.memoBId = memoB.id;
-    // 「残したい一枚」がどれかは指示文で特定していないため、この3枚すべてを
-    // 判定対象にする（checkProgress参照）。
-    this.memoBaselines = [ambient, memoA, memoB].map(trackedMemoOf);
+    // 中心からある程度離しつつも振り回す余地は残す——ambientと対角
+    // （右上寄り）に離すことで、円のほぼ中央にタップされても両方から
+    // 十分な間隔を保てるようにしている。
+    const decoy = seedTextThought(measureCtx, this.store, { x: 0.3, y: -0.5 }, "買い物リスト", 5 * HOUR, now0);
+    this.knownMemoIds = new Set([ambient.id, decoy.id]);
+    this.ambientId = ambient.id;
+    this.decoyId = decoy.id;
+    // 「残したい一枚」がどれかは指示文で特定していないため、この2枚
+    // （＋「書く」手順でユーザーが書いたもの）すべてを判定対象にする
+    // （checkProgress参照）。
+    this.memoBaselines = [ambient, decoy].map(trackedMemoOf);
   }
 
   private currentVirtualNow(): number {
@@ -235,6 +393,15 @@ export class TutorialSandbox {
     if (!this.running || !this.store || !this.canvasView) return;
     const now = this.currentVirtualNow();
     this.store.tick(now);
+    // "選びとる"は必ず「たった今」を見せる（ユーザー指示：「選びとる　今の
+    // 状態を見せる」）。showPresentForDoneの一度きりの後始末（reset・
+    // pointer-events:none）だけでは、既にドラッグ中だった指/マウスから
+    // 送られる途中のnative inputイベントがその後始末より遅れて1つだけ
+    // すり抜け、結局「たった今」ではない位置で止まってしまうことを実際の
+    // ドラッグ操作で確認した——1回きりの後始末では勝てないタイミングの
+    // 競合のため、こちらは「今の手順が"done"である限り、毎フレーム必ず
+    // ライブ表示に上書きする」という形で確実性を持たせている。
+    if (this.step === "done") this.canvasView.setRewindAt(null);
     this.canvasView.render(now);
     this.checkProgress();
     this.raf = requestAnimationFrame(this.loop);
@@ -243,17 +410,34 @@ export class TutorialSandbox {
   private checkProgress(): void {
     if (!this.store) return;
     const memos: readonly Memo[] = this.store.getAll();
-    if (this.step === "keep") {
+    if (this.step === "write") {
+      // 内容は問わず、seed()で置いた添え物に無い新しいidが現れたら
+      // 「ユーザーが書き終えた」と判定する（canvasView.tsのopenTextEditorが
+      // blur時にstore.createTextMemoを呼ぶタイミングを直接コールバックで
+      // 拾う手段が無いため、ストアをポーリングして検出する）。
+      const newMemo = memos.find((m) => !this.knownMemoIds.has(m.id));
+      if (newMemo) {
+        this.knownMemoIds.add(newMemo.id);
+        this.memoBaselines.push(trackedMemoOf(newMemo));
+        this.advanceTo("watch");
+      }
+    } else if (this.step === "keep") {
       if (this.anyMemoMoved(memos, "up")) this.advanceTo("release");
     } else if (this.step === "release") {
       if (this.anyMemoMoved(memos, "down")) this.advanceTo("rewind");
-    } else if (this.step === "rewind" && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
-      // inputイベントの発火に頼らず、毎フレーム直接いまのスライダー値を見る。
-      // 以前はonChange（inputイベント）が発火した時だけ達成フラグを立てていたが、
-      // 実際に遡って見えているのに次に進まないという報告があった——イベントの
-      // 取りこぼしが万一あっても、この方式なら次のフレーム（1/60秒後）には
-      // 必ず現在値を拾えるため、取りこぼしようがない。
-      this.advanceTo("done");
+    } else if (this.step === "rewind" && this.nextBtn.hidden && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
+      // スライダーを動かした瞬間に手順そのものを終わらせる（即advanceTo）と、
+      // 少し動かしただけで問答無用で"選びとる"へ切り替わり、過去を眺める間も
+      // 無く終わってしまう（ユーザー報告：「振り返るが位置をスライドさせた
+      // 瞬間に終わってしまう」）。動かしたことを検知しても手順はまだ進めず、
+      // 「つぎへ」を出すだけに留める——本人が納得いくまで振り返ってから、
+      // 自分のタイミングで押して進められる（"watch"の「つぎへ」と同じ
+      // 考え方）。inputイベントの発火に頼らず毎フレーム直接いまのスライダー
+      // 値を見ているのは、以前onChange（inputイベント）が発火した時だけ
+      // 達成フラグを立てていたときに、実際に遡って見えているのに次に
+      // 進まないという報告があったため——イベントの取りこぼしが万一あっても
+      // この方式なら次のフレーム（1/60秒後）には必ず現在値を拾える。
+      this.nextBtn.hidden = false;
     }
   }
 
@@ -273,15 +457,42 @@ export class TutorialSandbox {
   private advanceTo(step: StepId): void {
     if (STEP_ORDER.indexOf(step) <= STEP_ORDER.indexOf(this.step)) return;
     this.step = step;
+    if (step === "watch") this.reseedForWatchDemo(this.currentVirtualNow());
     if (step === "rewind") this.mountRewind();
+    if (step === "done") this.showPresentForDone();
     this.syncStep();
   }
 
   private syncStep(): void {
     this.messageEl.textContent = MESSAGES[this.step];
-    this.nextBtn.hidden = this.step !== "watch";
+    this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
     this.doneNextBtn.hidden = this.step !== "done";
+    this.onStepTitle?.(STEP_TITLES[this.step]);
+  }
+
+  /** 「つぎへ」（"watch"手順専用）はこの手順に入って即座にではなく、
+   *  WATCH_NEXT_BTN_DELAY_MSだけ待ってから出す（ユーザー指示：消える様子を
+   *  見れるように、しばらくしてから表示する）。syncStep()はstep切り替えの
+   *  たびに呼ばれるため、前の手順で仕込んだタイマーが残っていれば必ず
+   *  clearTimeoutしてから改めて仕込み直す——stop()せずに手順が先へ進んだ場合
+   *  （"watch"に留まっている間は起きないが、念のため）に、後から古いタイマーが
+   *  誤って「つぎへ」を出してしまわないようにするための保険。「つぎへ」を
+   *  出す瞬間にfreezeToRealPaceも呼ぶ——実際に押すのがその何秒後だろうと
+   *  （読むのが遅い人・速い人で差がある）、これ以降は本物の緩やかな寿命
+   *  でしか薄れないため、対象を取り逃す心配がなくなる。 */
+  private syncNextBtnVisibility(): void {
+    if (this.nextBtnTimer !== null) {
+      clearTimeout(this.nextBtnTimer);
+      this.nextBtnTimer = null;
+    }
+    this.nextBtn.hidden = true;
+    if (this.step !== "watch") return;
+    this.nextBtnTimer = setTimeout(() => {
+      this.nextBtnTimer = null;
+      this.freezeToRealPace(this.currentVirtualNow());
+      this.nextBtn.hidden = false;
+    }, WATCH_NEXT_BTN_DELAY_MS);
   }
 
   /** 振り返りスライダーは「遡る」手順に入って初めて出す（一度に全部の道具を
@@ -291,11 +502,13 @@ export class TutorialSandbox {
    *  「今」はこの瞬間にrewindNowRefへ固定し、以後ずっとそれを使い続ける
    *  ——毎回this.currentVirtualNow()を呼び直すと、探索にかけた実時間ぶん
    *  「たった今」自体が動いてしまい、見本と目盛りの対応がその場でズレていく
-   *  （ユーザー報告：巻き戻しても反応しないことがあった）。 */
+   *  （ユーザー報告：巻き戻しても反応しないことがあった）。盤面自体は
+   *  作り直さない——「眺める」を出た後の状態は、"keep"/"release"での
+   *  ユーザー自身の操作も含めてそのまま引き継ぐ（ユーザー指示：「眺める」
+   *  以外は状態を引き継ぐように）。 */
   private mountRewind(): void {
     if (this.rewindSelector) return;
     this.rewindNowRef = this.currentVirtualNow();
-    this.reseedForRewindDemo(this.rewindNowRef);
     this.rewindWrap.hidden = false;
     this.rewindSelector = new RewindSelector(this.rewindWrap, () => {
       if (!this.rewindSelector || !this.canvasView || this.rewindNowRef === null) return;
@@ -305,54 +518,153 @@ export class TutorialSandbox {
     this.setRewindVisible(true);
   }
 
-  /**
-   * 「振り返り」手順に入る瞬間の仮想時刻（now、rewindNowRef）を基準に、
-   * 3枚を作り直す。seed()時点の固定バックデートのままだと、ここに辿り着くまでに
-   * 実際にかかった時間（読むのが速い人・遅い人で数十倍違う）ぶん仮想時計が
-   * 進んでしまい、対象が振り返りスライダーの目盛り（15分〜3日前）の手前で
-   * 既に作成前だったり、逆にとっくに完全消滅した後だったりして、「巻き戻しても
-   * 反応しない」ことがあった（ユーザー報告）。この手順に入った瞬間を新しい
-   * 基準点にして作り直せば、それまでに何分かかったかに関係なく、常に同じ
-   * 目盛り幅で反応が見つかる。掴んで移動した後の位置はそのまま引き継ぐ
-   * （作り直した瞬間に元の位置へ飛んで見えないように）。ドラッグ中の状態は
-   * rewindAt!==nullで無効化されるため、作り直しのタイミング自体が操作と
-   * 衝突することはない。
-   */
-  private reseedForRewindDemo(now: number): void {
-    if (!this.store) return;
+  /** "振り返る"（過去を見る）から"選びとる"（今を見せる）への切り替え
+   *  （ユーザー指示：「振り返る　過去の状態を見る／選びとる　今の状態を
+   *  見せる」）。RewindSelector.reset()・setRewindVisible(false)だけでは
+   *  足りない——ユーザーがスライダーを掴んでドラッグし続けている最中に
+   *  この手順へ切り替わった場合、resetで一旦「たった今」へ戻しても、
+   *  掴んだままの指/マウスが送り続けるnative inputイベントに即座に
+   *  上書きされてしまい、結局ドラッグを離した位置（過去のまま）で止まって
+   *  しまうことを実際のドラッグ操作で確認した——しかもsetRewindVisible
+   *  自体はhidden属性を即座には立てず（フェードアウトのため
+   *  FADE_TRANSITION_MSだけ遅らせる、fadeVisibility.ts参照）、hidden属性が
+   *  効いて初めてブラウザがポインタイベントを止めるため、その遅延の間も
+   *  なお同じ問題が起きうる。pointer-eventsはCSSの見た目（opacity遷移）
+   *  とは独立に即座に効くため、ここで明示的にnoneへ切り替えることで、
+   *  フェードアウトの見た目はそのまま保ちつつ、以後いっさい掴めなくする
+   *  ——「選びとる」の間は必ず「たった今」のまま固定される。stop()で
+   *  次回開いたときのために元へ戻す。 */
+  private showPresentForDone(): void {
+    this.rewindWrap.style.pointerEvents = "none";
+    this.rewindSelector?.reset();
+    this.canvasView?.setRewindAt(null);
+    this.setRewindVisible(false);
+  }
+
+  /** idで指定した1枚を、位置・文面を引き継いだまま作り直す
+   *  （store.deleteMemo→seedTextThought）。対象が見つからない・テキスト
+   *  メモでない場合はnullを返す（呼び出し元は「作り直せなかったので
+   *  元のままにする」扱いにする）。reseedForWatchDemo/freezeToRealPaceが
+   *  共通で使う。 */
+  private reseedOne(staleId: string, now: number, backdateMs: number, lifespanDays: LifespanDays): Memo | null {
+    if (!this.store) return null;
+    const existing = this.store.getAll().find((m) => m.id === staleId);
+    if (!existing || existing.kind !== "text") return null;
+    this.store.deleteMemo(staleId);
     const measureCtx = document.createElement("canvas").getContext("2d")!;
-    const respawn = (id: string | null, text: string, backdateMs: number): string | null => {
-      if (!id) return null;
+    return seedTextThought(
+      measureCtx,
+      this.store,
+      { x: existing.x, y: existing.y },
+      existing.text,
+      backdateMs,
+      now,
+      lifespanDays
+    );
+  }
+
+  /** 「眺める」手順に入った瞬間、添え物2枚（ambient・decoy）をどちらも
+   *  WATCH_DEMO_LIFESPAN_DAYS（短い寿命）で作り直す——seed()時点の固定
+   *  バックデートのままだと「書く」手順にかかった時間（人によって大きく
+   *  ばらつく）ぶん仮想時計が進んでしまい、この手順に入った時点で既に
+   *  完全に消えている／逆にまだ薄れ始めてすらいない、ということが起きる
+   *  ため、この手順に入った瞬間を新しい基準点にして作り直す。バックデート
+   *  は2枚で別の値（WATCH_AMBIENT_BACKDATE_MS/WATCH_DECOY_BACKDATE_MS）
+   *  ——全部同時に同じ濃さで消えると単調になってしまうため（ユーザー
+   *  指摘）、あえて違うタイミングで薄れ消えるようにしてある。「書く」
+   *  手順でユーザーが書いた1枚はここでは触らない——書いたその瞬間から
+   *  toolStateForが既にWATCH_DEMO_LIFESPAN_DAYSで作っているため、作り
+   *  直す必要が無い（かつ経過0からという3枚目のタイミングにもなる）。
+   *  作り直した2枚はmemoBaselines（keep/release判定対象）から外す——
+   *  この後すぐ完全に消えて掴めなくなる（status!=="active"はhitTestMemo
+   *  に拾われない、canvasView.ts参照）ため、判定対象に残しても達成し
+   *  ようがない——decoyは「つぎへ」が押せるようになる瞬間（freezeToRealPace）
+   *  にまだ生きていれば判定対象へ戻る。 */
+  private reseedForWatchDemo(now: number): void {
+    const staleAmbientId = this.ambientId;
+    const staleDecoyId = this.decoyId;
+    const freshAmbient = staleAmbientId
+      ? this.reseedOne(staleAmbientId, now, WATCH_AMBIENT_BACKDATE_MS, WATCH_DEMO_LIFESPAN_DAYS)
+      : null;
+    const freshDecoy = staleDecoyId
+      ? this.reseedOne(staleDecoyId, now, WATCH_DECOY_BACKDATE_MS, WATCH_DEMO_LIFESPAN_DAYS)
+      : null;
+    if (freshAmbient) this.ambientId = freshAmbient.id;
+    if (freshDecoy) this.decoyId = freshDecoy.id;
+    this.memoBaselines = this.memoBaselines.filter((b) => b.id !== staleAmbientId && b.id !== staleDecoyId);
+  }
+
+  /** decoy・「書く」手順の1枚を、"watch"の短い寿命（WATCH_DEMO_LIFESPAN_DAYS）
+   *  から本物の寿命（FIXED_LIFESPAN_DAYS）へ切り替える——ただし見た目の
+   *  濃さ（不透明度の段階）はそのまま引き継ぐ（ユーザー指示：「眺めるの
+   *  部分を除いて、チュートリアルメモの状態は引き継ぐようにしてほしい」）。
+   *  経過時間と寿命の「比」を保ったままスケールし直すことで、切り替えた
+   *  瞬間に濃さが飛んで見えることなく、以後は本物と同じ緩やかさで薄れて
+   *  いく。既に消えきっていた（status!=="active"）ものは、位置・文面を
+   *  保ったままREVIVE_BACKDATE_MSで復活させる——「引き継ぐ」を素直に
+   *  適用すると消えたままになってしまい、「残す/手放す」で掴める対象が
+   *  無くなって手順が進められなくなることがあった（ユーザー報告：「眺める
+   *  の部分で全部消えてしまってそのままなので一向に進めない」）。decoyが
+   *  （生きていた・復活させた、いずれの理由であれ）手元にあれば、
+   *  memoBaselines（keep/release判定対象）へ改めて加える——"watch"に入った
+   *  瞬間reseedForWatchDemoが一旦外していたため。ambientはここでは一切
+   *  触らない——"rewind"に入るまで戻さない、結の「全部は残せません」と
+   *  いう主題に残しておく1枚として扱う（seed()参照）。「つぎへ」が押せる
+   *  ようになる瞬間（syncNextBtnVisibility）に一度だけ呼ぶ——それ以降は
+   *  実際に押すまで実時間をどれだけかけようと、本物の緩やかな寿命でしか
+   *  薄れないため、対象を取り逃す心配がなくなる。 */
+  private freezeToRealPace(now: number): void {
+    if (!this.store) return;
+    const rescale = (id: string): Memo | null => {
       const existing = this.store!.getAll().find((m) => m.id === id);
       if (!existing) return null;
-      this.store!.deleteMemo(id);
-      const anchor: Point = { x: existing.x, y: existing.y };
-      return seedTextThought(measureCtx, this.store!, anchor, text, backdateMs, now).id;
+      if (existing.status === "active") {
+        const elapsedMs = Math.max(0, now - existing.lastTracedAt);
+        const scaledBackdateMs = elapsedMs * (FIXED_LIFESPAN_DAYS! / WATCH_DEMO_LIFESPAN_DAYS!);
+        // 比を保った換算の結果、本物の寿命（24h相当）ですら経過扱いになって
+        // しまう場合（tick()がこの時点のnowにまだ追いついておらず、statusが
+        // "active"のまま実質消えている場合）は、比を保つ意味が無い
+        // （不透明度0＝掴めるはずのstatusのまま実質見えない・消えているのと
+        // 同じ）ため、下の「既に消えきっていた」場合と同じ復活処理へ
+        // フォールバックする。
+        if (scaledBackdateMs < FIXED_LIFESPAN_DAYS! * MS_PER_DAY) {
+          return this.reseedOne(id, now, scaledBackdateMs, FIXED_LIFESPAN_DAYS);
+        }
+      }
+      return this.reseedOne(id, now, REVIVE_BACKDATE_MS, FIXED_LIFESPAN_DAYS);
     };
-    // バックデートは、不透明度が段階的に変わる境目（fade.tsのcomputeOpacity:
-    // 3.43h/10.29hで100%→60%→20%と切り替わる）が「たった今」からすぐの
-    // 目盛り1〜2個ぶん（15分〜30分前）以内に来るよう選んでいる。以前は
-    // 1/3/6時間や4/5/9時間ずらしていたが、それだと最初の数目盛りの間は
-    // 3枚とも同じ濃さのまま変わらず、大きくドラッグしないと違いに気づけ
-    // なかった（ユーザー報告：1枚しか反応していないように見える）。この
-    // 値なら、スライダーをほんの少し動かしただけで3枚とも違うタイミングで
-    // 濃くなる／消えるのが分かる。
-    this.ambientMemoId = respawn(this.ambientMemoId, "夢の続き", 10.35 * HOUR);
-    this.memoAId = respawn(this.memoAId, "行きたい場所", 3.75 * HOUR);
-    this.memoBId = respawn(this.memoBId, "買い物リスト", 3.5 * HOUR);
+
+    this.memoBaselines = this.memoBaselines.map((baseline) => {
+      const fresh = rescale(baseline.id);
+      return fresh ? trackedMemoOf(fresh) : baseline;
+    });
+
+    if (this.decoyId) {
+      const fresh = rescale(this.decoyId);
+      if (fresh) {
+        this.decoyId = fresh.id;
+        if (!this.memoBaselines.some((b) => b.id === fresh.id)) {
+          this.memoBaselines.push(trackedMemoOf(fresh));
+        }
+      }
+    }
   }
 }
 
 /** 短い「思いつき」のテキストメモを、指定した仮想時刻に作られたことにして
  *  仕込む。backdateMsぶん過去に作ったことにすることで、開いた瞬間から
- *  薄れかけの盤面を見せられる。 */
+ *  薄れかけの盤面を見せられる。lifespanDaysは省略時、本物と同じ
+ *  FIXED_LIFESPAN_DAYS——「眺める」手順の間だけ、この手順専用の短い寿命
+ *  （WATCH_DEMO_LIFESPAN_DAYS）を明示的に渡す
+ *  （reseedForWatchDemo/toolStateFor参照）。 */
 function seedTextThought(
   measureCtx: CanvasRenderingContext2D,
   store: MemoStore,
   center: Point,
   text: string,
   backdateMs: number,
-  now0: number
+  now0: number,
+  lifespanDays: LifespanDays = FIXED_LIFESPAN_DAYS
 ): Memo {
   const fontSize = FONT_SIZE_STEPS.medium;
   const boxWidthPx = measureTextBoxWidthPx(measureCtx, text, fontSize);
@@ -365,7 +677,7 @@ function seedTextThought(
     fontSize,
     width,
     height,
-    { color: INK, lifespanDays: FIXED_LIFESPAN_DAYS },
+    { color: INK, lifespanDays },
     now0 - backdateMs
   );
 }
