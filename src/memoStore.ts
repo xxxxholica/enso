@@ -8,6 +8,13 @@ function makeId(): string {
   return `memo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 1回の更新系メソッド呼び出しで生じた変更を表す、メモ単位の操作。共有キャンバスの
+ *  同期(sharedCanvasSync.ts)が、メモ全件ではなくこの単位でサーバーに送るために使う。 */
+export interface MemoOp {
+  upserts: Memo[];
+  deletes: string[];
+}
+
 /** undo履歴に積むスナップショットの上限。無制限に積み続けるとメモリを圧迫する
  *  ため、一定数を超えたら一番古いものから捨てる（issue #89：「入力ミスをした
  *  直後の数秒間」を取り消せれば十分、という要求なのでlocalStorageへの永続化は
@@ -21,6 +28,11 @@ const MAX_UNDO_HISTORY = 50;
 export class MemoStore {
   private memos: Memo[];
   private onChange?: (memos: readonly Memo[]) => void;
+  /** 共有キャンバス専用: 更新系メソッドが変更したメモ単位の操作を通知するフック
+   *  (sharedCanvasSync.tsのpushOp)。onChangeと違い、メモ全件ではなく触れた/消した
+   *  メモだけを渡す——サーバー側もメモ単位でupsert/deleteできるようになったため
+   *  (issue #99)。個人用ストア(main.ts)は渡さない。 */
+  private onOp?: (op: MemoOp) => void;
   private persistLocally: boolean;
   /** undo/redo用の完全スナップショット履歴（issue #89）。個々の操作の逆処理を
    *  操作ごとに書く（コマンドパターン）のではなく、操作の直前の全メモ配列を
@@ -40,15 +52,25 @@ export class MemoStore {
    * （個人用ストアと衝突させたくない共有キャンバス用インスタンス、
    * sharedCanvasSync.ts参照——真の保存先はサーバー側のため、ここでは何も保存しない）。
    */
-  constructor(onChange?: (memos: readonly Memo[]) => void, persistLocally: boolean = true) {
+  constructor(
+    onChange?: (memos: readonly Memo[]) => void,
+    persistLocally: boolean = true,
+    onOp?: (op: MemoOp) => void
+  ) {
     this.persistLocally = persistLocally;
     this.memos = persistLocally ? loadMemos() : [];
     this.onChange = onChange;
+    this.onOp = onOp;
   }
 
   private persist(): void {
     if (this.persistLocally) saveMemos(this.memos);
     this.onChange?.(this.memos);
+  }
+
+  private emitOp(op: MemoOp): void {
+    if (op.upserts.length === 0 && op.deletes.length === 0) return;
+    this.onOp?.(op);
   }
 
   /**
@@ -71,8 +93,10 @@ export class MemoStore {
     const prev = this.undoStack.pop();
     if (!prev) return false;
     this.redoStack.push(structuredClone(this.memos));
+    const before = this.memos;
     this.memos = prev;
     this.persist();
+    this.emitOp(this.diffForOp(before, this.memos));
     return true;
   }
 
@@ -81,9 +105,23 @@ export class MemoStore {
     const next = this.redoStack.pop();
     if (!next) return false;
     this.undoStack.push(structuredClone(this.memos));
+    const before = this.memos;
     this.memos = next;
     this.persist();
+    this.emitOp(this.diffForOp(before, this.memos));
     return true;
+  }
+
+  /** undo/redoによるスナップショット切り替え専用: 差し替え前後のメモ配列を比べて、
+   *  共有キャンバスに送るべきupsert/delete opを組み立てる。undo/redoスタックは
+   *  スナップショット時刻ごとに別々にstructuredCloneした配列なので、内容が同じ
+   *  メモでもオブジェクトの参照は常に変わる——「本当に内容が変わったメモだけ」を
+   *  厳密に見分けることはせず、切り替え後に残っている全メモをupsert対象として
+   *  扱う（undo/redoは頻度の低い操作なので、多少余分なPUTが飛んでも実害はない）。 */
+  private diffForOp(before: Memo[], after: Memo[]): MemoOp {
+    const afterIds = new Set(after.map((m) => m.id));
+    const deletes = before.filter((m) => !afterIds.has(m.id)).map((m) => m.id);
+    return { upserts: after, deletes };
   }
 
   /**
@@ -100,6 +138,25 @@ export class MemoStore {
     if (this.persistLocally) saveMemos(this.memos);
     // 取り込んだ直後にそのまま押し戻す(onChange経由の再送信)必要はないため、
     // ここではpersist()を経由せずonChangeを呼ばない。
+  }
+
+  /** 共有キャンバス専用: WebSocketで届いた他メンバーのメモ1件を取り込む
+   *  (sharedCanvasSync.ts)。replaceAllと同じく「取り込んだ内容をそのまま押し戻す」
+   *  必要はないのでpersist/onChange/onOpは一切経由しない。undo/redo履歴は
+   *  replaceAllと違い破棄しない——他人が別のメモに加えた変更のたびに自分の
+   *  undo履歴が消えてしまうと使い物にならないため（差分は1メモだけなので、
+   *  undo履歴側の多少の食い違いは実害が小さい）。 */
+  applyRemoteUpsert(memo: Memo): void {
+    const idx = this.memos.findIndex((m) => m.id === memo.id);
+    if (idx === -1) this.memos.push(memo);
+    else this.memos[idx] = memo;
+    if (this.persistLocally) saveMemos(this.memos);
+  }
+
+  /** applyRemoteUpsertの削除版。 */
+  applyRemoteDelete(memoId: string): void {
+    this.memos = this.memos.filter((m) => m.id !== memoId);
+    if (this.persistLocally) saveMemos(this.memos);
   }
 
   getAll(): readonly Memo[] {
@@ -146,6 +203,7 @@ export class MemoStore {
     };
     this.memos.push(memo);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
     return memo;
   }
 
@@ -185,6 +243,7 @@ export class MemoStore {
     };
     this.memos.push(memo);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
     return memo;
   }
 
@@ -194,6 +253,7 @@ export class MemoStore {
     if (!memo || memo.kind !== "stroke") return;
     memo.strokes.push([start]);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /** 直近のストロークに点を追加する。手描きメモにのみ有効。 */
@@ -203,6 +263,7 @@ export class MemoStore {
     const stroke: Stroke = memo.strokes[memo.strokes.length - 1];
     stroke.push(point);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /**
@@ -227,6 +288,7 @@ export class MemoStore {
     }
     memo.strokes.pop();
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
     return false;
   }
 
@@ -250,6 +312,7 @@ export class MemoStore {
     memo.lastTracedAt += grantMs;
     memo.traceHistory.push(memo.lastTracedAt);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /**
@@ -268,6 +331,7 @@ export class MemoStore {
     if (!memo || memo.status !== "active") return;
     memo.lastTracedAt += deltaMs;
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /** なぞって復活の状態（View用）。現時点で消滅までにかかる残り時間(ms)と、
@@ -304,13 +368,17 @@ export class MemoStore {
     memo.lastTracedAt = now;
     memo.traceHistory.push(now);
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /** メモを1件削除する（テキスト編集で全文を消して確定した場合など）。 */
   deleteMemo(memoId: string): void {
     const before = this.memos.length;
     this.memos = this.memos.filter((m) => m.id !== memoId);
-    if (this.memos.length !== before) this.persist();
+    if (this.memos.length !== before) {
+      this.persist();
+      this.emitOp({ upserts: [], deletes: [memoId] });
+    }
   }
 
   /**
@@ -361,6 +429,7 @@ export class MemoStore {
       memo.y = moved.y;
     }
     this.persist();
+    this.emitOp({ upserts: [memo], deletes: [] });
   }
 
   /**
@@ -369,6 +438,7 @@ export class MemoStore {
    */
   tick(now: number = Date.now()): boolean {
     let changed = false;
+    const upserts: Memo[] = [];
     for (const memo of this.memos) {
       // 投票が確定(fadeExempt)したメモは、時間経過フェードの対象から恒久的に外れる
       // ——確定した濃さのまま留まるという仕様のため。
@@ -378,9 +448,13 @@ export class MemoStore {
       if (opacity === 0) {
         memo.status = "faded";
         changed = true;
+        upserts.push(memo);
       }
     }
-    if (changed) this.persist();
+    if (changed) {
+      this.persist();
+      this.emitOp({ upserts, deletes: [] });
+    }
     return changed;
   }
 
@@ -405,6 +479,8 @@ export class MemoStore {
    */
   eraseAt(center: Point, radius: number): boolean {
     let changed = false;
+    const upserts: Memo[] = [];
+    const deletes: string[] = [];
     this.memos = this.memos.filter((memo) => {
       if (memo.status !== "active") return true;
 
@@ -415,7 +491,10 @@ export class MemoStore {
           width: memo.boxWidth,
           height: memo.boxHeight,
         });
-        if (touched) changed = true;
+        if (touched) {
+          changed = true;
+          deletes.push(memo.id);
+        }
         return !touched;
       }
 
@@ -425,9 +504,17 @@ export class MemoStore {
         newStrokes.some((s, i) => s.length !== memo.strokes[i]?.length);
       if (strokeCountChanged) changed = true;
       memo.strokes = newStrokes;
-      return newStrokes.length > 0;
+      if (newStrokes.length > 0) {
+        if (strokeCountChanged) upserts.push(memo);
+        return true;
+      }
+      if (strokeCountChanged) deletes.push(memo.id);
+      return false;
     });
-    if (changed) this.persist();
+    if (changed) {
+      this.persist();
+      this.emitOp({ upserts, deletes });
+    }
     return changed;
   }
 }

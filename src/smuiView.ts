@@ -13,6 +13,7 @@ import {
 } from "./sharedCanvas";
 import { SharedRoomSync } from "./sharedCanvasSync";
 import { MemoStore } from "./memoStore";
+import type { Memo } from "./types";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
@@ -72,10 +73,12 @@ const STATUS_X_FRACTION = 0.5 + GLASSES_CENTER_OFFSET / (2 * GLASSES_HORIZONTAL_
  *
  * 選んだ共有キャンバス（ルーム）のMemoStoreを表示・編集する。このMemoStoreは
  * localStorageを一切使わないメモリ限定の永続化（sharedCanvasSync.ts）を使い、
- * 真の保存先はサーバー（PUT /shared-canvases/:id）——ローカルの個人メモの
- * localStorage["memos"]と衝突しない。書き込みのデバウンス送信と、WebSocket通知
- * （＋再接続直後のresync）をきっかけにした他メンバーの変更取り込みは
- * SharedRoomSyncが担う。
+ * 真の保存先はサーバー（メモ単位のPUT/DELETE /shared-canvases/:id/memos/:memoId、
+ * issue #99）——ローカルの個人メモのlocalStorage["memos"]と衝突しない。触れた
+ * メモ単位の短いデバウンス送信はSharedRoomSyncが担い、他メンバーの変更取り込みは
+ * WebSocketで届くメモの中身(notifyMemoUpserted/notifyMemoDeleted)をその場で
+ * 反映する形が主経路、名前・見た目の変更や再接続直後のresyncだけSharedRoomSync
+ * のpoll(GETでの全件取得し直し)を使う。
  *
  * ルームがまだ接続されていない間は、非対話（interactive: false）のCircularCanvas
  * として存在し続ける——中身は空の白い罫線の紙のままの「空のキャンバス」で、
@@ -396,7 +399,7 @@ export class SmuiView {
         },
         (session) => this.applySession(session)
       );
-      const sharedStore = new MemoStore((memos) => sync.schedulePush(memos), false);
+      const sharedStore = new MemoStore(undefined, false, (op) => sync.pushOp(op));
       sharedStore.replaceAll(detail.memos);
       sync.markSynced(detail);
       this.roomSync = sync;
@@ -426,6 +429,17 @@ export class SmuiView {
    *  フルGETを挟まず、手元のメモの熱量だけをその場で書き換える。 */
   notifyHeatChanged(canvasId: string, memoId: string, heat: number): void {
     if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoHeat(memoId, heat);
+  }
+
+  /** realtimeSync.tsが{type:"memo-upserted", ...}を受け取るたびに呼ぶ(issue #99)。
+   *  フルGETを挟まず、届いたメモの中身をその場で反映する。 */
+  notifyMemoUpserted(canvasId: string, memo: Memo): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteUpsert(memo);
+  }
+
+  /** 同じく{type:"memo-deleted", ...}を受け取るたびに呼ぶ。 */
+  notifyMemoDeleted(canvasId: string, memoId: string): void {
+    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteDelete(memoId);
   }
 
   private startSessionForCurrentRoom(options: StartSessionOptions): void {
