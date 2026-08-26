@@ -606,4 +606,10 @@ export class SmuiView {
   isZoomed(): boolean {
     return this.lens.isZoomed();
   }
+
+  /** キャンバスタブと同じく、共有タブでもモバイル固定入力欄の表示中はヘッダー/
+   *  ツールバーを隠すための判定（main.ts参照）。 */
+  isEditingTextFixedBottom(): boolean {
+    return this.lens.isEditingTextFixedBottom();
+  }
 }

@@ -375,10 +375,12 @@ function frame(): void {
   const now = Date.now();
   store.tick(now);
   let zoomed = false;
+  let mobileTextEditing = false;
   if (currentView === "canvas") {
     canvasView.render(now);
     canvasReviveInfoPill.update(canvasView.getHoverRemainingMs(now));
     zoomed = canvasView.isZoomed();
+    mobileTextEditing = canvasView.isEditingTextFixedBottom();
   }
   if (currentView === "shared") {
     smuiView.render(now);
@@ -394,11 +396,16 @@ function frame(): void {
       appearanceSelector.setLocked(false);
     }
     zoomed = smuiView.isZoomed();
+    mobileTextEditing = smuiView.isEditingTextFixedBottom();
   }
   // ヘッダー/ツールバーは画面全体に広がったキャンバスの上に固定オーバーレイ
   // として乗っているため、ズーム中（1倍より拡大）は下の絵が見えるよう薄くする
   // （style.css `#app.is-zoomed`、ユーザー指示）。
   app.classList.toggle("is-zoomed", zoomed);
+  // モバイルでキーボード直上に固定表示される入力欄（issue #87）はツールバーと
+  // ほぼ同じ場所に不透明なカードとして重なるため、表示中はツールバーを完全に
+  // 隠す（style.css `#app.is-editing-text-mobile`、ユーザー指示）。
+  app.classList.toggle("is-editing-text-mobile", mobileTextEditing);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
