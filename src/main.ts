@@ -24,6 +24,7 @@ import {
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
+import { ExportControl } from "./exportControl";
 
 // テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
 // 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
@@ -41,6 +42,7 @@ app.innerHTML = `
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
+      <div id="export-slot"></div>
       <div id="settings-slot"></div>
     </div>
   </header>
@@ -279,6 +281,13 @@ new SharedRoomMenu(
 
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "shared" = "canvas";
+
+// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
+// してしまわないようnullを返す——ExportControl側はnullなら書き出さず
+// エラー表示に留める。
+new ExportControl(document.querySelector<HTMLDivElement>("#export-slot")!, () =>
+  currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView
+);
 
 // キャンバス／共有タブをURLに反映する。パス（例: /shared）ではなくクエリ
 // パラメータにしているのは、静的ホスティング（Vercel/Netlify/GitHub Pages等、
