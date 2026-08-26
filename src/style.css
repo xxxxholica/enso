@@ -405,6 +405,11 @@ body {
 .text-editor-overlay {
   position: fixed;
   z-index: 20;
+  /* .app-header/.app-footerと同じ理由（issue #87再発：ユーザー報告）：
+     html/bodyのtouch-actionだけでは、position:fixedのこの上でiOS Safari
+     純正のピンチズームが発動してしまうため、同じ値をここにも明示的に
+     持たせる。 */
+  touch-action: pan-x pan-y;
   appearance: none;
   resize: none;
   overflow: hidden;
