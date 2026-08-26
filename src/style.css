@@ -2732,3 +2732,57 @@ body[data-view="shared"] #duration-slot {
   font-size: var(--text-sm);
   color: var(--ink-55);
 }
+
+/* --- issue #128: 序列づけ(rank)フェーズ専用のタイトル一覧（rankList.ts）。
+   .smui-canvas-wrap(position:relative)を基準に、中身の円形キャンバスを
+   丸ごと覆う（「本文を見せずタイトルのみを並べる」という決定事項のため、
+   この間は円形キャンバスを見せない）。 --- */
+.rank-list {
+  position: absolute;
+  inset: 0;
+  z-index: 2; /* .canvas-empty-state(1)より上、.smui-canvas-status/.icon-popover(5)より下 */
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--paper-1);
+  border-radius: inherit;
+}
+
+.rank-list-empty {
+  margin: auto;
+  font-size: var(--text-sm);
+  color: var(--ink-45);
+  text-align: center;
+}
+
+.rank-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ink-12);
+  border-radius: var(--radius-md);
+  background: var(--paper-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rank-list-row:hover {
+  background: var(--ink-08);
+}
+
+.rank-list-row-title {
+  overflow-wrap: anywhere;
+}
+
+.rank-list-row-count {
+  flex: none;
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-55);
+}

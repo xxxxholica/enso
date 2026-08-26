@@ -23,6 +23,7 @@ import { computeLensSplitPairCount, LENS_COUNT } from "./lensSplit";
 import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
+import { RankList } from "./rankList";
 import { ReactionPicker } from "./reactionPicker";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
@@ -98,6 +99,9 @@ export class SmuiView {
   private canvasContainerEl!: HTMLElement;
   private statusEl!: HTMLElement;
   private reviveInfoPill!: ReviveInfoPill;
+  /** 序列づけ(rank)フェーズ専用のタイトル一覧(issue #128)。canvasWrapEl内で
+   *  円形キャンバスの上に重ねて表示する。 */
+  private rankList!: RankList;
 
   private lens: CircularCanvas;
   private roomSync: SharedRoomSync | null = null;
@@ -201,6 +205,10 @@ export class SmuiView {
    *  最中で、タップ操作の意味がドラッグ開始と衝突するため、このコミット時点では
    *  リアクションを配線していない（最終サマリ参照）。 */
   private applyRestrictions(): void {
+    // rankフェーズの間だけ、円形キャンバスの代わりにタイトル一覧を見せる
+    // (issue #128の決定事項)。表示するたびに最新の対象メモで作り直す。
+    this.rankList.setVisible(this.active && this.session?.phase === "rank");
+    this.refreshRankListIfActive();
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
@@ -305,12 +313,23 @@ export class SmuiView {
       .then(({ reactions }) => {
         this.sharedStore?.setMemoReactions(memoId, reactions);
         this.reactionPicker.markReacted(memoId, reactions);
+        this.refreshRankListIfActive();
       })
       .catch((e) => {
         // 失敗時（既に送信済みの409を含む）もreactedMemoIdsは戻さない——
         // サーバー側はINSERT ONLYで変更不可のため、リトライしても意味が無い。
         console.error("[smuiView] reaction post failed", e);
       });
+  }
+
+  /** rankフェーズ表示中(RankList.setVisible(true)済み)なら、対象メモの現在の
+   *  内容でタイトル一覧を作り直す。メモ・リアクションが変わりうる箇所
+   *  （セッション状態変化、WSでのメモ/リアクション反映、フルGETでの取得し直し）
+   *  から呼ぶ——RankList.update自体は非表示中なら何もしないので、呼び過ぎを
+   *  気にする必要はない。 */
+  private refreshRankListIfActive(): void {
+    if (this.session?.phase !== "rank" || !this.sharedStore) return;
+    this.rankList.update(this.sharedStore.getAll());
   }
 
   /** 共有キャンバス（プレースホルダー/実体）に共通するCircularCanvasオプション。 */
@@ -334,6 +353,7 @@ export class SmuiView {
     this.canvasContainerEl = document.createElement("div");
     this.canvasContainerEl.className = "smui-canvas-inner";
     this.canvasWrapEl.appendChild(this.canvasContainerEl);
+    this.rankList = new RankList(this.canvasWrapEl, (memoId) => this.handleMemoTap(memoId));
     this.statusEl = document.createElement("p");
     this.statusEl.className = "smui-canvas-status";
     this.statusEl.hidden = true;
@@ -442,6 +462,7 @@ export class SmuiView {
         (remoteDetail) => {
           sharedStore.replaceAll(remoteDetail.memos);
           this.applyRemoteAppearance(remoteDetail.frameShapeId, remoteDetail.framePatternId);
+          this.refreshRankListIfActive();
         },
         (session) => this.applySession(session)
       );
@@ -475,18 +496,24 @@ export class SmuiView {
   /** realtimeSync.tsが{type:"reaction-changed", ...}を受け取るたびに呼ぶ(issue #128)。
    *  フルGETを挟まず、手元のメモのreactionsだけをその場で書き換える。 */
   notifyReactionChanged(canvasId: string, memoId: string, reactions: Reaction[]): void {
-    if (this.selectedRoomId === canvasId) this.sharedStore?.setMemoReactions(memoId, reactions);
+    if (this.selectedRoomId !== canvasId) return;
+    this.sharedStore?.setMemoReactions(memoId, reactions);
+    this.refreshRankListIfActive();
   }
 
   /** realtimeSync.tsが{type:"memo-upserted", ...}を受け取るたびに呼ぶ(issue #99)。
    *  フルGETを挟まず、届いたメモの中身をその場で反映する。 */
   notifyMemoUpserted(canvasId: string, memo: Memo): void {
-    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteUpsert(memo);
+    if (this.selectedRoomId !== canvasId) return;
+    this.sharedStore?.applyRemoteUpsert(memo);
+    this.refreshRankListIfActive();
   }
 
   /** 同じく{type:"memo-deleted", ...}を受け取るたびに呼ぶ。 */
   notifyMemoDeleted(canvasId: string, memoId: string): void {
-    if (this.selectedRoomId === canvasId) this.sharedStore?.applyRemoteDelete(memoId);
+    if (this.selectedRoomId !== canvasId) return;
+    this.sharedStore?.applyRemoteDelete(memoId);
+    this.refreshRankListIfActive();
   }
 
   private startSessionForCurrentRoom(options: StartSessionOptions): void {
