@@ -428,6 +428,14 @@ body {
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
    完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目を揃えている。 --- */
+/* 円の中の「紙」（canvas描画部分）は、実際の紙と同じ白さを保つ考え方で
+   テーマに関わらず常にライトのまま（ユーザー確認済み、settingsMenu.ts参照）
+   ——このtextareaは書き込み中、その紙の上に直接重なって表示されるため、
+   周囲のUIクロムと違いvar(--ink-*)/var(--paper-*)（テーマに応じて明度が
+   反転する）を使わず、紙と同じ固定の明るい色のままにしている。ダーク
+   テーマでこれらのトークンに合わせてしまうと、常に白いままの紙の上に
+   暗い箱が浮いて見える、あるいは逆に明るくなった枠線・プレースホルダーが
+   白い紙に溶けて見えなくなる、という不具合になる（実機確認で発見）。 */
 .text-editor-overlay {
   position: fixed;
   z-index: 20;
@@ -436,7 +444,7 @@ body {
   overflow: hidden;
   box-sizing: border-box;
   padding: 4px 6px;
-  border: 1px dashed var(--ink-35);
+  border: 1px dashed oklch(22% 0.012 55 / 0.35);
   border-radius: 6px;
   background: oklch(98% 0.005 75 / 0.9);
   text-align: center;
@@ -444,7 +452,7 @@ body {
 }
 
 .text-editor-overlay::placeholder {
-  color: var(--ink-35);
+  color: oklch(22% 0.012 55 / 0.35);
 }
 
 /* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「ドラッグで書き始める」と
@@ -1368,12 +1376,12 @@ body {
    消しただけでなく、ボタンらしい反応も持たせないことで「ただの表示」だと
    伝わるようにした）。 --- */
 .revive-info-pill {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
   cursor: default;
 }
 
 .revive-info-pill:hover {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
 }
 
 /* --- 主要な操作（そのカードの中で「まず押すべき」1つ）だけに使う塗りの
@@ -1677,7 +1685,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background: oklch(93% 0.006 75 / 0.82);
+  background: color-mix(in oklch, var(--paper-2) 82%, transparent);
   overflow-y: auto;
 }
 
@@ -1784,7 +1792,7 @@ body {
   padding: 14px;
   border: 1px solid var(--ink-12);
   border-radius: 18px;
-  background: oklch(93% 0.006 75 / 0.5);
+  background: color-mix(in oklch, var(--paper-2) 50%, transparent);
   transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
@@ -2011,7 +2019,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background: oklch(93% 0.006 75 / 0.86);
+  background: color-mix(in oklch, var(--paper-2) 86%, transparent);
   overflow-y: auto;
 }
 
