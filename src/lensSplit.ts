@@ -10,10 +10,20 @@ import type { Point } from "./types";
  * ——詳細はissue #79参照。
  */
 export const LENS_COUNT = 6;
-const PAIR_COUNT = 3;
 
-/** 隣り合う組の間の見た目上の隙間（正規化単位、GLASSES_CENTER_OFFSET等と同じ基準）。 */
-const LENS_PAIR_GAP = 0.3;
+/** 隣り合う組の間の見た目上の隙間（正規化単位、GLASSES_CENTER_OFFSET等と同じ基準）。
+ *  以前は0.3(組の横幅の1割未満)で、組同士がほぼ隙間なくくっついて見えていた
+ *  （issue #79、ユーザー指摘）ため、はっきり離れて見える大きさまで広げた。 */
+const LENS_PAIR_GAP = 1.2;
+
+/** セッションの参加人数上限から、実際に描画すべき組の数を決める。参加人数分
+ *  だけ用意すればよいため、常に3組(6レンズ)を描いていた以前の固定値をやめ、
+ *  2人につき1組を目安に切り上げる(1人でも1組は要る)。LENS_COUNTを超える
+ *  参加者は既存仕様通りレンズ分割の対象外(閲覧専用)のため、組数の計算にも
+ *  数えない（issue #79、ユーザー指摘: 参加人数以上の眼鏡が用意される問題）。 */
+export function computeLensSplitPairCount(maxParticipants: number): number {
+  return Math.max(1, Math.ceil(Math.min(maxParticipants, LENS_COUNT) / 2));
+}
 
 export type LensSplitDirection = "row" | "column";
 
@@ -23,15 +33,18 @@ export function chooseLensSplitDirection(width: number, height: number): LensSpl
   return width >= height ? "row" : "column";
 }
 
-/** 3組の中心座標（正規化単位）。中央の組が原点、残り2組が対称に配置される。
- *  row=x方向、column=y方向にオフセットする。 */
-export function computeLensPairCenters(direction: LensSplitDirection): Point[] {
+/** pairCount組ぶんの中心座標（正規化単位）。中央(または中央寄り)が原点付近、
+ *  残りが対称に配置される。row=x方向、column=y方向にオフセットする。 */
+export function computeLensPairCenters(direction: LensSplitDirection, pairCount: number): Point[] {
   const step =
     direction === "row"
       ? 2 * GLASSES_HORIZONTAL_REACH_WITH_HINGE + LENS_PAIR_GAP
       : 2 * GLASSES_VERTICAL_REACH + LENS_PAIR_GAP;
-  const offsets = [-step, 0, step];
-  return offsets.map((offset) => (direction === "row" ? { x: offset, y: 0 } : { x: 0, y: offset }));
+  const mid = (pairCount - 1) / 2;
+  return Array.from({ length: pairCount }, (_, i) => {
+    const offset = (i - mid) * step;
+    return direction === "row" ? { x: offset, y: 0 } : { x: 0, y: offset };
+  });
 }
 
 /** レンズ番号(0-5、session.myColorIndexをそのまま流用)から、どの組の
@@ -60,8 +73,4 @@ export function buildOwnLensClamp(
   const center = lensAbsoluteCenter(pairCenters, lensIndex);
   const lensClamp = getFrameShape(frameShapeId).clamp;
   return (p) => clampToOffsetLens(p, lensClamp, center);
-}
-
-export function lensSplitPairCount(): number {
-  return PAIR_COUNT;
 }

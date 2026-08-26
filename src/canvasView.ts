@@ -122,10 +122,13 @@ interface PinchState {
 /** レンズ分割表示(issue #79、共同アイデア出しフェーズ①限定)の状態。
  *  myLensIndexは自分の担当レンズ番号(session.myColorIndexをそのまま流用)、
  *  lensIndexForMemoは既存メモをどのレンズに属するとみなすかの判定関数
- *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）。 */
+ *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）、pairCountは
+ *  実際に描画する組数(session.maxParticipantsから計算、ユーザー指摘:
+ *  参加人数以上の眼鏡が用意される問題への対応)。 */
 export interface LensSplitState {
   myLensIndex: number;
   lensIndexForMemo: (memo: Memo) => number | null;
+  pairCount: number;
 }
 
 export interface ToolState {
@@ -524,7 +527,7 @@ export class CircularCanvas {
    *  描く。null(既定)に戻すと通常の単一クリップ表示に戻る。 */
   setLensSplit(state: LensSplitState | null): void {
     this.lensSplitState = state;
-    this.frame.setLensSplitEnabled(state !== null);
+    this.frame.setLensSplitPairCount(state ? state.pairCount : null);
     this.syncEmptyStatePosition();
   }
 
@@ -1549,7 +1552,12 @@ export class CircularCanvas {
      *  クリップを確定させたらoffsetぶん戻してから描く——メモのnormalized座標は
      *  既にlensAbsoluteCenter基準の絶対座標（グローバル、単一の共有座標系のまま、
      *  データモデルは変更していない）なので、offsetを二重に適用しないため。 */
-    const renderPair = (offset: Point, memos: readonly Memo[], isOwnPair: boolean): void => {
+    const renderPair = (
+      offset: Point,
+      memos: readonly Memo[],
+      isOwnPair: boolean,
+      patternStyle: CanvasPattern | CanvasGradient | string
+    ): void => {
       // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
       // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
       // 重ねて内側を隠す」方式で描く——中身の描画が終わってから太い線を
@@ -1562,7 +1570,7 @@ export class CircularCanvas {
       // 縁取りを表現すれば、このズレの影響を受けず隙間が生まれない。
       ctx.save();
       ctx.translate(offset.x, offset.y);
-      ctx.fillStyle = this.frame.frameStyle;
+      ctx.fillStyle = patternStyle;
       ctx.fill(this.frame.strokePath);
 
       // 枠の外にはみ出さないようクリップ。
@@ -1652,13 +1660,13 @@ export class CircularCanvas {
       // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
       // 出なくなる。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesBridgeBar(ctx);
+        this.frame.drawGlassesBridgeBar(ctx, patternStyle);
       }
 
       // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
       // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesHinges(ctx, shape);
+        this.frame.drawGlassesHinges(ctx, shape, patternStyle);
       }
 
       ctx.restore();
@@ -1677,10 +1685,10 @@ export class CircularCanvas {
         (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
       }
       pairCenters.forEach((center, i) => {
-        renderPair({ x: center.x * r, y: center.y * r }, groups[i], i === myPairIndex);
+        renderPair({ x: center.x * r, y: center.y * r }, groups[i], i === myPairIndex, this.frame.frameStyleForPair(i));
       });
     } else {
-      renderPair({ x: 0, y: 0 }, memosToRender, true);
+      renderPair({ x: 0, y: 0 }, memosToRender, true, this.frame.frameStyle);
     }
 
     // 描画対象から外れたメモの補間状態は溜め込まない。

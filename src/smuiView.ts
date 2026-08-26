@@ -17,7 +17,7 @@ import type { Memo } from "./types";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { FramePatternId } from "./framePattern";
-import { LENS_COUNT } from "./lensSplit";
+import { computeLensSplitPairCount, LENS_COUNT } from "./lensSplit";
 import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
@@ -211,7 +211,15 @@ export class SmuiView {
       const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
       this.lens.setLocked(isOverflowLensParticipant);
       this.lens.setVoteOnly(false);
-      this.lens.setLensSplit(myLensIndex !== null ? { myLensIndex, lensIndexForMemo: (memo) => lensIndexForColor(memo.color) } : null);
+      this.lens.setLensSplit(
+        myLensIndex !== null
+          ? {
+              myLensIndex,
+              lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
+              pairCount: computeLensSplitPairCount(this.session.maxParticipants),
+            }
+          : null
+      );
     } else {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
