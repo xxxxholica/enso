@@ -1113,8 +1113,12 @@ export class CircularCanvas {
       const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
       const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
 
+      // 文字が空の間はプレースホルダー（「書き込む...」）が見えている。el.valueの
+      // ままだと空文字列の幅（≒0）で箱が測られてしまい、プレースホルダーが
+      // 箱の中で折り返されてしまう（ユーザー報告）ため、空の間はプレースホルダー
+      // 自体の幅で測る。
       const boxWidthPx = Math.max(
-        toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize)),
+        toScreenPx(measureTextBoxWidthPx(this.ctx, el.value || el.placeholder, widthMeasureFontSize)),
         this.textEditorMinWidthPx ?? 0
       );
       el.style.width = `${boxWidthPx}px`;
@@ -1164,6 +1168,15 @@ export class CircularCanvas {
     resizeToContent();
     el.addEventListener("input", resizeToContent);
     this.repositionTextEditor = resizeToContent;
+    // 開いた時点でまだ読み込み中のWebフォント（Klee One/Noto Sans JP）があると、
+    // 幅の計測（widthMeasureFontSize、上のmeasureTextBoxWidthPx呼び出し）が
+    // フォールバックフォントの狭い字幅で行われてしまい、後から本来のフォントに
+    // 差し替わった拍子にプレースホルダー等がその幅に収まらず折り返される
+    // （ユーザー報告）。フォント読み込み完了を待って、開いていればもう一度
+    // 測り直す——読み込み済みなら即座に解決する。
+    void document.fonts.ready.then(() => {
+      if (this.textEditor === el) resizeToContent();
+    });
 
     // 呼び出し元のイベントハンドラと同じ同期的な呼び出しスタックの中でfocusする
     // （クラス冒頭のJSDoc参照）。
