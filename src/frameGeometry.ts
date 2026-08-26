@@ -28,6 +28,9 @@ export interface FrameGeometryOptions {
   frameKind: "single" | "glasses";
   framePatternId: FramePatternId;
   contentScaleFactor?: number | ((size: number) => number);
+  /** computeSquareSizeの下限をMIN_CANVAS_SIZE(200px)から差し替える。
+   *  CircularCanvasOptions.minCanvasSizePx参照。 */
+  minCanvasSizePx?: number;
 }
 
 /**
@@ -55,6 +58,7 @@ export class FrameGeometry {
   private frameStrokeWidth = 1;
   private frameKindValue: "single" | "glasses";
   private framePatternId: FramePatternId;
+  private minCanvasSizePx: number | undefined;
   /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
    *  resize()/setFrameShape()のタイミングでだけ組み立て直し、render()（毎フレーム）
    *  では使い回す——Path2Dの構築自体は軽くないため。 */
@@ -92,6 +96,7 @@ export class FrameGeometry {
     this.frameKindValue = options.frameKind;
     this.framePatternId = options.framePatternId;
     this.contentScaleFactor = options.contentScaleFactor;
+    this.minCanvasSizePx = options.minCanvasSizePx;
     this.resize();
   }
 
@@ -183,7 +188,10 @@ export class FrameGeometry {
         y: containerSize.height / 2 - computeChromeCenterOffsetY(),
       };
     } else {
-      const referenceSize = computeSquareSize(this.container);
+      const referenceSize =
+        this.minCanvasSizePx !== undefined
+          ? computeSquareSize(this.container, this.minCanvasSizePx)
+          : computeSquareSize(this.container);
       const containerSize = computeContainerSize(this.container);
       this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(

@@ -172,6 +172,13 @@ export interface CircularCanvasOptions {
    *  毎回もっとも大きく安全に収まる値を動的に計算したい呼び出し元（SMUIのレンズ）は、
    *  sizeを受け取る関数を渡す（canvasSizing.computeAutoScale参照）。 */
   contentScaleFactor?: number | ((size: number) => number);
+  /** computeSquareSize（canvasSizing.ts）の下限をMIN_CANVAS_SIZE(200px)から
+   *  差し替える。使い方ページの練習用サンドボックス（tutorialSandbox.ts）
+   *  専用——本物のMIN_CANVAS_SIZEのままだと、CSS側でコンテナをそれより
+   *  小さく（.tutorial-sandbox-canvas-wrap、style.css）縮めても、この下限が
+   *  優先されてcanvas要素がコンテナの外へはみ出し、下の説明文と重なって
+   *  見えてしまう（ユーザー報告）。省略時は本物と同じMIN_CANVAS_SIZE。 */
+  minCanvasSizePx?: number;
   frameShapeId?: FrameShapeId;
   /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
    *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。太さは、
@@ -213,6 +220,26 @@ export interface CircularCanvasOptions {
    *  問わず、1回転につき1回）。setRotationVoteHandlerで実行中に差し替えられるため、
    *  ここでの初期値指定は必須ではない。 */
   onRotationStep?: (memoId: string) => void;
+  /** text-editor-overlay（.text-editor-overlay、既定z-index:20）の実際のz-indexを
+   *  呼び出し側で上書きする。全画面モーダル（テンプレート選択・使い方ページ、
+   *  いずれもz-index 40番台）は「モーダルの中の本物のキャンバスへ書きかけの
+   *  テキストが残っていても隠す」という前提でtext-editor-overlayより上に
+   *  意図して設計されているが、使い方ページの練習用サンドボックス
+   *  （tutorialSandbox.ts）はモーダルの内側で本物のテキスト入力を体験させる
+   *  ため、逆にモーダル自身（z-index 41）より前面に出す必要がある。 */
+  textEditorZIndex?: number;
+  /** text-editor-overlayの画面上の幅の下限(px)。既定の幅計算
+   *  （openTextEditorのwidthMeasureFontSize・resizeToContent参照）は、
+   *  「表示上のfont-sizeは16px未満に落とさない」補正の分だけ基準スケールの
+   *  文字サイズを引き上げて測るが、その測定結果（基準円スケールでの
+   *  px、MIN〜MAX_TEXT_BOX_WIDTH_PXの範囲）を画面pxへ変換する際は実際の
+   *  effectiveScale()をそのまま掛けるため、本物のキャンバスでは起きない
+   *  ほど半径が小さい（使い方ページの練習用サンドボックス、
+   *  tutorialSandbox.ts）場合、変換後の画面幅が1〜2文字ぶんしかない
+   *  極端に細い入力欄になってしまう（ユーザー報告：入力欄が下の説明文と
+   *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
+   *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
+  textEditorMinWidthPx?: number;
 }
 
 export class CircularCanvas {
@@ -321,6 +348,8 @@ export class CircularCanvas {
    *  ROTATE_MIN_RADIUS_PXになる。 */
   private rotateStepRad: number;
   private rotateMinRadiusPx: number;
+  private textEditorZIndex: number | undefined;
+  private textEditorMinWidthPx: number | undefined;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -357,6 +386,8 @@ export class CircularCanvas {
     this.rotateStepRad = options.rotateStepRad ?? ROTATE_STEP_RAD;
     this.rotateMinRadiusPx = options.rotateMinRadiusPx ?? ROTATE_MIN_RADIUS_PX;
     this.rotationVoteHandler = options.onRotationStep ?? null;
+    this.textEditorZIndex = options.textEditorZIndex;
+    this.textEditorMinWidthPx = options.textEditorMinWidthPx;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -371,6 +402,7 @@ export class CircularCanvas {
       frameKind: options.frameKind ?? "single",
       framePatternId: options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID,
       contentScaleFactor: options.contentScaleFactor,
+      minCanvasSizePx: options.minCanvasSizePx,
     });
     // ウィンドウのリサイズだけでなく、フッターの折り返しやフォント読み込みによる
     // レイアウト変化など、コンテナの実サイズが変わるあらゆるタイミングを動的に捉える
@@ -947,6 +979,7 @@ export class CircularCanvas {
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
+    if (this.textEditorZIndex !== undefined) el.style.zIndex = String(this.textEditorZIndex);
     el.style.color = color;
     el.style.fontFamily = TEXT_FONT_FAMILY;
     // iOS Safari系は、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすく
@@ -1026,7 +1059,10 @@ export class CircularCanvas {
       const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
       const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
 
-      const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize));
+      const boxWidthPx = Math.max(
+        toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize)),
+        this.textEditorMinWidthPx ?? 0
+      );
       el.style.width = `${boxWidthPx}px`;
       el.style.left = `${screenX - boxWidthPx / 2}px`;
       el.style.height = "auto";
