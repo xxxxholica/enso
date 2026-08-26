@@ -1780,7 +1780,7 @@ body {
   width: min(680px, 100%);
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
-  padding: 40px 36px 32px;
+  padding: 28px 32px 24px;
   border-radius: 24px;
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -1851,26 +1851,30 @@ body {
    hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
    ため、レイアウトにも一切残らない）——usageGuide.tsのshowPage参照。 --- */
 .usage-guide-pages {
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
 }
 
 /* min-heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
-   出た後の「振り返る」「done」手順）の実測ぶんの高さ。これを全ページ・
-   全手順共通の下限に揃え、それより低い序・結・練の他の手順では
-   justify-content:centerで余った縦のすき間にコンテンツを中央寄せすることで、
-   ページや手順を切り替えるたびにモーダル自体の高さが伸び縮みしないように
-   している（ユーザー指示：ウィンドウのサイズを変えないでほしい）。以前は
-   「みる」手順（スライダーが出る前）だけを基準に600pxにしていたため、
-   その後スライダーが追加表示される瞬間に床面を超えてわずかに伸びていた
-   （ユーザー報告）。 */
+   出た後の「振り返る」「done」手順）の実測ぶんの高さに、フォントの描画差
+   ぶんの余裕を足した値。これを全ページ・全手順共通の下限に揃え、それより
+   低い序・結・練の他の手順ではjustify-content:centerで余った縦のすき間に
+   コンテンツを中央寄せすることで、ページや手順を切り替えるたびにモーダル
+   自体の高さが伸び縮みしないようにしている（ユーザー指示：ウィンドウの
+   サイズを変えないでほしい）。
+   min()の右側（calc(100dvh - 200px)）は、床面自体がヘッダー等を含めた
+   モーダル全体をmax-height（.usage-guide-sheet、100dvh-48px）より高くして
+   しまい、結果としてスクロールが必要になる（ユーザー報告：ウィンドウの
+   高さによってはスクロールが必要になる）のを防ぐための安全弁——200pxは
+   ヘッダー・.usage-guide-pagesの余白・.usage-guide-sheetの上下パディングの
+   合計ぶんの実測（136px）に少し余裕を足した見積もり。 */
 .usage-guide-page {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-5);
+  gap: var(--space-4);
   text-align: center;
-  min-height: 700px;
+  min-height: min(520px, calc(100dvh - 200px));
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
 }
@@ -1882,9 +1886,18 @@ body {
   gap: var(--space-4);
 }
 
+/* マーカー（丸バッジ）とタイトルの横並び。以前は縦積みだったが、その高さぶん
+   ウィンドウが少し低いだけでモーダル全体がスクロールを要するようになって
+   いた（ユーザー報告）ため、1行にまとめて高さを削っている。 */
+.usage-guide-page-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .usage-guide-marker {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-full);
   background: var(--paper-1);
   border: 1px solid var(--ink-20);
@@ -1897,8 +1910,8 @@ body {
 }
 
 .usage-guide-canvas {
-  width: 140px;
-  height: 140px;
+  width: 112px;
+  height: 112px;
   display: block;
 }
 
@@ -1944,16 +1957,13 @@ body {
 
 @media (max-width: 560px) {
   .usage-guide-marker {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     font-size: var(--text-md);
   }
   .usage-guide-canvas {
-    width: 108px;
-    height: 108px;
-  }
-  .usage-guide-page {
-    min-height: 680px;
+    width: 96px;
+    height: 96px;
   }
 }
 
@@ -1963,14 +1973,14 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   margin-top: 4px;
 }
 
 .tutorial-sandbox-canvas-wrap {
   position: relative;
   width: 100%;
-  max-width: 320px;
+  max-width: 240px;
   aspect-ratio: 1 / 1;
 }
 

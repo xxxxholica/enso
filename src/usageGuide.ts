@@ -175,21 +175,21 @@ class UsageGuide {
     const el = document.createElement("div");
     el.className = "usage-guide-page";
 
-    const marker = document.createElement("div");
-    marker.className = "usage-guide-marker";
-    marker.textContent = "練";
-
-    const title = document.createElement("h3");
-    title.className = "usage-guide-stage-title";
-    title.textContent = "手を動かしてみましょう";
-
     const sandboxRoot = document.createElement("div");
+    // 見出しのタイトルは固定文言ではなく、今の手順の内容に合わせて
+    // 書き込む・眺める・巻き戻す・進める…と差し替える（ユーザー指示）
+    // ——tutorialSandbox.tsのSTEP_TITLES/onStepTitle参照。
+    const { el: heading, titleEl } = this.buildHeading("練", "");
     // サンドボックス側が「みる→残す→消す→振り返る」を全て終えると、この
     // コールバックで結のページへ進める（tutorialSandbox.tsの「つぎへ」ボタン、
     // スキップのどちらから終えても同じ経路）。
-    this.sandbox = new TutorialSandbox(sandboxRoot, () => this.showPage(2));
+    this.sandbox = new TutorialSandbox(
+      sandboxRoot,
+      () => this.showPage(2),
+      (title) => (titleEl.textContent = title)
+    );
 
-    el.append(marker, title, sandboxRoot);
+    el.append(heading, sandboxRoot);
     return el;
   }
 
@@ -215,24 +215,39 @@ class UsageGuide {
     const el = document.createElement("div");
     el.className = "usage-guide-page-content";
 
-    const marker = document.createElement("div");
-    marker.className = "usage-guide-marker";
-    marker.textContent = stage.marker;
-
     const canvas = document.createElement("canvas");
     canvas.className = "usage-guide-canvas";
     canvas.dataset.anim = stage.anim;
     this.canvases.push(canvas);
 
-    const title = document.createElement("h3");
-    title.className = "usage-guide-stage-title";
-    title.textContent = stage.title;
     const body = document.createElement("p");
     body.className = "usage-guide-stage-body";
     body.textContent = stage.body;
 
-    el.append(marker, canvas, title, body);
+    const { el: heading } = this.buildHeading(stage.marker, stage.title);
+    el.append(heading, canvas, body);
     return el;
+  }
+
+  /** マーカー（丸バッジ）とタイトルを横並びの見出し1行にまとめる——縦積みだと
+   *  ウィンドウの高さによってはモーダル全体がスクロールを要するようになって
+   *  しまっていた（ユーザー報告）ため、その分の高さを削っている。titleElも
+   *  返すのは、練ページが手順ごとにタイトルの文言を差し替えるため
+   *  （buildPracticePage参照）。 */
+  private buildHeading(marker: string, title: string): { el: HTMLElement; titleEl: HTMLElement } {
+    const el = document.createElement("div");
+    el.className = "usage-guide-page-heading";
+
+    const markerEl = document.createElement("div");
+    markerEl.className = "usage-guide-marker";
+    markerEl.textContent = marker;
+
+    const titleEl = document.createElement("h3");
+    titleEl.className = "usage-guide-stage-title";
+    titleEl.textContent = title;
+
+    el.append(markerEl, titleEl);
+    return { el, titleEl };
   }
 
   private onKeyDown = (ev: KeyboardEvent): void => {

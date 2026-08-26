@@ -41,6 +41,20 @@ const MESSAGES: Record<StepId, string> = {
   done: "全部は残せません。だからこそ、そうやって選び続けた一枚には意味があります。",
 };
 
+/** 見出し（usageGuide.tsのbuildPracticePageが表示するタイトル）を、今の
+ *  手順の内容に合わせて短い動詞で言い換える（ユーザー指示：「手を動かして
+ *  みましょう」という固定文言ではなく、書き込む・眺める・巻き戻す・進める
+ *  のように手順ごとの見出しにしたい）。onStepTitle経由でusageGuide.tsへ
+ *  渡す。 */
+const STEP_TITLES: Record<StepId, string> = {
+  write: "書き込む",
+  watch: "眺める",
+  keep: "巻き戻す",
+  release: "進める",
+  rewind: "振り返る",
+  done: "選びとる",
+};
+
 /** 掴んで回す対象の追跡用。lastTracedAtは移動道具の振り回し操作
  *  （nudgeMemoClock、canvasView.ts）でしか変化しないため、seed時の値からの
  *  増減を見るだけで「反時計回りに回した／時計回りに回した」を正確に検出できる
@@ -94,6 +108,9 @@ export class TutorialSandbox {
   /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
    *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
   private onComplete: (() => void) | null;
+  /** 手順が変わるたびSTEP_TITLES[step]を渡して呼ばれる。usageGuide.tsが
+   *  練ページの見出し（マーカー隣のタイトル）を差し替えるためのフック。 */
+  private onStepTitle: ((title: string) => void) | null;
 
   private store: MemoStore | null = null;
   private canvasView: CircularCanvas | null = null;
@@ -125,8 +142,9 @@ export class TutorialSandbox {
    *  見えてしまうことはない。 */
   private rewindNowRef: number | null = null;
 
-  constructor(container: HTMLElement, onComplete?: () => void) {
+  constructor(container: HTMLElement, onComplete?: () => void, onStepTitle?: (title: string) => void) {
     this.onComplete = onComplete ?? null;
+    this.onStepTitle = onStepTitle ?? null;
     container.className = "tutorial-sandbox";
 
     this.canvasWrap = document.createElement("div");
@@ -324,6 +342,7 @@ export class TutorialSandbox {
     this.nextBtn.hidden = this.step !== "watch";
     this.skipBtn.hidden = this.step === "done";
     this.doneNextBtn.hidden = this.step !== "done";
+    this.onStepTitle?.(STEP_TITLES[this.step]);
   }
 
   /** 振り返りスライダーは「遡る」手順に入って初めて出す（一度に全部の道具を
