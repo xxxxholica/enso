@@ -1,5 +1,5 @@
 import { computeOpacity, MS_PER_DAY, remainingMs, STANDARD_LIFESPAN_DAYS } from "./fade";
-import { circleIntersectsBox, clampToCircle, eraseFromStroke, restrictTranslation } from "./geometry";
+import { circleIntersectsBox, clampToCircle, eraseFromStroke, isInsideClamp, restrictTranslation } from "./geometry";
 import { loadMemos, saveMemos } from "./storage";
 import { LINE_HEIGHT_MULTIPLIER } from "./textLayout";
 import type { LifespanDays, Memo, MemoStyle, Point, Stroke, TextMemo } from "./types";
@@ -390,8 +390,14 @@ export class MemoStore {
    * 比例的に縮める（剛体移動）。点ごとにクランプする方式は、境界に近い点
    * ほど個別に丸め込まれて線の形が歪んでしまう問題があったため、この方式に
    * 変更した（ユーザー指示：移動そのものを制限し、ストローク全体が常に
-   * 境界内に収まるようにする）。テキストは代表点(x, y)1つだけなので、
-   * 従来通りclampで境界へ丸め込めば十分（歪みは起こらない）。
+   * 境界内に収まるようにする）。テキストは代表点(x, y)が箱の中心なので、
+   * 中心点だけをclampすると箱の端（±boxWidth/2, ±boxHeight/2）が境界の外に
+   * はみ出せてしまう（ユーザー指摘：移動中にテキストが枠外に出る）。そのため
+   * 箱の四隅を点群としてrestrictTranslationに渡し、四隅すべてが境界内に
+   * 収まる範囲まで移動量を縮める。ただし四隅が最初から境界内に収まっていない
+   * （箱そのものが枠に対して大きすぎる）場合は、restrictTranslationが常に
+   * 移動量0を返して動かせなくなってしまうため、その場合だけ従来通り中心点の
+   * clampにフォールバックする（はみ出しは避けられないが、動かせないよりはよい）。
    * 既定のclampは半径1の円だが、SMUIのように選んだフレーム形状（楕円/長方形）
    * の輪郭でクランプしたい呼び出し元はframeShape.tsの対応するclampを渡す
    * ——このストア自体は「今どの形状を見ているか」を知らない（同じ個人
@@ -424,9 +430,24 @@ export class MemoStore {
         memo.y = first.y;
       }
     } else {
-      const moved = clamp({ x: memo.x + dx, y: memo.y + dy });
-      memo.x = moved.x;
-      memo.y = moved.y;
+      const halfW = memo.boxWidth / 2;
+      const halfH = memo.boxHeight / 2;
+      const corners: Point[] = [
+        { x: memo.x - halfW, y: memo.y - halfH },
+        { x: memo.x + halfW, y: memo.y - halfH },
+        { x: memo.x - halfW, y: memo.y + halfH },
+        { x: memo.x + halfW, y: memo.y + halfH },
+      ];
+      if (corners.every((c) => isInsideClamp(c, clamp))) {
+        const restricted = restrictTranslation(corners, dx, dy, clamp);
+        if (restricted.dx === 0 && restricted.dy === 0) return;
+        memo.x += restricted.dx;
+        memo.y += restricted.dy;
+      } else {
+        const moved = clamp({ x: memo.x + dx, y: memo.y + dy });
+        memo.x = moved.x;
+        memo.y = moved.y;
+      }
     }
     this.persist();
     this.emitOp({ upserts: [memo], deletes: [] });

@@ -1,6 +1,8 @@
-import { onUserChange } from "./authState";
+import { setGuestAuth, type GuestAuth } from "./apiClient";
+import { getCurrentUser, onUserChange } from "./authState";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
+import { claimGuestInvite, loadGuestSession, saveGuestSession, type StoredGuestSession } from "./guestSession";
 import { ICONS } from "./icons";
 import {
   createSharedCanvas,
@@ -8,13 +10,20 @@ import {
   joinSharedCanvas,
   leaveSharedCanvas,
   listSharedCanvases,
+  mintInvite,
   renameSharedCanvas,
   type SharedCanvasSummary,
 } from "./sharedCanvas";
 
 const JOIN_PARAM = "join";
+// 招待リンク経由のゲスト参加(issue #79)用の2パラメータ。inviteはclaim後に
+// URLから外すが、roomは残す(リロード時に保存済みのゲストセッションで
+// サイレントに再開できるようにするため、handlePendingInvite参照)。
+const INVITE_PARAM = "invite";
+const ROOM_PARAM = "room";
 const CREATE_LABEL = "+ 新しい共有キャンバスを作る";
 const COPY_LABEL = "コピー";
+const GUEST_JOIN_LABEL = "ゲストとして参加";
 
 /** ルーム一覧の各項目に添えるステータス。一覧取得API(listSharedCanvases)は
  *  セッション状態を返さないため、行ごとに個別にgetSharedCanvas(id)を叩いて
@@ -45,7 +54,14 @@ const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
 export class SharedRoomMenu {
   private onSelectRoom: (id: string) => void;
   private onAutoOpen: () => void;
+  private onGuestJoined: (canvasId: string, guestAuth: GuestAuth) => void;
   private pendingJoinId: string | null;
+  /** 招待リンク(?invite=&room=)からのゲスト参加待ち。claim成功でnullに戻す。 */
+  private pendingInviteToken: string | null;
+  private pendingInviteRoom: string | null;
+  /** 招待リンク経由でログイン無しに参加した状態か。trueの間はsignedIn同様
+   *  mainEl(ルーム作成・一覧)は出さない——ゲストは自分のルーム一覧を持たない。 */
+  private guestMode = false;
   private signedIn = false;
   private busy = false;
   private open = false;
@@ -58,6 +74,12 @@ export class SharedRoomMenu {
   private popover!: HTMLElement;
   private popoverFade!: (show: boolean) => void;
   private signedOutEl!: HTMLElement;
+  private guestPromptEl!: HTMLElement;
+  private guestFormEl!: HTMLElement;
+  private guestNameInput!: HTMLInputElement;
+  private guestJoinBtn!: HTMLButtonElement;
+  private guestStatusEl!: HTMLElement;
+  private guestInfoEl!: HTMLElement;
   private mainEl!: HTMLElement;
   private createBtn!: HTMLButtonElement;
   private statusEl!: HTMLElement;
@@ -81,10 +103,19 @@ export class SharedRoomMenu {
   private roomActionsMenuEl: HTMLElement | null = null;
   private roomActionsMenuCleanup: (() => void) | null = null;
 
-  constructor(container: HTMLElement, onSelectRoom: (id: string) => void, onAutoOpen: () => void) {
+  constructor(
+    container: HTMLElement,
+    onSelectRoom: (id: string) => void,
+    onAutoOpen: () => void,
+    onGuestJoined: (canvasId: string, guestAuth: GuestAuth) => void
+  ) {
     this.onSelectRoom = onSelectRoom;
     this.onAutoOpen = onAutoOpen;
-    this.pendingJoinId = new URLSearchParams(location.search).get(JOIN_PARAM);
+    this.onGuestJoined = onGuestJoined;
+    const params = new URLSearchParams(location.search);
+    this.pendingJoinId = params.get(JOIN_PARAM);
+    this.pendingInviteToken = params.get(INVITE_PARAM);
+    this.pendingInviteRoom = params.get(ROOM_PARAM);
 
     this.buildDom(container);
     this.updateTriggerLabel();
@@ -92,10 +123,22 @@ export class SharedRoomMenu {
     onUserChange((user) => {
       const wasSignedIn = this.signedIn;
       this.signedIn = user !== null;
-      this.signedOutEl.hidden = this.signedIn;
-      this.mainEl.hidden = !this.signedIn;
+      this.updateVisibility();
       if (this.signedIn && !wasSignedIn) void this.handleSignedIn();
     });
+
+    if (this.pendingInviteRoom) void this.handlePendingInvite();
+  }
+
+  /** signedOutEl/guestPromptEl/guestInfoEl/mainElの表示・非表示を、現在の
+   *  状態(Clerkサインイン中／招待の入力待ち／ゲスト参加済み／未接続)に
+   *  合わせて一括で更新する。 */
+  private updateVisibility(): void {
+    const showGuestPrompt = !this.signedIn && !this.guestMode && this.pendingInviteRoom !== null;
+    this.signedOutEl.hidden = this.signedIn || this.guestMode || showGuestPrompt;
+    this.guestPromptEl.hidden = !showGuestPrompt;
+    this.guestInfoEl.hidden = !this.guestMode;
+    this.mainEl.hidden = !this.signedIn;
   }
 
   private buildDom(container: HTMLElement): void {
@@ -135,6 +178,45 @@ export class SharedRoomMenu {
     this.signedOutEl.className = "shared-signedout";
     this.signedOutEl.textContent = "共有キャンバスを使うには、右上からログインしてください。";
     this.popover.appendChild(this.signedOutEl);
+
+    // 招待リンク(?invite=&room=)経由でログイン無しに参加する人向けの、
+    // 表示名だけを尋ねる最小限のフォーム(issue #79)。招待トークンが無効/
+    // 期限切れの場合はguestFormEl自体を隠し、guestStatusElに理由だけ出す。
+    this.guestPromptEl = document.createElement("div");
+    this.guestPromptEl.className = "shared-guest-prompt";
+    this.guestPromptEl.hidden = true;
+    const guestLabel = document.createElement("p");
+    guestLabel.className = "shared-signedout";
+    guestLabel.textContent = "招待リンクからの参加です。表示名を入力してください。";
+    this.guestPromptEl.appendChild(guestLabel);
+    this.guestFormEl = document.createElement("div");
+    this.guestFormEl.className = "shared-invite-input-row";
+    this.guestNameInput = document.createElement("input");
+    this.guestNameInput.type = "text";
+    this.guestNameInput.className = "shared-invite-input";
+    this.guestNameInput.placeholder = "表示名(例: たろう)";
+    this.guestNameInput.maxLength = 50;
+    this.guestNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") void this.submitGuestJoin();
+    });
+    this.guestFormEl.appendChild(this.guestNameInput);
+    this.guestJoinBtn = document.createElement("button");
+    this.guestJoinBtn.type = "button";
+    this.guestJoinBtn.className = "pill-btn pill-btn--primary";
+    this.guestJoinBtn.textContent = GUEST_JOIN_LABEL;
+    this.guestJoinBtn.addEventListener("click", () => void this.submitGuestJoin());
+    this.guestFormEl.appendChild(this.guestJoinBtn);
+    this.guestPromptEl.appendChild(this.guestFormEl);
+    this.guestStatusEl = document.createElement("p");
+    this.guestStatusEl.className = "shared-status";
+    this.guestPromptEl.appendChild(this.guestStatusEl);
+    this.popover.appendChild(this.guestPromptEl);
+
+    this.guestInfoEl = document.createElement("p");
+    this.guestInfoEl.className = "shared-signedout";
+    this.guestInfoEl.textContent = "ゲストとして参加中です。";
+    this.guestInfoEl.hidden = true;
+    this.popover.appendChild(this.guestInfoEl);
 
     this.mainEl = document.createElement("div");
     this.mainEl.className = "shared-room-menu-main";
@@ -231,7 +313,7 @@ export class SharedRoomMenu {
     if (this.signedIn) void this.refreshRoomList();
     // 招待リンクは作成直後だけでなく、今選んでいるルームがあれば開くたびに
     // 出す（ユーザー指摘：作成直後しか出てこないのは不便）。
-    if (this.selectedId) this.showInviteLink(this.selectedId);
+    if (this.selectedId) void this.showInviteLink(this.selectedId);
   }
 
   private close(): void {
@@ -253,6 +335,81 @@ export class SharedRoomMenu {
     history.replaceState(null, "", url);
   }
 
+  /** claim成功後、inviteパラメータだけURLから外す。roomは残し、リロード時に
+   *  保存済みのゲストセッションでサイレントに再開できるようにする
+   *  (handlePendingInvite参照)。 */
+  private clearInviteTokenParam(): void {
+    const url = new URL(location.href);
+    url.searchParams.delete(INVITE_PARAM);
+    history.replaceState(null, "", url);
+  }
+
+  /** ページ読み込み時、URLに?room=があれば呼ばれる(issue #79: 招待リンク経由の
+   *  ゲスト参加)。既に有効なゲストセッションが保存済みならそれで無言で再開し、
+   *  無ければ表示名を入力してもらうフォームを出す(招待トークンが無効/期限切れ
+   *  ならフォーム自体を隠し、理由だけ表示する)。 */
+  private async handlePendingInvite(): Promise<void> {
+    const room = this.pendingInviteRoom;
+    if (!room) return;
+    // コンストラクタから同期的に呼ばれるため、ここで一度マイクロタスクへ逃がす
+    // ——main.ts側はSharedRoomMenuの生成(=このメソッドの呼び出し)より後で
+    // let currentViewを初期化しており、onAutoOpen(setView)を同期のまま
+    // 呼ぶとTDZ(初期化前アクセス)で例外になる。
+    await Promise.resolve();
+    const stored = loadGuestSession(room);
+    if (stored) {
+      this.activateGuestMode(stored);
+      return;
+    }
+    this.guestFormEl.hidden = !this.pendingInviteToken;
+    this.guestStatusEl.textContent = this.pendingInviteToken ? "" : "この招待リンクは期限切れです";
+    this.updateVisibility();
+    // このボタン・ポップオーバー自体がsmuiView.getRoomMenuSlot()経由で「共有」
+    // タブの中にあり、キャンバスタブ表示中はhidden属性で隠れている
+    // (main.ts参照)。参加前の名前入力を見せるにはタブ自体の切り替えが必要
+    // ——参加成功後だけでなく、フォーム表示の時点でonAutoOpenを呼ぶ。
+    this.onAutoOpen();
+    this.openMenu();
+  }
+
+  private async submitGuestJoin(): Promise<void> {
+    const room = this.pendingInviteRoom;
+    const token = this.pendingInviteToken;
+    if (!room || !token) return;
+    const name = this.guestNameInput.value.trim();
+    if (!name) {
+      this.guestStatusEl.textContent = "表示名を入力してください";
+      return;
+    }
+    this.guestJoinBtn.disabled = true;
+    this.guestStatusEl.textContent = "参加しています…";
+    try {
+      const session = await claimGuestInvite(room, token, name);
+      saveGuestSession(session);
+      this.activateGuestMode(session);
+    } catch (e) {
+      this.guestStatusEl.textContent = e instanceof Error ? e.message : "参加に失敗しました";
+    } finally {
+      this.guestJoinBtn.disabled = false;
+    }
+  }
+
+  /** ゲストとしての参加を確定させる。claim直後・保存済みセッションでの
+   *  リロード後の再開、どちらからも呼ばれる。 */
+  private activateGuestMode(session: StoredGuestSession): void {
+    this.guestMode = true;
+    this.pendingInviteRoom = null;
+    this.pendingInviteToken = null;
+    this.clearInviteTokenParam();
+    setGuestAuth({ canvasId: session.canvasId, token: session.token });
+    this.selectedId = session.canvasId;
+    this.updateTriggerLabel();
+    this.updateVisibility();
+    this.onGuestJoined(session.canvasId, { canvasId: session.canvasId, token: session.token });
+    this.onAutoOpen();
+    this.close();
+  }
+
   /** トリガーボタンの文字を今の状態に合わせる：未接続なら「＋ルームを作成」、
    *  接続中ならそのルームIDの先頭7文字（フルIDはtitle属性に持たせる）。 */
   private updateTriggerLabel(): void {
@@ -267,12 +424,29 @@ export class SharedRoomMenu {
     }
   }
 
-  /** 指定したルームへの招待リンクを組み立てて表示する。ルームIDさえあれば
-   *  決定的に作れる（サーバー問い合わせ不要）ため、作成直後だけでなく、
-   *  一覧から既存ルームを選んだとき・メニューを開き直したときにも呼べる。 */
-  private showInviteLink(id: string): void {
+  /** 指定したルームへの招待リンクを組み立てて表示する。自分がそのルームの
+   *  オーナー(ルームマスター)であれば、ログイン不要のゲスト参加リンク
+   *  (?invite=&room=、issue #79)をサーバーに発行してもらう——オーナー以外
+   *  (メンバーだが招待は発行できない・まだ一覧を読み込めていない等)は、
+   *  従来通りClerkログイン前提の?join=リンクにフォールバックする。 */
+  private async showInviteLink(id: string): Promise<void> {
+    const room = this.rooms.find((r) => r.id === id);
+    const isOwner = room !== undefined && getCurrentUser()?.id === room.ownerId;
     const url = new URL(location.href);
     url.search = "";
+    if (isOwner) {
+      try {
+        const { token } = await mintInvite(id);
+        url.searchParams.set(INVITE_PARAM, token);
+        url.searchParams.set(ROOM_PARAM, id);
+        this.inviteInput.value = url.toString();
+        this.inviteInput.disabled = false;
+        this.copyBtn.disabled = false;
+        return;
+      } catch {
+        // 発行に失敗した場合は下のClerkログイン前提リンクにフォールバックする。
+      }
+    }
     url.searchParams.set(JOIN_PARAM, id);
     this.inviteInput.value = url.toString();
     this.inviteInput.disabled = false;
@@ -300,7 +474,7 @@ export class SharedRoomMenu {
         this.updateTriggerLabel();
         this.renderRoomList();
         this.onSelectRoom(id);
-        this.showInviteLink(id);
+        void this.showInviteLink(id);
         this.setStatus("");
         this.onAutoOpen();
         // 成功時は「共有」タブに切り替わったこと自体が合図になるので、
@@ -329,7 +503,7 @@ export class SharedRoomMenu {
       // 成功メッセージは出さない——招待リンクが現れて一覧に新しいルームが
       // 選択状態で並ぶこと自体が「できた」の合図になる（ユーザー指摘：
       // 無駄な表示で1行使わない）。
-      this.showInviteLink(id);
+      void this.showInviteLink(id);
     } catch (e) {
       this.setStatus(e instanceof Error ? e.message : "作成に失敗しました");
     } finally {
@@ -449,7 +623,7 @@ export class SharedRoomMenu {
         this.updateTriggerLabel();
         this.renderRoomList();
         this.onSelectRoom(room.id);
-        this.showInviteLink(room.id);
+        void this.showInviteLink(room.id);
         this.close();
       };
       this.attachRoomNamePress(btn, actionsBtn, li, room, selectRoom);

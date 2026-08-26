@@ -134,6 +134,19 @@ export function clampToGlasses(p: Point, lensClamp: (local: Point) => Point, cen
 }
 
 /**
+ * 単一レンズclamp（clampToCircle/clampToEllipse/clampToRoundedRectのいずれか、
+ * 原点中心のローカル座標前提）を、指定したcenterへ平行移動して適用する。
+ * clampToGlassesと違い「近い方のレンズを選ぶ」判定はしない——呼び出し側で
+ * 自分の担当レンズが既に一意に決まっている場合に使う（SMUIのレンズ分割表示、
+ * 自分の書き込みを自分のレンズ領域だけに制限する用途）。
+ */
+export function clampToOffsetLens(p: Point, lensClamp: (local: Point) => Point, center: Point): Point {
+  const local: Point = { x: p.x - center.x, y: p.y - center.y };
+  const clampedLocal = lensClamp(local);
+  return { x: clampedLocal.x + center.x, y: clampedLocal.y + center.y };
+}
+
+/**
  * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
  * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
  * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする
@@ -169,6 +182,34 @@ export function restrictTranslation(
     else hi = mid;
   }
   return { dx: dx * lo, dy: dy * lo };
+}
+
+/**
+ * 矩形（半径halfW×halfHの箱）を境界内に置けるよう、中心点desiredを調整する。
+ * テキストメモを新規に置く瞬間（タップした場所の直後）に使う——タップ位置
+ * そのものを箱の中心にすると、境界に近い場所をタップした場合に箱の端が
+ * はみ出してしまう（ユーザー指摘：移動時のはみ出しをtranslateMemoで直したのと
+ * 同じ問題が、最初に置く瞬間にも起こる）。
+ * 原点(0,0)を中心にした箱を「原点からdesiredへ」動かす移動として捉え、
+ * restrictTranslationに任せる（原点中心の箱は大抵境界に収まるため、境界に
+ * 収まる範囲でdesiredにできるだけ近づける、という挙動になる）。原点に置いても
+ * 箱が境界に収まりきらないほど大きい場合（レアケース）は、restrictTranslationが
+ * 移動量0を返すため、そのまま原点を返す。
+ */
+export function clampBoxCenter(
+  desired: Point,
+  halfWidth: number,
+  halfHeight: number,
+  clamp: (p: Point) => Point
+): Point {
+  const cornersAtOrigin: Point[] = [
+    { x: -halfWidth, y: -halfHeight },
+    { x: halfWidth, y: -halfHeight },
+    { x: -halfWidth, y: halfHeight },
+    { x: halfWidth, y: halfHeight },
+  ];
+  const { dx, dy } = restrictTranslation(cornersAtOrigin, desired.x, desired.y, clamp);
+  return { x: dx, y: dy };
 }
 
 /**
