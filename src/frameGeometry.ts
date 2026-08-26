@@ -1,4 +1,11 @@
-import { computeAutoScale, computeContainerSize, computeRectSize, computeSquareSize, fitCanvasToContainer } from "./canvasSizing";
+import {
+  computeAutoScale,
+  computeChromeCenterOffsetY,
+  computeContainerSize,
+  computeRectSize,
+  computeSquareSize,
+  fitCanvasToContainer,
+} from "./canvasSizing";
 import {
   getFrameShape,
   getGlassesFrameShape,
@@ -125,7 +132,13 @@ export class FrameGeometry {
    *  大きさ自体は変えないため（issue #83、ユーザー指示）。frameKind==="glasses"の
    *  場合は、正方形ではなくGLASSES_HORIZONTAL_REACH_WITH_HINGE/GLASSES_VERTICAL_REACH比の
    *  横長矩形として広げる——縦横で必要な余白（縁取り・ヒンジぶん）が異なるため、軸ごとに
-   *  computeAutoScaleした小さい方をscaleとして採用する。 */
+   *  computeAutoScaleした小さい方をscaleとして採用する。
+   *
+   *  中心（centerPxValue）はキャンバス要素の幾何中心からcomputeChromeCenterOffsetY()
+   *  ぶんだけ上へ補正する——ヘッダー・フッターは画面の真の上端／下端に固定表示
+   *  される半透明の帯で、キャンバス要素自体はその下まで含めて画面いっぱいに
+   *  広がるため、補正しないとフッター（ヘッダーより背が高い）側へ円が寄って
+   *  見えてしまう（ユーザー指摘）。 */
   resize(): void {
     // #app（style.css）はmin-height:100dvhで最低限のみ保証しており、キャンバスの
     // 実サイズ（style幅高さ）自体もその祖先の「中身から決まる高さ」に数えられる
@@ -165,7 +178,10 @@ export class FrameGeometry {
       this.canvas.width = Math.round(containerSize.width * this.dpr);
       this.canvas.height = Math.round(containerSize.height * this.dpr);
       this.scaleValue = scale;
-      this.centerPxValue = { x: containerSize.width / 2, y: containerSize.height / 2 };
+      this.centerPxValue = {
+        x: containerSize.width / 2,
+        y: containerSize.height / 2 - computeChromeCenterOffsetY(),
+      };
     } else {
       const referenceSize = computeSquareSize(this.container);
       const containerSize = computeContainerSize(this.container);
@@ -179,7 +195,7 @@ export class FrameGeometry {
         containerSize
       );
       this.scaleValue = scale;
-      this.centerPxValue = centerPx;
+      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY() };
     }
     this.rebuildFramePaths();
   }
