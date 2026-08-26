@@ -24,7 +24,6 @@ import {
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
-import { ExportControl } from "./exportControl";
 
 // テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
 // 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
@@ -42,7 +41,6 @@ app.innerHTML = `
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
-      <div id="export-slot"></div>
       <div id="settings-slot"></div>
     </div>
   </header>
@@ -83,16 +81,28 @@ let disconnectRealtime: (() => void) | null = null;
 // onSelectRoomから呼ぶ。selectRoom自体はスクロールの都合でsmuiViewが持つ）。
 let subscribeToRoom: ((canvasId: string) => void) | null = null;
 
-// 設定メニュー（テーマ・使い方に加え、アカウント区画を持つ）を先に作り、その
-// アカウント区画の枠にmountAccountWidgetでClerkの中身（未ログイン時のログイン
-// ボタン／ログイン中のユーザーアイコン・メニュー）を描き込む——以前はヘッダーに
-// 独立した専用の枠(#account-slot)を持っていたが、設定ボタンの隣に並んでいるのが
+// 設定メニュー（テーマ・使い方・エクスポートに加え、アカウント区画を持つ）を
+// 先に作り、そのアカウント区画の枠にmountAccountWidgetでClerkの中身
+// （未ログイン時のログインボタン／ログイン中のアカウント情報ボタン）を
+// 描き込む——以前はヘッダーに独立した専用の枠(#account-slot)や書き出し
+// ボタン(#export-slot)を持っていたが、設定ボタンの隣に並んでいるのが
 // 冗長という指摘のため、設定メニューの中へ完全に統合した。
+//
+// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
+// してしまわないようnullを返す——ExportSection側はnullなら書き出さず
+// エラー表示に留める。canvasView/smuiView/currentViewはこの時点ではまだ
+// 定義されていないが、このコールバックは書き出しボタンが押された時にだけ
+// 呼ばれるため、それまでに定義が済んでいれば問題ない。
 const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
-const settingsMenu = new SettingsMenu(settingsSlot, loadThemePreference(), (pref) => {
-  saveThemePreference(pref);
-  applyTheme(pref);
-});
+const settingsMenu = new SettingsMenu(
+  settingsSlot,
+  loadThemePreference(),
+  (pref) => {
+    saveThemePreference(pref);
+    applyTheme(pref);
+  },
+  () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView)
+);
 
 void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   if (session) {
@@ -280,13 +290,6 @@ new SharedRoomMenu(
 
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "shared" = "canvas";
-
-// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
-// してしまわないようnullを返す——ExportControl側はnullなら書き出さず
-// エラー表示に留める。
-new ExportControl(document.querySelector<HTMLDivElement>("#export-slot")!, () =>
-  currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView
-);
 
 // キャンバス／共有タブをURLに反映する。パス（例: /shared）ではなくクエリ
 // パラメータにしているのは、静的ホスティング（Vercel/Netlify/GitHub Pages等、

@@ -57,15 +57,12 @@ export async function mountAccountWidget(
   }
 
   // Clerk本体（@clerk/ui含む）の読み込みには時間がかかるため、それを待たずに
-  // ログイン前のグレーアイコンだけ先に表示しておく（ユーザー指摘：後から
-  // ポップインして見えるのが気になる）。クリックはまだClerkの準備前なので
-  // 受け付けず、読み込み完了後にsync()が同じ見た目のボタンへ差し替える。
+  // 読み込み中を表す文言だけ先に表示しておく（ユーザー指摘：後からポップイン
+  // して見えるのが気になる）。クリックはまだClerkの準備前なので受け付けず、
+  // 読み込み完了後にsync()が実際のボタンへ差し替える。
   const badge = document.createElement("div");
   badge.className = "account-badge";
-  badge.innerHTML =
-    '<button type="button" class="account-signin-btn" aria-label="ログイン" disabled>' +
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg>' +
-    "</button>";
+  badge.innerHTML = '<button type="button" class="pill-btn account-text-btn" disabled>アカウント</button>';
   container.appendChild(badge);
 
   await loadClerkUiBundle(PUBLISHABLE_KEY);
@@ -78,22 +75,19 @@ export async function mountAccountWidget(
         colorPrimary: "oklch(22% 0.012 55)",
         fontFamily: '"Noto Sans JP", sans-serif',
       },
-      // .account-user-button（28px固定）と実際のアバター表示サイズを揃え、
-      // 読み込み完了時にサイズが変わってヘッダーがずれるのを防ぐ（ユーザー指摘）。
-      elements: {
-        userButtonAvatarBox: { width: "28px", height: "28px" },
-      },
     },
   } as Parameters<typeof clerk.load>[0]);
 
+  // アイコンのみのボタンだと未ログイン/ログイン中の状態が伝わりにくかった
+  // （ユーザー指示：文字だけのボタンにしたい）ため、ClerkのUserButton
+  // ウィジェットは使わず、状態に応じた文言のテキストボタンから直接
+  // openSignIn/openUserProfileを呼ぶ。
   function renderSignedOut(): void {
     badge.innerHTML = "";
     const signInBtn = document.createElement("button");
     signInBtn.type = "button";
-    signInBtn.className = "account-signin-btn";
-    signInBtn.setAttribute("aria-label", "ログイン");
-    signInBtn.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6"/></svg>';
+    signInBtn.className = "pill-btn account-text-btn";
+    signInBtn.textContent = "ログイン / 新規登録";
     signInBtn.addEventListener("click", () => {
       void clerk.openSignIn({});
     });
@@ -102,10 +96,25 @@ export async function mountAccountWidget(
 
   function renderSignedIn(): void {
     badge.innerHTML = "";
-    const userButtonSlot = document.createElement("div");
-    userButtonSlot.className = "account-user-button";
-    badge.appendChild(userButtonSlot);
-    void clerk.mountUserButton(userButtonSlot);
+    const profileBtn = document.createElement("button");
+    profileBtn.type = "button";
+    profileBtn.className = "pill-btn account-text-btn";
+    profileBtn.textContent = "アカウント情報";
+    profileBtn.addEventListener("click", () => {
+      void clerk.openUserProfile({});
+    });
+    badge.appendChild(profileBtn);
+
+    // ログイン中だけ「アカウント情報」の下にログアウトボタンを出す
+    // （ユーザー指示：ログアウト手段がなかった。未ログイン時は不要）。
+    const signOutBtn = document.createElement("button");
+    signOutBtn.type = "button";
+    signOutBtn.className = "pill-btn account-text-btn";
+    signOutBtn.textContent = "ログアウト";
+    signOutBtn.addEventListener("click", () => {
+      void clerk.signOut();
+    });
+    badge.appendChild(signOutBtn);
   }
 
   let wasSignedIn = false;

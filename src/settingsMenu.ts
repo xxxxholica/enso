@@ -1,5 +1,6 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
+import { ExportSection, type ExportSource } from "./exportControl";
 import { ICONS } from "./icons";
 import type { ThemePreference } from "./storage";
 import { openUsageGuide } from "./usageGuide";
@@ -19,10 +20,12 @@ const THEME_LABEL: Record<ThemePreference, string> = {
 /**
  * ヘッダーの「設定」ボタン（ユーザー指示：設定ボタンを追加してテーマ変更
  * 機能を入れたい）。テーマ（自動/ライト/ダーク）に加え、ヘッダーに個別に
- * あった「使い方」ボタンと、アカウント（ログイン・ログアウト自体はClerkの
- * ウィジェットがgetAccountSlot()の枠に描く、main.ts参照）もここに統合する。
- * 各区画は共有ルームメニュー(sharedRoomMenu.ts)と同じ.shared-menu-section/
- * .shared-section-labelパターンで区切る。
+ * あった「使い方」ボタン・エクスポート機能、アカウント（ログイン・ログアウト
+ * 自体はClerkのウィジェットがgetAccountSlot()の枠に描く、main.ts参照）も
+ * ここに統合する。各区画は共有ルームメニュー(sharedRoomMenu.ts)と同じ
+ * .shared-menu-section/.shared-section-labelパターンで区切るが、区画数が
+ * 増えて仕切り線が煩雑になったため、この設定ポップオーバー内に限り
+ * 仕切り線(border-top)だけをCSS側で打ち消している（余白は残す）。
  *
  * トリガーはアイコンのみ（ユーザー指示）——「設定」の文字はaria-labelで
  * スクリーンリーダーにだけ伝える。
@@ -45,7 +48,12 @@ export class SettingsMenu {
   private themeButtons = new Map<ThemePreference, HTMLButtonElement>();
   private accountSlot!: HTMLElement;
 
-  constructor(container: HTMLElement, initialTheme: ThemePreference, onThemeChange: (pref: ThemePreference) => void) {
+  constructor(
+    container: HTMLElement,
+    initialTheme: ThemePreference,
+    onThemeChange: (pref: ThemePreference) => void,
+    getExportSource: () => ExportSource | null
+  ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
 
@@ -87,6 +95,7 @@ export class SettingsMenu {
     this.popover.appendChild(themeSection);
 
     this.popover.appendChild(this.buildUsageSection());
+    this.popover.appendChild(new ExportSection(getExportSource, () => this.close()).element);
     this.popover.appendChild(this.buildAccountSection());
 
     this.anchor.appendChild(this.popover);
@@ -97,7 +106,8 @@ export class SettingsMenu {
 
   /** ヘッダーに独立してあった「使い方」ボタン（main.ts）をここに統合。
    *  再視聴時はonCloseを渡さない＝閉じた後にテンプレート選択へは続かない
-   *  （main.ts側の初回フローと同じopenUsageGuideをただ呼ぶだけ）。 */
+   *  （main.ts側の初回フローと同じopenUsageGuideをただ呼ぶだけ）。
+   *  テーマ行と左右の余白が揃うよう、幅いっぱいに広げる（ユーザー指示）。 */
   private buildUsageSection(): HTMLElement {
     const section = document.createElement("div");
     section.className = "shared-menu-section";
@@ -108,7 +118,7 @@ export class SettingsMenu {
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "pill-btn";
+    btn.className = "pill-btn settings-usage-btn";
     btn.textContent = "使い方を見る";
     btn.addEventListener("click", () => {
       this.close();

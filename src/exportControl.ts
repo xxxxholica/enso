@@ -1,7 +1,3 @@
-import { ICONS } from "./icons";
-import { createFadeVisibility } from "./fadeVisibility";
-import { notifyClose, notifyOpen } from "./exclusivePopover";
-
 export interface ExportSource {
   createExportImage(): Promise<Blob>;
   getExportText(): string;
@@ -24,109 +20,83 @@ function download(blob: Blob, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-/** ヘッダーに常時表示するローカル書き出しボタン。外部サービスとは通信しない。 */
-export class ExportControl {
-  private button: HTMLButtonElement;
-  private anchor: HTMLElement;
-  private popover: HTMLElement;
-  private popoverFade: (show: boolean) => void;
+/** 設定メニュー内の「エクスポート」区画（ユーザー指示：ヘッダー独立の
+ *  書き出しボタンを設定メニューへ統合し、「PNG」「TXT」を1行に並べる）。
+ *  以前あった「両方」を一度に書き出す選択肢は廃止した——設定メニューは
+ *  既に開いている状態でこの区画を出すため、このクラス自身は独自の
+ *  トリガー・ポップオーバーの開閉状態を持たない。 */
+export class ExportSection {
+  readonly element: HTMLElement;
   private statusEl: HTMLElement;
-  private open = false;
-  private readonly closeRef = () => this.close();
+  private pngBtn: HTMLButtonElement;
+  private txtBtn: HTMLButtonElement;
+  private getSource: () => ExportSource | null;
+  private onExported?: () => void;
 
   /** getSourceは、共有(レンズ)タブでルームが未選択の間はnullを返す想定
    *  ——プレースホルダーの空Storeに対して無警告で空PNG/txtを書き出して
-   *  しまわないよう、runExport側でnullを弾く。 */
-  constructor(container: HTMLElement, getSource: () => ExportSource | null) {
-    this.anchor = document.createElement("div");
-    this.anchor.className = "icon-anchor";
+   *  しまわないよう、runExport側でnullを弾く。onExportedは書き出し成功後に
+   *  設定メニュー自体を閉じるために使う（旧ExportControlのclose()相当）。 */
+  constructor(getSource: () => ExportSource | null, onExported?: () => void) {
+    this.getSource = getSource;
+    this.onExported = onExported;
 
-    this.button = document.createElement("button");
-    this.button.type = "button";
-    this.button.className = "pill-btn settings-trigger export-trigger";
-    this.button.setAttribute("aria-label", "殴り書きを書き出す");
-    this.button.setAttribute("aria-haspopup", "menu");
-    this.button.setAttribute("aria-expanded", "false");
-    this.button.title = "書き出す";
-    this.button.innerHTML = ICONS.export;
-    this.button.addEventListener("click", () => this.toggle());
-    this.anchor.appendChild(this.button);
+    this.element = document.createElement("div");
+    this.element.className = "shared-menu-section";
 
-    this.popover = document.createElement("div");
-    this.popover.className = "export-popover icon-popover icon-popover--below";
-    this.popover.setAttribute("role", "menu");
-    this.popover.hidden = true;
-    this.popoverFade = createFadeVisibility(this.popover);
+    const label = document.createElement("div");
+    label.className = "shared-section-label";
+    label.textContent = "エクスポート";
+    this.element.appendChild(label);
 
-    const choices: Array<{ label: string; kind: "text" | "image" | "both" }> = [
-      { label: "txtのみ", kind: "text" },
-      { label: "画像のみ", kind: "image" },
-      { label: "両方", kind: "both" },
-    ];
-    for (const choice of choices) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "export-option";
-      item.setAttribute("role", "menuitem");
-      item.textContent = choice.label;
-      item.addEventListener("click", () => void this.runExport(choice.kind, getSource));
-      this.popover.appendChild(item);
-    }
-    this.anchor.appendChild(this.popover);
+    const row = document.createElement("div");
+    row.className = "export-row";
+    this.pngBtn = this.buildButton("PNG", () => void this.runExport("image"));
+    this.txtBtn = this.buildButton("TXT", () => void this.runExport("text"));
+    row.append(this.pngBtn, this.txtBtn);
+    this.element.appendChild(row);
 
     // 失敗時・ルーム未選択時のエラーだけをここに出す(成功時はダウンロードが
-    // 始まること自体が合図になるため、成功メッセージは出さずポップオーバーを
-    // 閉じる——sharedRoomMenu.tsのstatusElと同じ考え方)。
+    // 始まること自体が合図になるため、成功メッセージは出さない——
+    // sharedRoomMenu.tsのstatusElと同じ考え方)。
     this.statusEl = document.createElement("p");
     this.statusEl.className = "export-status";
-    this.popover.appendChild(this.statusEl);
-
-    container.appendChild(this.anchor);
+    this.element.appendChild(this.statusEl);
   }
 
-  private toggle(): void {
-    if (this.open) this.close();
-    else {
-      notifyOpen(this.closeRef, this.anchor);
-      this.open = true;
-      this.button.dataset.active = "true";
-      this.button.setAttribute("aria-expanded", "true");
-      this.popoverFade(true);
-    }
+  private buildButton(label: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pill-btn export-row-btn";
+    btn.textContent = label;
+    btn.addEventListener("click", onClick);
+    return btn;
   }
 
-  private close(): void {
-    if (!this.open) return;
-    this.open = false;
-    this.button.dataset.active = "false";
-    this.button.setAttribute("aria-expanded", "false");
-    this.popoverFade(false);
-    notifyClose(this.closeRef);
-  }
-
-  private async runExport(kind: "text" | "image" | "both", getSource: () => ExportSource | null): Promise<void> {
-    const source = getSource();
+  private async runExport(kind: "text" | "image"): Promise<void> {
+    const source = this.getSource();
     if (!source) {
       this.statusEl.textContent = "書き出す前にルームを選択してください";
       return;
     }
     this.statusEl.textContent = "";
-    this.button.disabled = true;
+    this.pngBtn.disabled = true;
+    this.txtBtn.disabled = true;
     try {
       const stamp = timestampForFile(new Date());
-      if (kind === "image" || kind === "both") {
+      if (kind === "image") {
         const image = await source.createExportImage();
         download(image, `ensou-${stamp}.png`);
-      }
-      if (kind === "text" || kind === "both") {
+      } else {
         const text = source.getExportText();
         download(new Blob([text], { type: "text/plain;charset=utf-8" }), `ensou-${stamp}.txt`);
       }
-      this.close();
+      this.onExported?.();
     } catch (e) {
       this.statusEl.textContent = e instanceof Error ? e.message : "書き出しに失敗しました";
     } finally {
-      this.button.disabled = false;
+      this.pngBtn.disabled = false;
+      this.txtBtn.disabled = false;
     }
   }
 }
