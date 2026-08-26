@@ -135,12 +135,21 @@ const onToolChange = () => {
   smuiView.closeWritingSessions();
   smuiView.finishTextEditingIfOpen();
 };
-// テンプレート挿入は「今表示中の画面」の共有キャンバス／通常キャンバスに置く
-// （道具バー自体はキャンバス・共有の両画面で共通の1つのインスタンスを使い回すため）。
-const toolbar = new Toolbar(primarySlot, onToolChange, (id) => {
-  if (currentView === "shared") smuiView.beginPlacingTemplate(id);
-  else canvasView.beginPlacingTemplate(id);
-});
+// テンプレート挿入・「戻る」はどちらも「今表示中の画面」の共有キャンバス／
+// 通常キャンバスに対して行う（道具バー自体はキャンバス・共有の両画面で
+// 共通の1つのインスタンスを使い回すため）。
+const toolbar = new Toolbar(
+  primarySlot,
+  onToolChange,
+  (id) => {
+    if (currentView === "shared") smuiView.beginPlacingTemplate(id);
+    else canvasView.beginPlacingTemplate(id);
+  },
+  () => {
+    if (currentView === "shared") smuiView.undo();
+    else canvasView.undo();
+  }
+);
 // 「消えるまでの期間」は選べる仕様をやめ常に1日固定にした（fade.tsのFIXED_LIFESPAN_DAYS）
 // ため、この枠は旧振り返りビューが持っていた「過去に遡って見る」スライダーとして
 // 転用する（ユーザー指示）。個人キャンバス専用の機能なので、キャンバス表示中だけ

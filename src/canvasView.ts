@@ -316,18 +316,6 @@ export class CircularCanvas {
   private tapGestureValid = true;
   /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
   private tapGestureStartAt = 0;
-  /** テキスト道具のタップは1本目の指が触れた瞬間に即座にtextarea編集を開く
-   *  （synchronousなfocus()が必須なため——canvasView.ts冒頭のJSDoc参照）。
-   *  2本指タップの1本目としてこれが開いてしまった場合に備え、いつ開いたかを
-   *  記録しておく（onGlobalPointerUpの複数指タップ判定から参照——今回の
-   *  マルチタッチが始まった後に開かれたものだけ、タップと確定した時点で
-   *  取り消す。文字入力を実際に始めてから長く経っている場合は、後から乗った
-   *  無関係な指で誤って入力中の内容を消さないよう対象外にする）。 */
-  private textEditorOpenedAt: number | null = null;
-  /** 開いているtext-editor-overlayをEscapeと同じ扱いで取り消す関数
-   *  （openTextEditorが設定・閉じるときにnullへ戻す）。複数指タップの判定
-   *  （onGlobalPointerUp）から、キー入力を経ずに取り消すために使う。 */
-  private cancelTextEditor: (() => void) | null = null;
   /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
    *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
    *  ROTATE_MIN_RADIUS_PXになる。 */
@@ -785,10 +773,15 @@ export class CircularCanvas {
 
   /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
    *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
-   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ
-   *  （issue #90）。1本目の指が触れた瞬間に暫定的に行われてしまった操作
-   *  （消しゴム・なぞる復活・テキスト編集の開始）があれば、実際にはこの
-   *  マルチタッチ全体がタップだったとみなして後始末する。 */
+   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ（issue #90）。
+   *  「選択」道具を選んでいる間だけ判定する——ペン・消しゴム等では1本目の指が
+   *  触れた瞬間に即座にストアを書き換える（ensureUndoSnapshot）ため、タップと
+   *  確定する前の暫定的な書き換えがundo/redoの履歴と絡み合ってしまい、特に
+   *  3本指タップ（redo）はその暫定書き換え自体がredo履歴を消してしまって
+   *  正しく機能しないことがあった（実機で再現確認）。選択道具は1本目の指
+   *  だけでは何も書き換えない（実際に動かして初めてtranslateMemoが呼ばれる）
+   *  ため、この問題が起きない。ペン等でも取り消したい場合は、道具バーの
+   *  「戻る」ボタン（toolbar.ts）を使う。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
     // Safariのダブルタップズームは指の移動量ではなく、連続する2回のタップの
@@ -806,40 +799,15 @@ export class CircularCanvas {
       this.pinch = null;
     }
     if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
+    if (this.getToolState().tool !== "move") return;
 
     const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
     if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
 
-    // テキスト道具で1本目の指により開いたtextareaが、今回のマルチタッチの
-    // 塊が始まった後に開かれたものであれば（textEditorOpenedAtのコメント
-    // 参照）、タップと確定したこの時点で取り消す。
-    if (this.textEditor && this.textEditorOpenedAt !== null && this.textEditorOpenedAt >= this.tapGestureStartAt) {
-      this.cancelTextEditor?.();
-    }
-    // 1本目の指が触れた瞬間に暫定的に行われてしまった操作（ペン・マーカーの
-    // 1点だけのストローク、消しゴムでの消去、なぞる復活など）があれば、まず
-    // 無かったことにする——ここで止めて「これ自体が取り消しの意図を満たす」
-    // と扱うと、ペン・消しゴム等では常にこの暫定操作の後始末だけで終わり、
-    // 本来取り消したかった直前の実際の操作まで辿り着けなくなる（選択道具は
-    // 1本目の指だけでは何も書き換えないため、この不具合が出ず「選択道具でだけ
-    // 動く」ように見えていた——ユーザー報告・実機で再現確認）。暫定操作の
-    // 後始末はあくまで前処理とし、その上で必ず本来のundo/redoを呼ぶ。
-    if (this.undoSnapshotTaken) {
-      this.store.discardPendingMutation();
-      this.undoSnapshotTaken = false;
-    }
     if (this.tapGesturePeakCount === 2) {
       this.store.undo();
     } else {
-      // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）。
-      // 既知の制約: ペン・消しゴム等（1本目の指で即座にensureUndoSnapshotが
-      // 呼ばれる道具）で3本指タップした場合、その1本目の指の暫定操作自体が
-      // snapshotForUndo経由でredo履歴を消してしまっているため、直前に
-      // 本当にredoできる操作があってもここでは何も起きないことがある
-      // （選択・テキスト道具は1本目の指で即座に書き換えないため影響しない）。
-      // 対処には「確定するまでredo履歴を消さない」仕組みが必要になり、今回の
-      // スコープでは見送った。
-      this.store.redo();
+      this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
     }
   };
 
@@ -992,7 +960,6 @@ export class CircularCanvas {
     const widthMeasureFontSize = Math.max(fontSize, (displayFontPx * REFERENCE_RADIUS) / scaleAtOpen);
     document.body.appendChild(el);
     this.textEditor = el;
-    this.textEditorOpenedAt = Date.now();
 
     // モバイルでtextareaにフォーカスすると、ブラウザが「フォーカスした要素が画面内に
     // 収まるように」ページ全体を自動でスクロールすることがある。このtextareaは
@@ -1081,18 +1048,9 @@ export class CircularCanvas {
     });
 
     let cancelled = false;
-    // issue #90: 複数指タップの判定（onGlobalPointerUp）から、Escapeキーを
-    // 経ずにこのtextareaを取り消せるようにする（2本指タップの1本目でこの
-    // textareaが開いてしまった場合の後始末）。
-    this.cancelTextEditor = () => {
-      cancelled = true;
-      el.blur();
-    };
     const commit = () => {
       if (this.textEditor !== el) return; // すでに片付け済みなら何もしない
       this.textEditor = null;
-      this.textEditorOpenedAt = null;
-      this.cancelTextEditor = null;
       this.repositionTextEditor = null;
       this.restoreBodyScroll?.();
       const value = el.value.trim();
@@ -1146,6 +1104,13 @@ export class CircularCanvas {
   /** 編集中のテキストがあれば確定する（画面切り替え・道具切り替え時に呼ぶ）。 */
   finishTextEditingIfOpen(): void {
     this.textEditor?.blur();
+  }
+
+  /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
+   *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
+   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。 */
+  undo(): void {
+    this.store.undo();
   }
 
   /**
