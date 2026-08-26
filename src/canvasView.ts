@@ -292,12 +292,13 @@ export class CircularCanvas {
    *  ルームマスター以外の操作を止めるためのロック(setLocked参照)。
    *  rewindAtと違い描画自体は普段どおり続ける（見るだけはできる）。 */
   private locked = false;
-  /** 共同アイデア出しセッションのフェーズ③(投票)で、ルームマスター以外の
-   *  参加者を「なぞる」道具での投票ジェスチャーだけに絞るためのロック
-   *  （issue #79：非マスターがペン等で描画・消去・移動できてしまっていた
-   *  不具合の修正）。lockedと違い、なぞる操作の開始（onPointerDown内の
-   *  tracing突入）だけは通す——投票の回転はこの後に始まるtracingから
-   *  続くため。 */
+  /** 共同アイデア出しセッションのフェーズ③(投票)で、「選択」道具での
+   *  掴んで回転させる投票ジェスチャーだけに絞るためのロック（issue #79：
+   *  参加者がペン等で描画・消去できてしまっていた不具合の修正）。
+   *  投票の回転はupdateRotationGestureが担い、これは「選択」道具で
+   *  掴んだ(mode: "moving")時にしか始まらないため、ここで通すのは
+   *  「選択」道具だけでよい——lockedと違い、その開始（onPointerDown内の
+   *  moving突入）だけは通す。 */
   private voteOnly = false;
   /** 投票フェーズの相対密度（人気度）を、メモの色の濃さへ滑らかに反映させる
    *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/maxHeatや
@@ -427,11 +428,12 @@ export class CircularCanvas {
     this.locked = locked;
   }
 
-  /** 共有キャンバスの共同アイデア出しセッション、フェーズ③(投票)で
-   *  ルームマスター以外の参加者を「なぞる」道具での投票ジェスチャーだけに
-   *  絞るために呼ぶ（smuiView.ts）。setLockedと同時にはtrueにしない
-   *  ——setLocked(true)は新しい操作の開始そのものを一括で止めるため、
-   *  投票の「なぞる」も道連れに止まってしまう。 */
+  /** 共有キャンバスの共同アイデア出しセッション、フェーズ③(投票)で、
+   *  「選択」道具での掴んで回転させる投票ジェスチャーだけに絞るために呼ぶ
+   *  （smuiView.ts）。主催者を含め全員に掛ける（issue #79：投票中は主催者も
+   *  含めて選択ツール以外は使えないようにしたい、というユーザー指示）。
+   *  setLockedと同時にはtrueにしない——setLocked(true)は新しい操作の
+   *  開始そのものを一括で止めるため、投票の「選択」も道連れに止まってしまう。 */
   setVoteOnly(voteOnly: boolean): void {
     this.voteOnly = voteOnly;
   }
@@ -558,10 +560,10 @@ export class CircularCanvas {
   private onPointerDown = (ev: PointerEvent): void => {
     ev.preventDefault();
     if (this.rewindAt !== null || this.locked) return; // 過去を遡って見ている間・ロック中は描画・操作を受け付けない
-    // 投票専用ロック中は、「なぞる」以外の道具（ペン・消しゴム・移動・テキスト）
-    // では何も始めない——投票フェーズの操作は掴んで回す(tracing)ジェスチャー
-    // だけに絞る（issue #79：非マスターがペンで描画できてしまっていた不具合）。
-    if (this.voteOnly && this.getToolState().tool !== "trace") return;
+    // 投票専用ロック中は、「選択」以外の道具（ペン・消しゴム・なぞる・テキスト）
+    // では何も始めない——投票フェーズの操作は「選択」で掴んで回すジェスチャー
+    // だけに絞る（issue #79：参加者がペンで描画できてしまっていた不具合）。
+    if (this.voteOnly && this.getToolState().tool !== "move") return;
     // ピンチ中、または既に他の指が1本指ジェスチャーを進行させている間は、
     // 2本目以降の指をここでは扱わない——ピンチの検知・開始はキャンバスの
     // 外側も含めてonGlobalPointerDownがwindowレベルで一括して行う。

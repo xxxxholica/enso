@@ -787,11 +787,16 @@ body {
 }
 
 /* 共有ルームの見た目(見た目の設定、appearanceSelector.ts)がルームマスターに
-   よって固定されている間、非マスターは押せない。今選ばれているものが
-   何かは分かるよう、選択中(data-active)だけは薄くしない。 */
+   よって固定されている間、非マスターは押せない。投票フェーズ中に「選択」
+   以外の道具を締め出す場合(toolbar.ts setOnlyToolEnabled)も同じ見た目を使う。
+   選択中(data-active)は薄くしないが、グレースケール化はして「今は固定されて
+   いる」ことを示す——不透明度の差(0.55→0.3)だけでは、単に「今選ばれていない
+   道具」との見分けが付きにくく、参加者から見て本当にロックされているのか
+   分かりづらいという指摘があった（issue #79）。 */
 .toolbar-btn:disabled {
-  cursor: default;
+  cursor: not-allowed;
   pointer-events: none;
+  filter: grayscale(1);
 }
 
 .toolbar-btn:disabled:not([data-active="true"]) {

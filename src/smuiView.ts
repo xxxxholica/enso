@@ -186,18 +186,21 @@ export class SmuiView {
     return null;
   }
 
-  /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効)と
-   *  実際のキャンバスの書き込み可否(CircularCanvas.setLocked/setVoteOnly)を
-   *  揃える。フェーズ②(議論)はルームマスター以外を完全に読み取り専用にする
-   *  ——「話し合いの時間」であって、書き込むための時間ではないため。
-   *  フェーズ③(投票)は誰でも道具バーを触れる必要がある（投票用の「なぞる」を
-   *  選ぶため）が、非マスターは実際にはそれ以外の道具で描画・消去・移動が
-   *  できてしまっていた（issue #79）ため、setVoteOnlyで「なぞる」以外を
-   *  実際に無効化する。 */
+  /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
+   *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked/
+   *  setVoteOnly)を揃える。フェーズ②(議論)はルームマスター以外を完全に
+   *  読み取り専用にする——「話し合いの時間」であって、書き込むための時間
+   *  ではないため。フェーズ③(投票)は「選択」道具で掴んで回す投票ジェスチャー
+   *  だけに絞る——主催者を含め全員が対象（issue #79：ユーザー指示）。
+   *  setOnlyToolEnabled("move")で道具バー側もそれ以外を実際に押せなく＆
+   *  薄くし、setVoteOnlyでキャンバス側も同様に絞る（片方だけだと、道具バー上は
+   *  選べないのにキャンバスへの旧来の直接操作は残る、または逆に道具バー上は
+   *  選べてしまうのにキャンバスだけ弾く、という食い違いが起きるため両方合わせる）。 */
   private applyRestrictions(): void {
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
       this.lens.setVoteOnly(false);
       return;
@@ -206,18 +209,21 @@ export class SmuiView {
     if (this.session.phase === "discussion") {
       this.toolbar.setEnabled(isMaster);
       this.toolbar.setColorLocked(true);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(!isMaster);
       this.lens.setVoteOnly(false);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
+      this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
       this.lens.setVoteOnly(false);
     } else {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
+      this.toolbar.setOnlyToolEnabled("move");
       this.lens.setLocked(false);
-      this.lens.setVoteOnly(!isMaster);
+      this.lens.setVoteOnly(true);
     }
   }
 

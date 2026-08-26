@@ -124,6 +124,11 @@ export class Toolbar {
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
+  /** setOnlyToolEnabled参照。投票フェーズ中、「選択」以外の道具ボタンを
+   *  実際に押せなく＆薄くする（issue #79）。colorLockedと同じ理由で、
+   *  syncPill()側で毎回加味する専用フィールドにしてある——setTool()経由の
+   *  syncAll()呼び出しで消えてしまわないようにするため。 */
+  private toolRestrictedTo: ToolbarTool | null = null;
 
   private thicknessWrap!: HTMLElement;
   private thicknessLabel!: HTMLElement;
@@ -257,7 +262,22 @@ export class Toolbar {
       const active = this.tool === tool;
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
+      btn.disabled = this.toolRestrictedTo !== null && tool !== this.toolRestrictedTo;
     }
+  }
+
+  /** 共同アイデア出しセッションのフェーズ③(投票)専用: 指定した道具以外を
+   *  押せなく＆薄くする（issue #59の投票ジェスチャーは「選択」道具で行うため、
+   *  投票中はそれ以外の道具で描画・消去できてしまわないようにする、
+   *  issue #79）。nullで解除。今の道具が許可対象でなければ、その道具へ
+   *  強制的に切り替える——押せないボタンが選択中のまま残らないように。 */
+  setOnlyToolEnabled(tool: ToolbarTool | null): void {
+    this.toolRestrictedTo = tool;
+    if (tool !== null && this.tool !== tool) {
+      this.setTool(tool);
+      return; // setTool内のsyncAll()がsyncPill()も呼ぶため二重には呼ばない
+    }
+    this.syncPill();
   }
 
   /** 道具ボタンにホバー用の小さな案内（ペン／マーカー／テキスト／選択／なぞる／
