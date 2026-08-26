@@ -418,6 +418,39 @@ describe("MemoStore", () => {
       expect(updated.y).toBeCloseTo(0);
     });
 
+    it("テキストボックスの端が円をはみ出さない範囲までしか移動しない（箱が枠内に収まる場合）", () => {
+      const store = new MemoStore();
+      const memo = store.createTextMemo(
+        { x: 0.4, y: 0.1 },
+        "note",
+        ["note"],
+        24,
+        0.4, // boxWidth -> halfW=0.2
+        0.1, // boxHeight -> halfH=0.05
+        { color: "#000", lifespanDays: null },
+        0
+      );
+
+      store.translateMemo(memo.id, 0.5, 0); // 中心だけなら(0.9,0)まで動けるが、箱の右端が円をはみ出す
+
+      const updated = store.getActive()[0];
+      if (updated.kind !== "text") throw new Error("expected text memo");
+      const halfW = updated.boxWidth / 2;
+      const halfH = updated.boxHeight / 2;
+      const corners = [
+        { x: updated.x - halfW, y: updated.y - halfH },
+        { x: updated.x + halfW, y: updated.y - halfH },
+        { x: updated.x - halfW, y: updated.y + halfH },
+        { x: updated.x + halfW, y: updated.y + halfH },
+      ];
+      for (const c of corners) {
+        expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(1 + 1e-9);
+      }
+      // 中心点だけをクランプする従来の実装なら中心はx=1まで動けてしまうため、
+      // 箱の端を考慮した実装ではそれより手前で止まることを確認する。
+      expect(updated.x).toBeLessThan(0.9);
+    });
+
     it("消滅済み（振り返りビュー）のメモは動かせない", () => {
       const store = new MemoStore();
       const memo = store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
