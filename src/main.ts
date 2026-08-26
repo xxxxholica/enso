@@ -6,7 +6,7 @@ import { Toolbar } from "./toolbar";
 import { RewindSelector } from "./rewindSelector";
 import { AppearanceSelector } from "./appearanceSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
-import { setupControlPanelPages } from "./controlPanelPages";
+import { setupControlPanelDrawer } from "./controlPanelDrawer";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
 import { pushOp, refreshFromCloud, setTokenGetter, syncOnSignIn } from "./cloudSync";
@@ -53,13 +53,9 @@ app.innerHTML = `
   </main>
   <footer class="app-footer">
     <div class="control-panel">
-      <div class="control-panel-dots" aria-hidden="true">
-        <button type="button" class="control-panel-dot" data-page="0"></button>
-        <button type="button" class="control-panel-dot" data-page="1"></button>
-        <button type="button" class="control-panel-dot" data-page="2"></button>
-      </div>
-      <div class="control-panel-pages">
+      <div class="control-panel-body">
         <div id="primary-slot"></div>
+        <button type="button" class="control-panel-handle" aria-label="色・振り返りの表示を切り替える" aria-expanded="false"></button>
         <div id="duration-slot" class="fade-visible"></div>
       </div>
     </div>
@@ -131,6 +127,18 @@ void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   }
 });
 
+// .app-footerの高さ（--app-footer-height）は、モバイル幅ではハンドルの開閉で
+// 変わるようになった（style.css .control-panel-body参照）。共有タブの
+// .info-row（見た目の設定・セッション開始等の行）がこの実測値を見てフッターの
+// 裏に隠れないよう自分の位置を調整するため、実際の高さをResizeObserverで
+// 追従させる（決め打ちの値だとハンドル開閉のたびにズレてしまう）。
+const appFooterEl = document.querySelector<HTMLElement>(".app-footer")!;
+const syncAppFooterHeightVar = () => {
+  document.documentElement.style.setProperty("--app-footer-height", `${appFooterEl.getBoundingClientRect().height}px`);
+};
+new ResizeObserver(syncAppFooterHeightVar).observe(appFooterEl);
+syncAppFooterHeightVar();
+
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
 const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
@@ -172,16 +180,13 @@ const onRewindChange = () => {
 };
 const rewindSelector = new RewindSelector(durationSlot, onRewindChange);
 
-// スマホ幅では#primary-slot・#duration-slotの2ブロックを1画面にまとめ、上下
-// スワイプで切り替える（ユーザー指示）。デスクトップ幅では.control-panel-pagesが
-// display:contentsになりスクロールが発生しないため、常時呼んでおいて問題ない。
-// Toolbar/DurationSelectorが実際の中身（.toolbar-tools等）を描画し終えた後で
-// 呼ぶ必要がある——先に呼ぶと.control-panel-pagesがまだ空の状態で初期スクロール
-// 位置を決めてしまい、後から中身が増えた拍子にscroll-snapが2段目へずれてしまう
-// （実機・自動テストで再現確認済み）。
-setupControlPanelPages(
-  document.querySelector<HTMLDivElement>(".control-panel-pages")!,
-  document.querySelector<HTMLDivElement>(".control-panel-dots")!
+// スマホ幅では色/消しゴムサイズ・振り返りシークバーを上部ハンドルの
+// タップ/ドラッグで一行展開する（ユーザー指示）。デスクトップ幅では
+// .control-panel-bodyがdisplay:contentsになりハンドルも隠れるため、
+// 常時呼んでおいて問題ない。
+setupControlPanelDrawer(
+  document.querySelector<HTMLDivElement>(".control-panel-body")!,
+  document.querySelector<HTMLButtonElement>(".control-panel-handle")!
 );
 
 // 空のキャンバスの「＋テンプレートを使用」から開く全画面のテンプレート選択。
@@ -290,6 +295,10 @@ new SharedRoomMenu(
 
 // --- 画面切り替え -------------------------------------------------------
 let currentView: "canvas" | "shared" = "canvas";
+// 共有タブでは振り返りシークバー(#duration-slot)を表示しない（下記setView
+// 参照）ため、その分の余白を色/消しゴムサイズブロックへ回せるよう、
+// style.cssがbody[data-view]を見て判定できるようにしておく。
+document.body.dataset.view = currentView;
 
 // キャンバス／共有タブをURLに反映する。パス（例: /shared）ではなくクエリ
 // パラメータにしているのは、静的ホスティング（Vercel/Netlify/GitHub Pages等、
@@ -326,9 +335,10 @@ function setView(view: "canvas" | "shared"): void {
   // ので、キャンバスタブを離れる時点で「たった今」に戻しておく。
   if (currentView === "canvas") rewindSelector.reset();
   currentView = view;
+  document.body.dataset.view = view;
   syncViewUrl(view);
   document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
-    btn.style.opacity = btn.dataset.view === view ? "1" : "0.45";
+    btn.dataset.active = String(btn.dataset.view === view);
   });
 
   // まず今表示しているキャンバス本体・下部バー・ヘッダーの中身を丸ごと
@@ -367,7 +377,7 @@ const initialView = readInitialView();
 // 場合だけ、setViewと同じ処理で切り替える（ユーザー指示：共有タブでリロード
 // してもキャンバスに戻らないようにしたい）。
 document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
-  btn.style.opacity = btn.dataset.view === "canvas" ? "1" : "0.45";
+  btn.dataset.active = String(btn.dataset.view === "canvas");
 });
 if (initialView === "shared") setView("shared");
 

@@ -325,13 +325,24 @@ export class Toolbar {
 
   // --- 中央ブロック（ツールの詳細ブロック）：色・サイズ -----------------------
 
+  /** モバイル幅では.toolbar-details自身がグリッドの1マス（展開/収納される行）
+   *  になる（style.css参照）。padding/borderをこの要素自身に持たせると、
+   *  グリッド行を高さ0まで畳んでもその分だけ隙間が残ってしまうため
+   *  （padding/borderはoverflow:hiddenで隠せる「中身」に含まれない）、
+   *  見た目（.control-block）は内側のカードに持たせ、この要素自体は
+   *  中身に応じて0まで縮められる素の器にしておく（#duration-slotと
+   *  .duration-seekbarの関係と同じ構造）。 */
   private buildDetails(): void {
     const details = document.createElement("div");
-    details.className = "toolbar-details control-block";
+    details.className = "toolbar-details";
     this.el.appendChild(details);
 
-    this.buildEraserSizeSteps(details);
-    this.buildSwatch(details);
+    const card = document.createElement("div");
+    card.className = "toolbar-details-card control-block";
+    details.appendChild(card);
+
+    this.buildEraserSizeSteps(card);
+    this.buildSwatch(card);
   }
 
   /** 消しゴムの大きさを小/中/大の3段階のボタンから選ぶ（ユーザー指示：GoodNotes

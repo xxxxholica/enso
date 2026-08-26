@@ -226,7 +226,12 @@ export class SessionPanel {
       // 未開始: 誰でも見えるが、マスターでなければ押せない（招待リンク欄などと
       // 同じ、隠すのではなく無効表示にする慣習）。
       this.trigger.disabled = !isMaster;
-      this.triggerLabelEl.textContent = "セッションを開始";
+      // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
+      // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
+      // メディアクエリで出し分けて短縮表示にする（style.css参照）。セッション
+      // 進行中の表示（下のPHASE_LABEL+残り時間）は対象外——常に短い文字列
+      // なので詰まる心配が無い。
+      this.triggerLabelEl.innerHTML = '<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>';
       this.startForm.hidden = false;
       this.activeControls.hidden = true;
       this.phaseLabelEl.hidden = true;

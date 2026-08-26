@@ -69,7 +69,10 @@ export class AppearanceSelector {
     this.triggerBtn.type = "button";
     this.triggerBtn.className = "pill-btn appearance-trigger";
     this.triggerBtn.setAttribute("aria-label", "見た目の設定");
-    this.triggerBtn.innerHTML = `${ICONS.appearance}<span>見た目の設定</span>`;
+    // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
+    // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
+    // メディアクエリで出し分けて短縮表示にする（style.css参照）。
+    this.triggerBtn.innerHTML = `${ICONS.appearance}<span class="label-full">見た目の設定</span><span class="label-short">見た目</span>`;
     this.triggerBtn.addEventListener("click", () => this.toggle());
     this.anchor.appendChild(this.triggerBtn);
 
