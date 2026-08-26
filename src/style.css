@@ -810,30 +810,12 @@ body {
   white-space: nowrap;
 }
 
-/* --- ペンの太さ／消しゴムの大きさを1本で共有するスライダー（GoodNotesの
-   ようにバーで変えたい、というユーザー指示）。DurationSelectorの
-   .duration-seekbarと同じ「ラベルを上、スライダーを下」の縦積みだが、
-   表示する数値が短い（xxpx）ため幅はもっと控えめにしている。 --- */
-.thickness-control {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  min-width: 72px;
-}
-
-.thickness-label {
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-70);
-}
-
-/* --- ペンの太さ／消しゴムの大きさ・振り返りの時刻を選ぶスライダー共通の
-   見た目。以前はaccent-colorだけを当てたブラウザ標準の見た目だったが、
-   GoodNotesのような「意図して作られた道具」に見えるよう、細い軌道の上に
-   インクの一滴のようなつまみを置く形に作り直した（UI再設計）。 --- */
-.thickness-slider,
+/* --- 消しゴムの大きさ・振り返りの時刻を選ぶスライダー共通の見た目。以前は
+   accent-colorだけを当てたブラウザ標準の見た目だったが、GoodNotesのような
+   「意図して作られた道具」に見えるよう、細い軌道の上にインクの一滴のような
+   つまみを置く形に作り直した（UI再設計）。ペンの太さは選べる仕様をやめ常に
+   PEN_LINE_WIDTH固定にしたため、専用スライダー（旧.thickness-slider）は
+   廃止した（toolbar.ts参照）。 --- */
 .duration-seekbar-slider,
 .session-slider {
   appearance: none;
@@ -845,7 +827,6 @@ body {
   cursor: pointer;
 }
 
-.thickness-slider::-webkit-slider-runnable-track,
 .duration-seekbar-slider::-webkit-slider-runnable-track,
 .session-slider::-webkit-slider-runnable-track {
   height: 3px;
@@ -853,7 +834,6 @@ body {
   background: var(--ink-20);
 }
 
-.thickness-slider::-moz-range-track,
 .duration-seekbar-slider::-moz-range-track,
 .session-slider::-moz-range-track {
   height: 3px;
@@ -861,7 +841,6 @@ body {
   background: var(--ink-20);
 }
 
-.thickness-slider::-webkit-slider-thumb,
 .duration-seekbar-slider::-webkit-slider-thumb,
 .session-slider::-webkit-slider-thumb {
   appearance: none;
@@ -875,7 +854,6 @@ body {
   transition: transform 0.15s ease;
 }
 
-.thickness-slider::-moz-range-thumb,
 .duration-seekbar-slider::-moz-range-thumb,
 .session-slider::-moz-range-thumb {
   width: 15px;
@@ -887,13 +865,11 @@ body {
   transition: transform 0.15s ease;
 }
 
-.thickness-slider:active::-webkit-slider-thumb,
 .duration-seekbar-slider:active::-webkit-slider-thumb,
 .session-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
-.thickness-slider:active::-moz-range-thumb,
 .duration-seekbar-slider:active::-moz-range-thumb,
 .session-slider:active::-moz-range-thumb {
   transform: scale(1.2);

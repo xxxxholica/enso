@@ -1,7 +1,7 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
-import { PEN_WIDTH_RANGE } from "./toolStyle";
+import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { TemplateId } from "./templates";
 import type { DrawTool } from "./types";
 
@@ -88,14 +88,17 @@ const TOOL_LABEL: Record<ToolbarTool, string> = {
  *     （ユーザー指示：ツールを左に1ブロックとしてまとめたい）。
  *   - 中央（.toolbar-details）＝「ツールの詳細ブロック」: 色・サイズという、
  *     選んだ道具の見た目を決める設定。文字サイズは選べる仕様をやめ常に
- *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない（ユーザー指示：
- *     太さのスライダーが増えた分、サイズ選択のステッパー表示は不要）。
- *     ペンの太さは、GoodNotesのようにバーで連続的に選べるようにしたい
- *     というユーザー指示でスライダー（buildThicknessSlider）にしている。
- *     消しゴムの大きさは、当初はこのスライダーをペンと共有していたが、
+ *     DEFAULT_FONT_SIZE_STEP固定にしたため、ここでは扱わない。
+ *     ペンの太さも、当初はGoodNotesのようにバーで連続的に選べるようにして
+ *     いたが、「メインのターゲット層はPCを使う人で、ペン（マウス操作）で
+ *     文字を書くのは難しく太さも都度選ぶ必要が薄いので、固定にして見た目を
+ *     スッキリさせたい」というユーザー指示によりPEN_LINE_WIDTH固定にした
+ *     （toolStyle.ts参照）ため、ここでも扱わない。
+ *     消しゴムの大きさは、当初はペンの太さスライダーと共有していたが、
  *     「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」という
  *     ユーザー指示を受け、小/中/大の3段階のボタン選択（buildEraserSizeSteps）
- *     に分けた——選んでいる道具に応じて、この2つは同じ位置で片方だけを表示する。
+ *     に分けた——道具がペンの間は色スワッチだけ、消しゴムの間はこのボタンだけ、
+ *     という形で同じ位置に出し分ける。
  * 画面切り替えナビをヘッダー側に移した分フッターの横幅に余裕ができたため、
  * 以前は道具アイコンの上にposition: absoluteで浮かせていた詳細ブロックを
  * 通常のフローに戻し、ブロックを横に並べるだけで1行に収まるようにしている。
@@ -113,24 +116,21 @@ export class Toolbar {
   private onChange?: () => void;
   private onInsertTemplate?: (id: TemplateId) => void;
   private tool: ToolbarTool = "pen";
-  /** マーカー以外（ペン・テキスト等）で使う色。ペンの太さ・消しゴムの大きさが
+  /** マーカー以外（ペン・テキスト等）で使う色。消しゴムの大きさが
    *  ツールごとに別々の値を覚えているのと同じ考え方で、マーカーの色
    *  （markerColor）とは独立して覚えておく——マーカーで色を変えても、
    *  ペンに戻したときの色は変わらない。 */
   private drawColor: string = DEFAULT_INK;
   /** マーカーで使う色。既定はMARKER_PRESET_INKSの1つ目（シアン）。 */
   private markerColor: string = MARKER_PRESET_INKS[0].color;
-  private penWidth: number = PEN_WIDTH_RANGE.default;
   private eraserRadius: number = ERASER_SIZE_STEPS.medium;
 
   private toolButtons = new Map<ToolbarTool, HTMLButtonElement>();
 
-  private thicknessWrap!: HTMLElement;
-  private thicknessLabel!: HTMLElement;
-  private thicknessSlider!: HTMLInputElement;
-  /** 消しゴムの大きさ（小/中/大）を選ぶボタン。太さスライダーとは同じ
-   *  .toolbar-details内の同じ位置を奪い合う形で、道具が消しゴムの時だけこちらを
-   *  表示し、ペンの時だけスライダーを表示する（buildEraserSizeSteps参照）。 */
+  /** 消しゴムの大きさ（小/中/大）を選ぶボタン。.toolbar-details内の同じ位置を
+   *  カラースワッチと奪い合う形で、道具が消しゴムの時だけこちらを表示し、
+   *  それ以外（色を使う道具）の間はカラースワッチを表示する
+   *  （buildEraserSizeSteps参照）。 */
   private eraserSizeWrap!: HTMLElement;
   private eraserSizeButtons = new Map<EraserSizeStep, HTMLButtonElement>();
 
@@ -189,11 +189,12 @@ export class Toolbar {
     return FONT_SIZE_STEPS[DEFAULT_FONT_SIZE_STEP];
   }
 
-  /** 基準円(半径340px)におけるペンの線の太さ(px)。buildThicknessSliderのスライダーで
-   *  選ぶ（道具がペンの間だけ有効）。実際の描画時はtoolStyle.toolRenderStyleで
-   *  スケール・下限適用する。 */
+  /** 基準円(半径340px)におけるペンの線の太さ(px)。選べる仕様をやめ常に
+   *  PEN_LINE_WIDTH固定にした（ユーザー指示：PC操作でのペンは太さを都度
+   *  選ぶ必要が薄く、固定にして見た目をスッキリさせたい）。実際の描画時は
+   *  toolStyle.toolRenderStyleでスケール・下限適用する。 */
   getLineWidth(): number {
-    return this.penWidth;
+    return PEN_LINE_WIDTH;
   }
 
   /** 消しゴムの当たり判定半径(画面px)。buildEraserSizeStepsの小/中/大の
@@ -282,62 +283,17 @@ export class Toolbar {
     details.className = "toolbar-details control-block";
     this.el.appendChild(details);
 
-    this.buildThicknessSlider(details);
     this.buildEraserSizeSteps(details);
     this.buildSwatch(details);
   }
 
-  /** ペンの太さをバーで連続的に選ぶ（ユーザー指示：GoodNotesのようにバーで
-   *  変えたい）。消しゴムは別のUI（buildEraserSizeSteps、3段階のボタン選択）に
-   *  分けている——「消しゴムはGoodNotesのように3段階の大きさから選ぶ形にしたい」
-   *  というユーザー指示により、以前は太さスライダーをペン・消しゴムで共有して
-   *  いたのをやめた。ペン以外（マーカー・テキスト・選択・消しゴム）の間は
-   *  非表示にする——以前はグレーアウトして残していたが、「触れないバーが
-   *  常に居座っているのは分かりにくい」という指摘を受け、意味を持つ道具が
-   *  ペンだけになった今、消しゴムのカラーパレット非表示（syncSwatch参照）と
-   *  同じ考え方で道具を問わず非表示にした。 */
-  private buildThicknessSlider(details: HTMLElement): void {
-    this.thicknessWrap = document.createElement("div");
-    this.thicknessWrap.className = "thickness-control";
-
-    this.thicknessLabel = document.createElement("span");
-    this.thicknessLabel.className = "thickness-label";
-    this.thicknessWrap.appendChild(this.thicknessLabel);
-
-    this.thicknessSlider = document.createElement("input");
-    this.thicknessSlider.type = "range";
-    this.thicknessSlider.className = "thickness-slider";
-    this.thicknessSlider.min = String(PEN_WIDTH_RANGE.min);
-    this.thicknessSlider.max = String(PEN_WIDTH_RANGE.max);
-    this.thicknessSlider.step = String(PEN_WIDTH_RANGE.step);
-    this.thicknessSlider.setAttribute("aria-label", "ペンの太さ");
-    this.thicknessSlider.addEventListener("input", () => {
-      this.penWidth = Number(this.thicknessSlider.value);
-      this.syncThicknessSlider();
-      this.onChange?.();
-    });
-    this.thicknessWrap.appendChild(this.thicknessSlider);
-
-    details.appendChild(this.thicknessWrap);
-  }
-
-  private syncThicknessSlider(): void {
-    // ペン以外（マーカー・テキスト・選択・消しゴム）では意味を持たないため
-    // 表示しない——以前はグレーアウトして残していたが、「触れないバーが
-    // 常に居座っているのは分かりにくい」という指摘を受け、消しゴムの
-    // カラーパレット非表示（syncSwatch参照）と同じ考え方で道具を問わず
-    // 非表示にした。
-    this.thicknessWrap.hidden = this.tool !== "pen";
-    this.thicknessSlider.value = String(this.penWidth);
-    this.thicknessLabel.textContent = `${this.penWidth}px`;
-  }
-
   /** 消しゴムの大きさを小/中/大の3段階のボタンから選ぶ（ユーザー指示：GoodNotes
-   *  のように3段階から選ぶ形にしたい——以前はペンと同じ連続スライダーを共有して
-   *  いた）。フレーム形状・柄の選択（appearanceSelector.ts）と同じ.toolbar-pill/
-   *  .toolbar-btnの見た目を流用し、選択中のボタンだけ塗りつぶしの丸が濃く見える
-   *  ようdata-activeでハイライトする。道具が消しゴムの時だけ表示し、それ以外は
-   *  隠す（syncThicknessSlider参照）。 */
+   *  のように3段階から選ぶ形にしたい——以前はペンと連続スライダーを共有して
+   *  いたが、ペンの太さ自体をPEN_LINE_WIDTH固定にしたためスライダーごと
+   *  廃止した）。フレーム形状・柄の選択（appearanceSelector.ts）と同じ
+   *  .toolbar-pill/.toolbar-btnの見た目を流用し、選択中のボタンだけ塗りつぶしの
+   *  丸が濃く見えるようdata-activeでハイライトする。道具が消しゴムの時だけ
+   *  表示し、それ以外は隠す（syncEraserSizeSteps参照）。 */
   private buildEraserSizeSteps(details: HTMLElement): void {
     this.eraserSizeWrap = document.createElement("div");
     this.eraserSizeWrap.className = "toolbar-pill";
@@ -428,9 +384,9 @@ export class Toolbar {
    *  今の色（getColor）と一致するスワッチだけにリングを付けて選択中を示す
    *  （文字列比較でよい——色の値はすべてこのクラス自身が設定するため、ユーザー
    *  入力の表記ゆれを考慮する必要がない）。
-   *  色を使わない道具（選択・消しゴム）を選んでいる間は、太さスライダー
-   *  （syncThicknessSlider）と同じ考え方でパレット全体を無効化する——押しても
-   *  意味を持たないボタンが常に押せる状態のままなのは分かりにくい（issue #68）。
+   *  色を使わない道具（選択・消しゴム）を選んでいる間は、パレット全体を
+   *  無効化する——押しても意味を持たないボタンが常に押せる状態のままなのは
+   *  分かりにくい（issue #68）。
    *  消しゴムの間はさらに一歩進めて非表示にする——消しゴムの大きさ選択
    *  （buildEraserSizeSteps）が同じ.toolbar-details内の見た目上の位置を使う
    *  ため、グレーアウトのまま残すと3段階ボタンの隣に無意味な色パレットが
@@ -461,7 +417,6 @@ export class Toolbar {
 
   private syncAll(): void {
     this.syncPill();
-    this.syncThicknessSlider();
     this.syncEraserSizeSteps();
     this.syncSwatch();
   }
