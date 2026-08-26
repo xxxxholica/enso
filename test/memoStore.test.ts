@@ -601,6 +601,43 @@ describe("MemoStore", () => {
       expect(store.getActive()).toHaveLength(1);
     });
   });
+
+  describe("discardPendingMutation（issue #90: モバイル複数指タップの1本目が暫定的に行った操作の後始末）", () => {
+    it("直前のsnapshotForUndo以降の変更を、redo履歴に積まずに取り消す", () => {
+      const store = new MemoStore();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(1);
+
+      store.snapshotForUndo();
+      store.createMemo({ x: 1, y: 1 }, STANDARD, 0);
+      expect(store.getAll()).toHaveLength(2);
+
+      store.discardPendingMutation();
+      expect(store.getAll()).toHaveLength(1);
+      expect(store.redo()).toBe(false); // undo()と違い、redo履歴には積まれない
+    });
+
+    it("snapshotForUndoが呼ばれていなければ何もしない", () => {
+      const store = new MemoStore();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.discardPendingMutation();
+      expect(store.getAll()).toHaveLength(1); // 何も変わらない
+    });
+
+    it("直前のredo履歴を壊さない（snapshotForUndo自体がredo履歴をクリアする点は変わらない）", () => {
+      const store = new MemoStore();
+      store.snapshotForUndo();
+      store.createMemo({ x: 0, y: 0 }, STANDARD, 0);
+      store.undo();
+      expect(store.getAll()).toHaveLength(0);
+
+      // ここでredoできる状態のはずだが、discardPendingMutation自体は
+      // 何もsnapshotForUndoしていないので何もしない。
+      store.discardPendingMutation();
+      expect(store.redo()).toBe(true);
+      expect(store.getAll()).toHaveLength(1);
+    });
+  });
 });
 
 describe("共有キャンバス用のonOp（メモ単位の操作通知、issue #99）", () => {

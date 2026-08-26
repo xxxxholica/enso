@@ -84,6 +84,24 @@ const WRITING_SESSION_IDLE_MS = 1400;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 3;
 
+/**
+ * モバイルの複数指タップ（issue #90：2本指=直前の操作の取り消し(undo)、
+ * 3本指=やり直し(redo)、GoodNotes等のノートアプリで一般的なジェスチャー）
+ * の判定に使うしきい値。ピンチズームは「選択」道具の間だけ始まる
+ * （beginPinch/onGlobalPointerDownのコメント参照）が、複数指タップの判定
+ * 自体は道具に関わらず常に行う——undo/redoはどの道具を選んでいても使いたい
+ * 操作のため。
+ * TAP_MAX_MOVEMENT_PXは、指が触れてから離れるまでの間にこれを超えて動いたら
+ * 「タップ」ではなくドラッグ（ピンチ・パン、または各道具の通常操作）とみなす。
+ * TAP_MAX_DURATION_MSは、この一連のマルチタッチ（最初の指が触れてから、
+ * 関わった指が全て離れるまで）の最大時間（ms）——長押しや、1本の指で長く
+ * 描き続けている間に別の指が一瞬触れた、といったケースはタップとみなさない
+ * （後者は、最後まで描き続けているその指自体がこの時間を超えるため自然に
+ * 除外される）。
+ */
+const TAP_MAX_MOVEMENT_PX = 12;
+const TAP_MAX_DURATION_MS = 400;
+
 function pointerDistance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -283,11 +301,33 @@ export class CircularCanvas {
    *  「キャンバスの外側どこでタッチしても構わない」という指示により、
    *  canvas要素にのみ登録されたactivePointerIdとは別に、windowレベルで
    *  すべてのpointerdown/move/up/cancelを監視して集める）。pointerIdごとの
-   *  最新クライアント座標——2本目の指が乗るとピンチ開始。 */
-  private pinchPointers = new Map<number, Point>();
+   *  現在位置に加え、複数指タップ判定（issue #90、tapGesture*参照）に使う
+   *  「触れた瞬間の位置」も持つ——2本目の指が乗るとピンチ開始（「選択」道具の
+   *  間だけ、onGlobalPointerDown参照）。 */
+  private pinchPointers = new Map<number, { pos: Point; downPos: Point }>();
   private viewZoom = 1;
   private viewPan: Point = { x: 0, y: 0 };
   private pinch: PinchState | null = null;
+  /** 複数指タップ（issue #90）の判定用。一連のマルチタッチ（最初の指が触れて
+   *  から関わった指が全て離れるまで）で同時に触れていた指の最大本数。 */
+  private tapGesturePeakCount = 0;
+  /** 上と同じ一連のマルチタッチの中で、いずれかの指がTAP_MAX_MOVEMENT_PXを
+   *  超えて動いた（＝タップではなくドラッグ）場合はfalseになる。 */
+  private tapGestureValid = true;
+  /** 今回の一連のマルチタッチが始まった時刻（最初の指が触れた瞬間）。 */
+  private tapGestureStartAt = 0;
+  /** テキスト道具のタップは1本目の指が触れた瞬間に即座にtextarea編集を開く
+   *  （synchronousなfocus()が必須なため——canvasView.ts冒頭のJSDoc参照）。
+   *  2本指タップの1本目としてこれが開いてしまった場合に備え、いつ開いたかを
+   *  記録しておく（onGlobalPointerUpの複数指タップ判定から参照——今回の
+   *  マルチタッチが始まった後に開かれたものだけ、タップと確定した時点で
+   *  取り消す。文字入力を実際に始めてから長く経っている場合は、後から乗った
+   *  無関係な指で誤って入力中の内容を消さないよう対象外にする）。 */
+  private textEditorOpenedAt: number | null = null;
+  /** 開いているtext-editor-overlayをEscapeと同じ扱いで取り消す関数
+   *  （openTextEditorが設定・閉じるときにnullへ戻す）。複数指タップの判定
+   *  （onGlobalPointerUp）から、キー入力を経ずに取り消すために使う。 */
+  private cancelTextEditor: (() => void) | null = null;
   /** 掴んで振り回す操作の判定基準（CircularCanvasOptions.rotateStepRad/
    *  rotateMinRadiusPx参照）。省略時は本物のキャンバスと同じROTATE_STEP_RAD/
    *  ROTATE_MIN_RADIUS_PXになる。 */
@@ -687,11 +727,27 @@ export class CircularCanvas {
    *  （誤って触れた・手のひらが触れた等）、進行中の描画等を中断してズームに
    *  切り替えてしまうのはユーザーにとって意図しない挙動のため（ユーザー指示）。
    *  ただしpreventDefault自体は道具に関わらず呼ぶ——ここで止めないと、
-   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。 */
+   *  ズームは始めなくてもSafari等の純正ピンチズームがページ全体に効いてしまう。
+   *
+   *  複数指タップ（issue #90）の判定用の記録も、道具に関わらず常にここで行う
+   *  ——undo/redoはどの道具を選んでいても使いたい操作のため。今回の
+   *  マルチタッチの塊の最初の指（pinchPointersが0→1になった瞬間）で判定を
+   *  リセットし、以後この塊に加わった指の最大本数（tapGesturePeakCount）を
+   *  更新し続ける。有効性（tapGestureValid）の判定はonGlobalPointerMoveで、
+   *  実際にundo/redoを呼ぶ判定はonGlobalPointerUpで行う。 */
   private onGlobalPointerDown = (ev: PointerEvent): void => {
     if (!this.interactive || this.rewindAt !== null) return;
     if (this.canvas.offsetParent === null) return; // 今表示中のタブのキャンバスでなければ無視
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    const pos = { x: ev.clientX, y: ev.clientY };
+    if (this.pinchPointers.size === 0) {
+      this.tapGesturePeakCount = 0;
+      this.tapGestureValid = true;
+      this.tapGestureStartAt = Date.now();
+    }
+    this.pinchPointers.set(ev.pointerId, { pos, downPos: pos });
+    this.tapGesturePeakCount = Math.max(this.tapGesturePeakCount, this.pinchPointers.size);
+
     if (this.pinchPointers.size === 2) {
       ev.preventDefault();
       if (this.getToolState().tool === "move") {
@@ -704,17 +760,28 @@ export class CircularCanvas {
   /** ピンチ対象として追跡中の指が動くたびに呼ぶ（windowレベル）。ピンチ中は
    *  引き続きev.preventDefault()し続ける——2本目のpointerdownだけを止めても、
    *  その後の移動でSafariの純正ジェスチャーが再度乗っ取ってくることがあるため
-   *  （onGlobalPointerDownのコメント参照）。 */
+   *  （onGlobalPointerDownのコメント参照）。触れている指がTAP_MAX_MOVEMENT_PX
+   *  を超えて動いたら、この一連のマルチタッチはもう複数指タップとはみなさない
+   *  （ドラッグ・ピンチとして進行する）。 */
   private onGlobalPointerMove = (ev: PointerEvent): void => {
-    if (!this.pinchPointers.has(ev.pointerId)) return;
-    this.pinchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    const tracked = this.pinchPointers.get(ev.pointerId);
+    if (!tracked) return;
+    tracked.pos = { x: ev.clientX, y: ev.clientY };
+    if (pointerDistance(tracked.pos, tracked.downPos) > TAP_MAX_MOVEMENT_PX) {
+      this.tapGestureValid = false;
+    }
     if (this.state.mode === "pinching") {
       ev.preventDefault();
       this.updatePinch();
     }
   };
 
-  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。 */
+  /** ピンチ対象として追跡中の指が離れるたびに呼ぶ（windowレベル）。追跡していた
+   *  全ての指が離れた（このマルチタッチの塊が終わった）時点で、複数指タップの
+   *  条件（本数・移動量・所要時間）を満たしていればundo/redoを呼ぶ
+   *  （issue #90）。1本目の指が触れた瞬間に暫定的に行われてしまった操作
+   *  （消しゴム・なぞる復活・テキスト編集の開始）があれば、実際にはこの
+   *  マルチタッチ全体がタップだったとみなして後始末する。 */
   private onGlobalPointerUp = (ev: PointerEvent): void => {
     if (!this.pinchPointers.delete(ev.pointerId)) return;
     if (this.state.mode === "pinching" && this.pinchPointers.size < 2) {
@@ -722,6 +789,32 @@ export class CircularCanvas {
       // いったんidleに戻し、新しいpointerdownから仕切り直す。
       this.state.mode = "idle";
       this.pinch = null;
+    }
+    if (this.pinchPointers.size > 0) return; // まだ他の指が残っている
+
+    const withinDuration = Date.now() - this.tapGestureStartAt <= TAP_MAX_DURATION_MS;
+    if (!this.tapGestureValid || !withinDuration || this.tapGesturePeakCount < 2) return;
+
+    // テキスト道具で1本目の指により開いたtextareaが、今回のマルチタッチの
+    // 塊が始まった後に開かれたものであれば（textEditorOpenedAtのコメント
+    // 参照）、タップと確定したこの時点で取り消す。
+    if (this.textEditor && this.textEditorOpenedAt !== null && this.textEditorOpenedAt >= this.tapGestureStartAt) {
+      this.cancelTextEditor?.();
+    }
+    // 1本目の指が触れた瞬間に暫定的に行われてしまった操作（消しゴム・
+    // なぞる復活など）があれば、無かったことにする。2本指タップの場合は
+    // これ自体が「直前の操作を取り消す」という意図をちょうど満たすため、
+    // 別途undo()は呼ばない（呼ぶとさらに1つ前の操作まで戻ってしまう）。
+    const hadPendingMutation = this.undoSnapshotTaken;
+    if (hadPendingMutation) {
+      this.store.discardPendingMutation();
+      this.undoSnapshotTaken = false;
+    }
+    if (this.tapGesturePeakCount === 2) {
+      if (!hadPendingMutation) this.store.undo();
+    } else {
+      // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）。
+      this.store.redo();
     }
   };
 
@@ -732,7 +825,7 @@ export class CircularCanvas {
       this.endSinglePointerGesture();
     }
     this.activePointerId = null; // 1本指ジェスチャーはピンチに譲る
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     this.state.mode = "pinching";
     this.pinch = {
       startDist: pointerDistance(a, b),
@@ -746,7 +839,7 @@ export class CircularCanvas {
    *  中点の移動量でパンを更新する。 */
   private updatePinch(): void {
     if (!this.pinch || this.pinchPointers.size < 2) return;
-    const [a, b] = [...this.pinchPointers.values()];
+    const [a, b] = [...this.pinchPointers.values()].map((p) => p.pos);
     const dist = pointerDistance(a, b);
     const mid = pointerMidpoint(a, b);
     this.viewZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.pinch.startZoom * (dist / this.pinch.startDist)));
@@ -874,6 +967,7 @@ export class CircularCanvas {
     const widthMeasureFontSize = Math.max(fontSize, (displayFontPx * REFERENCE_RADIUS) / scaleAtOpen);
     document.body.appendChild(el);
     this.textEditor = el;
+    this.textEditorOpenedAt = Date.now();
 
     // モバイルでtextareaにフォーカスすると、ブラウザが「フォーカスした要素が画面内に
     // 収まるように」ページ全体を自動でスクロールすることがある。このtextareaは
@@ -962,9 +1056,18 @@ export class CircularCanvas {
     });
 
     let cancelled = false;
+    // issue #90: 複数指タップの判定（onGlobalPointerUp）から、Escapeキーを
+    // 経ずにこのtextareaを取り消せるようにする（2本指タップの1本目でこの
+    // textareaが開いてしまった場合の後始末）。
+    this.cancelTextEditor = () => {
+      cancelled = true;
+      el.blur();
+    };
     const commit = () => {
       if (this.textEditor !== el) return; // すでに片付け済みなら何もしない
       this.textEditor = null;
+      this.textEditorOpenedAt = null;
+      this.cancelTextEditor = null;
       this.repositionTextEditor = null;
       this.restoreBodyScroll?.();
       const value = el.value.trim();
