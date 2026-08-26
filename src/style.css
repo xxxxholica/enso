@@ -262,6 +262,11 @@ body {
      下のキャンバスをそのまま透かす（ユーザー指示）。ズーム中はopacity 0.4の
      減光で目立たなくなる。 */
   transition: opacity 180ms ease;
+  /* テキスト入力時などのブラウザ側ズームにサイズが追従しない問題（issue #87）
+     への対応。main.tsのsyncViewportZoomTransformがwindow.visualViewportの
+     scale/offsetに応じてtransformを設定する——自身の左上を基準にスケール
+     することで、画面の上端に張り付いたまま拡大縮小して見えるようにする。 */
+  transform-origin: top left;
 }
 
 .app-header-left {
@@ -529,6 +534,10 @@ body {
      それぞれ個別に不透明な背景（var(--paper-1)）を持っているため、コンテナ
      側で重ねて背景を敷くと色浮きするだけで意味が無かった（ユーザー指摘）。 */
   transition: opacity 180ms ease;
+  /* .app-headerと同じ理由（issue #87）。ヘッダーと違い自身の左下を基準に
+     スケールすることで、画面の下端に張り付いたまま拡大縮小して見えるように
+     する（main.tsのsyncViewportZoomTransform参照）。 */
+  transform-origin: bottom left;
 }
 
 /* --- ズーム中（1倍より拡大、main.tsのcanvasView.isZoomed()/smuiView.isZoomed()

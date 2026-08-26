@@ -119,6 +119,8 @@ void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   }
 });
 
+const appHeader = document.querySelector<HTMLElement>(".app-header")!;
+const appFooter = document.querySelector<HTMLElement>(".app-footer")!;
 const canvasPanel = document.querySelector<HTMLDivElement>("#canvas-panel")!;
 const canvasWrap = document.querySelector<HTMLDivElement>("#canvas-wrap")!;
 const sharedPanel = document.querySelector<HTMLDivElement>("#shared-panel")!;
@@ -327,9 +329,32 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
 });
 if (initialView === "shared") setView("shared");
 
+/**
+ * テキスト入力時などにブラウザ側でズームが起きた場合（window.visualViewport
+ * のscale変化、issue #87）、position:fixedのヘッダー・ツールバーのサイズ・
+ * 位置をそのズームに追従させる。position:fixedはレイアウトビューポート基準
+ * で配置されるため、ビジュアルビューポートがズーム・パンしても素のCSSだけ
+ * では追従しない——ズーム倍率ぶんscale()し、ビジュアルビューポートの
+ * オフセット（offsetLeft/offsetTop）ぶんtranslate()することで、実際に
+ * 見えている範囲の上端・下端に常に張り付くようにする（canvasView.tsの
+ * text-editor-overlayで使っているのと同じ考え方・同じ理由）。ヘッダーは
+ * 自身の左上、ツールバーは自身の左下を基準にスケールする
+ * （style.cssのtransform-origin）ことで、それぞれ画面の上端・下端に
+ * 張り付いたまま拡大縮小して見えるようにする。ズームしていない時
+ * （scale===1かつオフセット無し）は実質何もしない恒等変換になる。
+ */
+function syncViewportZoomTransform(): void {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  appHeader.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px) scale(${vv.scale})`;
+  const footerTranslateY = vv.offsetTop + vv.height - window.innerHeight;
+  appFooter.style.transform = `translate(${vv.offsetLeft}px, ${footerTranslateY}px) scale(${vv.scale})`;
+}
+
 function frame(): void {
   const now = Date.now();
   store.tick(now);
+  syncViewportZoomTransform();
   let zoomed = false;
   if (currentView === "canvas") {
     canvasView.render(now);
