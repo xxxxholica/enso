@@ -5,4 +5,18 @@
  * 見ずそのまま素通しするだけ(ichimaien-api/index.js参照)。ページを開くたびに
  * 新しく生成し、永続化はしない(issue #99)。
  */
-export const CLIENT_ID: string = crypto.randomUUID();
+function generateClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // crypto.randomUUID()はセキュアコンテキスト（HTTPS、またはlocalhost）でしか
+  // 使えない仕様のため、スマホ実機での動作確認等でLAN内のIPアドレスへ
+  // http://でアクセスすると未定義になり、モジュール読み込み時点で例外が
+  // 発生してアプリ全体の初期化が止まってしまっていた（真っ白な画面になる、
+  // ユーザー報告・実機で再現確認）。この値は自分のWebSocket通知を見分けられ
+  // れば十分で暗号学的な強度は不要なため、使えない場合は代わりに時刻と
+  // 乱数を組み合わせたフォールバック値を使う。
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export const CLIENT_ID: string = generateClientId();
