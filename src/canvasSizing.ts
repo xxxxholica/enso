@@ -18,14 +18,25 @@ export interface CanvasGeometry {
 
 /**
  * コンテナの利用可能な幅・高さのうち小さい方いっぱいまで正方形として広げた時の
- * 一辺（px）。上下限（MIN/MAX_CANVAS_SIZE）だけ設ける。SMUIの右レンズ
+ * 一辺（px）。上下限（既定でMIN/MAX_CANVAS_SIZE）だけ設ける。SMUIの右レンズ
  * プレースホルダー（smuiView.ts）が、実際にCircularCanvasが無い間も同じ大きさの
  * 円に見えるよう、この計算だけを単独で使えるようにexportしている。
+ * minSize/maxSizeを省略時のMIN/MAX_CANVAS_SIZEから上書きできるのは、使い方
+ * ページの練習用サンドボックス（tutorialSandbox.ts、CircularCanvasOptions.
+ * minCanvasSizePx）専用——本物のMIN_CANVAS_SIZE(200px)のままだと、CSS側で
+ * コンテナをそれより小さく（.tutorial-sandbox-canvas-wrap、style.css）
+ * 縮めても、この関数がその小ささを無視して200pxのまま返してしまい、
+ * canvas要素がコンテナからはみ出して下の説明文と重なって見える不具合が
+ * あった（ユーザー報告）。
  */
-export function computeSquareSize(container: HTMLElement): number {
+export function computeSquareSize(
+  container: HTMLElement,
+  minSize: number = MIN_CANVAS_SIZE,
+  maxSize: number = MAX_CANVAS_SIZE
+): number {
   const rect = container.getBoundingClientRect();
   const available = Math.min(rect.width, rect.height || rect.width);
-  return Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, available));
+  return Math.min(maxSize, Math.max(minSize, available));
 }
 
 /**
