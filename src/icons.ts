@@ -21,7 +21,6 @@ export const ICONS: Record<
   | "shapeOval"
   | "shapeSquare"
   | "sharedRooms"
-  | "moreActions"
   | "appearance"
   | "settings"
   | "themeSystem"
@@ -34,7 +33,9 @@ export const ICONS: Record<
   | "trash"
   | "timer"
   | "room"
-  | "undo",
+  | "undo"
+  | "plus"
+  | "link",
   string
 > = {
   pen: `
@@ -151,14 +152,6 @@ export const ICONS: Record<
       <circle cx="9" cy="12" r="5.5" />
       <circle cx="15" cy="12" r="5.5" />
     </svg>`,
-  // ルーム項目の「その他の操作」メニューを開くトリガー（sharedRoomMenu.ts）。
-  // 3つの点はケバブメニューの定番表現で、線ではなく塗りの点として描く。
-  moreActions: `
-    <svg viewBox="0 0 24 24">
-      <circle cx="12" cy="6" r="1.8" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-      <circle cx="12" cy="18" r="1.8" fill="currentColor" />
-    </svg>`,
   appearance: `
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M9 4L4 7.5L6.5 10.5L9 8.5V20H15V8.5L17.5 10.5L20 7.5L15 4H14C14 5.38 13.1 6.4 12 6.4C10.9 6.4 10 5.38 10 4Z" />
@@ -254,5 +247,18 @@ export const ICONS: Record<
       <path d="M4 11.5l8-7 8 7" />
       <path d="M6 10.2V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.8" />
       <path d="M10 20v-5h4v5" />
+    </svg>`,
+  // 「新しいルームを作成」(sharedRoomMenu.ts)用の単純な十字。
+  plus: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>`,
+  // 「共有URLをコピー」(sharedRoomMenu.ts)用の鎖の輪2つ。
+  link: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M10 6.5l1.3-1.3a3.5 3.5 0 0 1 5 5L15 11.5" />
+      <path d="M14 17.5l-1.3 1.3a3.5 3.5 0 0 1-5-5L9 12.5" />
+      <path d="M9.5 14.5l5-5" />
     </svg>`,
 };

@@ -40,7 +40,7 @@ export class RewindSelector {
   private el: HTMLElement;
   private container: HTMLElement;
   private onChange?: () => void;
-  private labelEl!: HTMLElement;
+  private labelEl!: HTMLButtonElement;
   private slider!: HTMLInputElement;
   /** REWIND_STEPSへの位置（大きいほど現在に近い）。整数なら目盛りちょうど、
    *  小数なら隣り合う目盛りの間の連続値（msAtPosition参照）。既定は末尾＝たった今。 */
@@ -72,8 +72,16 @@ export class RewindSelector {
   }
 
   private build(): void {
-    this.labelEl = document.createElement("span");
+    // ラベルをボタンにし、タップで即座に「たった今」へ戻せるようにする
+    // （ユーザー指示：指先の精度に頼らずライブ表示へ復帰する手段が欲しい、
+    // issue #103）。ラベル自体は今の目盛りの表示を兼ねたままにする——専用の
+    // 「戻る」ボタンを別途増やすより、既に常時表示されているこの領域を
+    // タップ対象に転用する方が省スペース。
+    this.labelEl = document.createElement("button");
+    this.labelEl.type = "button";
     this.labelEl.className = "duration-seekbar-label";
+    this.labelEl.setAttribute("aria-label", "たった今に戻る");
+    this.labelEl.addEventListener("click", () => this.reset());
     this.el.appendChild(this.labelEl);
 
     this.slider = document.createElement("input");

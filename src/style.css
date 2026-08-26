@@ -372,19 +372,31 @@ body {
   display: contents;
 }
 
-/* --- スマホ幅で下部バーの1段目・2段目を上下スワイプ1画面にまとめる時の
-   「現在ページ」を示すドットと、スワイプする器。デスクトップ幅では
-   どちらも見た目に影響しないようにしておく（ユーザー指示：スワイプで
-   切り替える仕様はモバイル専用）——ドットは非表示、器は#primary-slotと
-   同じdisplay:contentsで自分自身の箱を持たず、#primary-slot/#duration-slotが
-   これまで通り.control-panelの直接の子として振る舞う。実際にグリッド・
-   スクロールの器として働くのは@media (max-width: 480px)の中だけ。 --- */
-.control-panel-dots {
+/* --- スマホ幅で色/消しゴムサイズ・振り返りシークバーを一行展開するための
+   ハンドルと器。デスクトップ幅ではどちらも見た目に影響しないようにしておく
+   （ユーザー指示：常時展開のままでよい）——ハンドルは非表示、器は
+   #primary-slotと同じdisplay:contentsで自分自身の箱を持たず、
+   #primary-slot/#duration-slotがこれまで通り.control-panelの直接の子として
+   振る舞う。実際にグリッドの器として働くのは@media (max-width: 480px)の
+   中だけ（controlPanelDrawer.ts参照）。 --- */
+.control-panel-handle {
   display: none;
 }
 
-.control-panel-pages {
+.control-panel-body {
   display: contents;
+}
+
+/* --- 共有タブでは振り返りシークバーを表示しない（main.ts setView参照、
+   個人キャンバス専用の機能のため）。以前はopacityだけをフェードさせて
+   レイアウト上の場所（幅）はそのまま残していたため、共有タブでは色/
+   消しゴムサイズブロックの隣に何も無い空白ができてしまっていた
+   （ユーザー指摘）。display:noneでレイアウトからも外し、空いた分は
+   色/消しゴムサイズブロック側に回す（デスクトップは.control-panelの
+   flexが自然に詰めて中央寄せし直す、モバイルは.toolbar-detailsの
+   grid-columnをここで広げる——下のモバイル用ブロック参照）。 --- */
+body[data-view="shared"] #duration-slot {
+  display: none;
 }
 
 .circle-canvas {
@@ -572,14 +584,22 @@ body {
   column-gap: 20px;
 }
 
-/* --- 画面切り替え（キャンバス／振り返り／共有）。ヘッダー左側に置く。
+/* --- 画面切り替え（キャンバス／共有）。ヘッダー左側に置く。
    道具・色・テンプレートといった「選んだ画面の中でのツール操作」とは役割が違うため、
-   下の操作パネル(.control-panel)ではなくヘッダーに分けている。 --- */
+   下の操作パネル(.control-panel)ではなくヘッダーに分けている。
+   以前は文字だけ＋不透明度差の簡素な見た目だったが、2択のトグルだと
+   分かりやすい長方形のスイッチ（セグメントコントロール）に変えた
+   （ユーザー指示）。外枠が背景を持ち、選択中の側だけさらに濃い背景で
+   浮き上がる——右の設定ボタン（.settings-trigger）も正円から正方形に
+   揃えて、この一角の見た目のトーンを合わせた（ユーザー指示）。 --- */
 
 .view-nav {
   display: flex;
-  justify-content: center;
-  gap: 16px;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper-1);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
   flex: none;
 }
 
@@ -590,10 +610,17 @@ body {
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--ink-solid);
+  color: var(--ink-55);
   cursor: pointer;
-  padding: 4px 2px;
-  transition: opacity 0.15s ease;
+  padding: 5px 14px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.view-nav-btn[data-active="true"] {
+  background: var(--paper-3);
+  color: var(--ink-95);
+  font-weight: 600;
 }
 
 /* --- 道具バー：ツール選択ブロック（左）とツールの詳細ブロック（中央）に分けている。
@@ -626,8 +653,27 @@ body {
   gap: 6px;
 }
 
-/* --- 中央ブロック：色スウォッチ・文字サイズ。 --- */
+/* --- 中央ブロック：色スウォッチ・文字サイズ。実際の見た目（.control-block）と
+   横並びレイアウトは内側の.toolbar-details-cardが持つ（toolbar.ts参照）——
+   .toolbar-details自身はモバイル幅でグリッドの1マスとして0まで縮む素の器。 --- */
 .toolbar-details {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolbar-details-card {
+  /* 幅を中身任せにすると、消しゴムの大きさボタン(3個)と色スウォッチ(4個)を
+     行き来するたびに（大きさが微妙に違うせいで）ブロックの横幅がガタガタ
+     動いてしまう（ユーザー指摘）。振り返りシークバー側（.duration-seekbar）と
+     揃えて固定幅にすることで、道具によらず幅が変わらないようにし、同時に
+     2ブロックの横幅比を1:1にする（ユーザー指示）。固定pxだと画面幅が
+     違う端末ごとに見え方がまちまちになる（ユーザー指摘）ため、他の余白と
+     同じくclamp(最小, 画面幅に連動する値, 最大)にする——最小・最大とも
+     両方の中身（スウォッチ4個・消しゴムボタン3個・シークバーのラベル+
+     スライダー）のうち最大のものが余裕をもって収まる範囲。 */
+  width: clamp(150px, 15vw, 200px);
+  justify-content: center;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -661,18 +707,38 @@ body {
 
 /* --- スマホ幅では、3ブロック（ツール選択／ツールの詳細／時間選択）が1行に
    絶対に収まらない（ユーザー報告：3ブロック目が画面外に切れて見えない）。
-   以前は「1段目＝ツール選択、2段目＝ツールの詳細＋時間選択」の2列グリッドに
-   していたが、2段目の2ブロックで列幅を分け合う形だと、それぞれの中身
-   （太さスライダー＋色スワッチ／時間選択スライダー）がその半分幅の中に
-   収まりきらず、ブロックの外まで見切れてスクロールが発生してしまっていた
-   （ユーザー報告：見切れてスクロールが発生する）。列で幅を分け合うのをやめ、
-   3ブロックを1列に積んで上下スワイプ（scroll-snapで実現）で切り替える
-   構成にし、各ブロックには常にコンテナの横幅いっぱいを渡す——横幅を
-   検証に使った端末の画面幅からpxで決め打ちすると、その端末幅でしか
-   収まらなくなるため、固定pxではなく100%（＝可変のコンテナ幅にそのまま
-   追従する）で指定する（ユーザー指示：pxではなく可変の単位で）。3ブロック
-   とも同じコンテナ幅いっぱいに広がるので、横の長さは自然に揃う
-   （ユーザー指示：3ブロックに分けて横の長さを揃えたい）。
+   以前は「1段目＝ツール選択、2段目＝ツールの詳細＋時間選択」の2列グリッドや、
+   3ブロックを縦スワイプ（scroll-snap）で切り替える構成を試したが、前者は
+   2段目の2ブロックで列幅を分け合う形だと中身が半分幅に収まりきらず見切れて
+   スクロールが発生し（ユーザー報告）、後者は振り返りシークバー（横ドラッグの
+   range input）の上から縦スワイプしようとするとシークバーがジェスチャーを
+   奪ってしまい、ページ送りできず操作が固まったようになる問題があった
+   （issue #103）。
+   今回は道具選択（.toolbar-tools）を常時表示に固定し、その上の専用ハンドル
+   （.control-panel-handle、controlPanelDrawer.ts）をタップ/上下ドラッグした
+   時だけ、色/消しゴムサイズ（.toolbar-details）と振り返りシークバー
+   （#duration-slot）を一行展開する構成にした（ユーザー指示）。シークバー自体は
+   ページ送りジェスチャーの受け口を兼ねないため、issue #103の競合は構造的に
+   起きない。
+   行の並びは上から「ハンドル／道具選択（常時表示）／展開行」の順——ハンドルを
+   上へドラッグすると道具選択ごと上へ押し上げられ、その下（画面下端側）から
+   展開行が現れるようにする（ユーザー指示：つまみを上にスワイプすると元の
+   ツールバーが上に上がって、その下から2つの要素が出てくるように見せたい）。
+   展開行は.control-panel-bodyのgrid-template-rowsを0fr⇔1frでアニメーション
+   させることで高さ0⇔auto相当の開閉にしている（他の行は`auto`のままなので、
+   フレキシブルな1トラックだけがコンテンツの最大内容サイズへ向けて補間される）。
+   この構成は.app-footer（position:fixedで画面下端に張り付く帯）自体の高さを
+   開閉に応じて変える——以前は「フッターの縦幅は画面によらず常に一定」という
+   前提があり（.control-block参照）、共有タブの.info-row（見た目の設定・
+   セッション開始等の行）がその一定の高さを見込んだ決め打ちのbottom値で
+   フッターの裏に隠れないよう浮かせていたが、この前提が崩れるため.info-row側は
+   実測値（--app-footer-height、main.ts）を参照する形に変更した。
+   色/消しゴムサイズ側は内容量が少なく固定幅で足りる一方、振り返りシークバーは
+   幅があるほど「たった今」への戻しやすさに直結するため、残り幅をすべて
+   振り返り側に渡す（1fr列）。以前2ブロックで折半して見切れた失敗と違い、
+   固定幅側は消しゴム3ボタンか色スワッチ4つのどちらか一方しか出さないため
+   （toolbar.ts参照）、必要な幅は小さく、残りを振り返りシークバーに回しても
+   狭い端末幅で破綻しにくい。
    余白・間隔は、機種ごとの画面幅の違いに応じて実際に伸び縮みするよう、
    固定pxではなくclamp(最小, 画面幅に連動する値, 最大)で指定する
    （ユーザー指摘：pxで揃えるのは可変でない）。 --- */
@@ -684,69 +750,99 @@ body {
     gap: clamp(6px, 2.5vw, 10px);
   }
 
-  .control-panel-dots {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    flex: none;
-  }
-
-  .control-panel-dot {
-    appearance: none;
-    border: none;
-    padding: 0;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ink-20);
-    cursor: pointer;
-  }
-
-  .control-panel-dot.is-active {
-    background: var(--ink-70);
-  }
-
-  .control-panel-pages {
-    display: flex;
-    flex-direction: column;
+  .control-panel-body {
+    display: grid;
+    /* 1fr 1frにして、色/消しゴムサイズと振り返りシークバーの横幅比を常に1:1に
+       する（ユーザー指示）——auto(中身任せ)だと道具によって幅が変わってしまう。 */
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto 0fr;
+    column-gap: clamp(6px, 2.5vw, 10px);
+    row-gap: clamp(4px, 1.5vw, 6px);
     flex: 1 1 auto;
     min-width: 0;
-    /* .control-blockの既存の固定高さ(72px)＝1ページぶんだけを見せる「窓」。
-       中身は3ブロックぶんの高さを持つため、ここからはみ出した2・3段目が
-       スクロールで現れる——1ページだけ見せるという仕様上必要な指定。 */
-    height: 72px;
-    overflow-y: auto;
-    scroll-snap-type: y mandatory;
-    scrollbar-width: none;
+    transition: grid-template-rows 0.22s ease;
   }
 
-  .control-panel-pages::-webkit-scrollbar {
-    display: none;
+  .control-panel-body[data-expanded="true"] {
+    grid-template-rows: auto auto 1fr;
   }
 
   .toolbar {
     display: contents;
   }
 
-  .toolbar-tools,
   .toolbar-details,
   #duration-slot {
-    flex: none;
-    scroll-snap-align: start;
-    /* 勢いよくスワイプすると2ページ分飛ばして止まることがあるため、
-       必ず1ページずつ引っ掛かって止まるようにする（ユーザー指示）。 */
-    scroll-snap-stop: always;
-  }
-
-  .toolbar-tools {
+    /* 展開行が0frの間、中身をはみ出させず高さ0まで詰められるようにする
+       （grid itemの自動最小サイズはoverflow:hiddenで初めて0になる）。
+       display:flex;align-items:centerで中身を縦方向中央に置くのは見た目の
+       整えだけでなく、開閉アニメーションの見え方も揃えるため——中央寄せなら
+       行の高さが伸びるにつれ中身がちょうど中心から現れるが、中央寄せをやめて
+       上端基準（既定の配置）のままだと、中の.control-block自身が72pxの中で
+       中央寄せされている（.duration-seekbar参照）ぶん、行の高さが半分を
+       超えるまで中身（ラベル・スライダー）が見えない空白の時間ができ、
+       もう片方（色/消しゴムサイズ）より遅れて現れるように見えてしまう。 */
+    grid-row: 3;
+    display: flex;
+    align-items: center;
     justify-content: center;
-    gap: clamp(8px, 3vw, 12px);
+    overflow: hidden;
+    min-height: 0;
+    height: auto;
   }
 
   .toolbar-details {
-    justify-content: center;
+    grid-column: 1;
+  }
+
+  /* 共有タブでは#duration-slotがdisplay:none（上のbody[data-view]ルール参照）
+     になり2列目が空くため、色/消しゴムサイズブロックを1列目に広げて空白を
+     埋める。属性セレクタ込みで上の.toolbar-details{grid-column:1}より詳細度が
+     高いため、ファイル内の前後関係に関わらず確実にこちらが勝つ。 */
+  body[data-view="shared"] .toolbar-details {
+    grid-column: 1 / -1;
+  }
+
+  /* デスクトップの固定幅(170px)は、狭い端末幅では逆にグリッドの1マス（1fr）を
+     はみ出しかねないため、モバイルではマスいっぱいに広がる可変幅に戻す
+     ——1:1の比自体はグリッドの列(1fr 1fr)側で保証済み。 */
+  .toolbar-details-card {
+    width: 100%;
     gap: clamp(6px, 2.5vw, 10px);
+  }
+
+  #duration-slot {
+    grid-column: 2;
+  }
+
+  .control-panel-handle {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: none;
+    touch-action: none;
+    cursor: pointer;
+  }
+
+  .control-panel-handle::before {
+    content: "";
+    width: 36px;
+    height: 4px;
+    border-radius: var(--radius-full);
+    background: var(--ink-20);
+  }
+
+  .toolbar-tools {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-content: center;
+    gap: clamp(8px, 3vw, 12px);
   }
 
   .control-block {
@@ -1078,13 +1174,35 @@ body {
   justify-content: center;
   align-items: center;
   gap: 6px;
-  min-width: 150px;
+  /* .toolbar-details-cardと同じ式（固定pxではなくclamp）にして、2ブロックの
+     横幅比を画面幅によらず常に1:1に揃える（ユーザー指示・指摘）。 */
+  width: clamp(150px, 15vw, 200px);
+}
+
+/* モバイル幅では.control-panel-bodyのグリッド列（1fr 1fr）自体が1:1を保証する
+   ため、上のclampは使わずマスいっぱいに広がる可変幅に戻す——このルールは
+   上の.duration-seekbar本体定義より後（ファイル内で下）に置く必要がある。
+   同じ詳細度のセレクタはメディアクエリの有無に関係なくソース順で後の方が
+   勝つため、以前これをファイル前方（.control-panel-bodyまわりの
+   モバイル用ブロック）に置いていた時は本体定義に上書きされて効いていなかった
+   （実機で色ブロックだけ幅いっぱいに広がり、シークバー側だけ最小値(150px)の
+   まま中央に取り残されて見える不具合があった）。 */
+@media (max-width: 480px) {
+  .duration-seekbar {
+    width: 100%;
+  }
 }
 
 .duration-seekbar-label {
+  appearance: none;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   color: var(--ink-70);
+  padding: 0;
+  cursor: pointer;
 }
 
 .duration-seekbar-slider {
@@ -1124,7 +1242,7 @@ body {
   color: var(--ink-45);
 }
 
-/* --- ポップオーバーの中を「作成／招待リンク／ルーム一覧」の3区画に分ける
+/* --- ポップオーバーの中を「招待リンク／ルーム一覧／作成」の3区画に分ける
    仕切り。以前は全部が同じ余白・同じ背景で単純に縦に並ぶだけで、要素の
    まとまりが見た目に伝わらなかった（ユーザー指摘：色々な要素が区切られる
    ことなく1枚に同居している）。最初の区画は仕切り線を引かない。 --- */
@@ -1136,6 +1254,44 @@ body {
 .shared-menu-section:first-child {
   padding-top: 0;
   border-top: none;
+}
+
+/* --- 「新しいルームを作成」「共有URLをコピー」は他の区画（既存ルームの
+   参加・選択操作）より下、カードの右下に横並びで置く（ユーザー指示）
+   ——新規作成・招待は毎回の操作ではないため、既存ルームの一覧より
+   優先度を下げる。 --- */
+.shared-create-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shared-create-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ボタン行だけ右寄せにする——.shared-statusはエラー文言が長くなり得るため、
+   全体をalign-items:flex-endにすると右揃えの折り返しで読みにくくなる。 */
+.shared-create-section > .shared-create-actions {
+  align-self: flex-end;
+}
+
+/* --- 「新しいルームを作成」⇔「作成中…」、「共有URLをコピー」⇔
+   「コピーしました」で文字数が変わるたびにボタンの横幅も一緒に縮んでいた
+   （ユーザー指摘）。ラベル側にmin-widthを与えて、短い方の文字列になっても
+   長い方（既定表示）の幅のまま保つ——実測値（Editorial Stationeryの
+   本文フォント基準）。 --- */
+.shared-create-btn-label {
+  display: inline-block;
+  min-width: 108px;
+  text-align: center;
+}
+
+.shared-copy-btn-label {
+  display: inline-block;
+  min-width: 98px;
+  text-align: center;
 }
 
 /* --- 各区画の小見出し（「招待リンク」「参加中のルーム」）。 --- */
@@ -1162,15 +1318,11 @@ body {
   display: none;
 }
 
-.shared-invite {
-  font-size: var(--text-xs);
-  color: var(--ink-60);
-}
-
-/* --- 入力欄とコピーボタンだけの行。見出し（「招待リンク」）を同じ行に
-   同居させていた以前は、狭い幅でコピーボタンが弾かれて次の行に落ちて
-   しまっていた（ユーザー指摘：招待リンクとコピーは一行で表示すべき）。
-   見出しを別行にしたことで、この行は2要素だけになり収まりやすくなる。 --- */
+/* --- 汎用の1行テキスト入力の見た目。旧・招待リンク表示欄のスタイルだったが、
+   その入力欄自体は廃止した（ユーザー指示：ボタン1つに統合）——ゲスト参加時の
+   表示名入力(sharedRoomMenu.tsのguestNameInput)・テンプレート作成時の
+   見出し入力(templatePicker.ts)がクラス名を流用し続けているため、
+   ルールはここに残す。 --- */
 .shared-invite-input-row {
   display: flex;
   align-items: center;
@@ -1189,10 +1341,6 @@ body {
   color: inherit;
 }
 
-/* --- ルーム未選択の間は、招待リンクの行自体を隠すのではなく、この
-   disabled・薄い表示のまま常に出しておく（ユーザー指摘：出る位置を事前に
-   分かるようにしたい）。振り返りビューのシークバーが空状態でも専用メッセージ
-   を出さずdisabled表示だけで伝えているのと同じ考え方。 --- */
 .shared-invite-input:disabled {
   opacity: 0.4;
 }
@@ -1225,15 +1373,13 @@ body {
   gap: 6px;
 }
 
-/* ルーム名＋操作メニュートリガーをまとめる器（ユーザー指示：見える要素を
-   [ルーム名][退出]の2つに絞りたい——「名前を変更」は常時ボタンではなく、
-   ここにホバー/長押ししたときだけ開くメニューに格上げする）。 */
+/* ルーム名＋名前変更アイコンをまとめる器。 */
 .shared-room-name-wrap {
   display: flex;
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  gap: 2px;
+  gap: 6px;
 }
 
 /* 名前が長いとポップオーバー幅（.shared-room-popover、上限340px）から
@@ -1252,132 +1398,57 @@ body {
   font-weight: 600;
 }
 
-/* ルームのセッション状態バッジ(issue #79)。取得できるまでhiddenのまま。 */
-.shared-room-status-badge {
-  display: inline-block;
+/* --- ルーム項目の「編集」ボタン（名前を変更のトリガー）。以前はアイコンのみの
+   丸ボタンにしていたが、文字の方が分かりやすい（ユーザー指示）ため
+   .pill-btnの文字ボタンに戻した。以前は「名前を変更」をホバー/長押しで開く
+   別メニューに格上げしていたが、そのメニューがbody直下（.icon-anchorの外）
+   にあったため、exclusivePopover.tsの「ポップオーバー外をクリックしたら
+   閉じる」判定に引っかかり、メニュー内のボタンを押した瞬間にルームメニュー
+   全体が閉じて名前変更が機能しなくなっていた（ユーザー指摘・診断）。
+   アクションは1つしかなく別メニューに格上げする意味も薄いため、常時表示の
+   ボタンに戻した（.icon-anchorの内側に留まるため上記の問題も起きない）。 --- */
+.shared-room-rename {
   flex: 0 0 auto;
-  font-size: var(--text-2xs);
-  line-height: 1;
-  padding: 3px 7px;
-  border-radius: var(--radius-full);
-  white-space: nowrap;
-  color: var(--ink-50);
-  background: var(--paper-2);
-  border: 1px solid var(--ink-12);
+  /* 「退室」（赤み）との対比で、より控えめなグレー寄りの色にする
+     （ユーザー指示）——.pill-btn既定の--ink-85より不透明度を下げるだけで、
+     色相自体は変えない。 */
+  color: var(--ink-55);
 }
 
-.shared-room-status-badge[data-status="active"] {
-  color: var(--paper-1);
-  background: var(--accent-blue);
-  border-color: transparent;
-}
-
-.shared-room-status-badge[data-status="ended"] {
-  color: var(--ink-60);
-  background: var(--paper-3);
-}
-
-.shared-room-status-badge[data-status="not-started"] {
-  color: var(--ink-40);
-  background: transparent;
-}
-
-/* 「…」操作メニュートリガー。PCではホバーするまで見えないようにして
-   見える要素を増やさない（ユーザー指示）。タッチ（hover非対応）では
-   このメディアクエリ自体が当たらないため常に非表示のままで良い
-   ——タッチは.shared-room-btnへの長押しで同じメニューを開く
-   （sharedRoomMenu.tsのattachRoomNamePress参照）。 */
-.shared-room-actions-trigger {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: none;
-  padding: 0;
-  border-radius: var(--radius-full);
-  color: var(--ink-50);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-
-.shared-room-actions-trigger svg {
-  width: 15px;
-  height: 15px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .shared-room-name-wrap:hover .shared-room-actions-trigger {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-.shared-room-actions-trigger:hover {
-  background: var(--paper-2);
-}
-
-/* ルームの操作メニュー本体。位置はJS側でposition:fixed（画面px）を都度
-   計算するため、ここでは見た目だけを定義する——.shared-room-list（一覧）が
-   overflow-y:autoで内側だけスクロールするため、その中の子として置くと
-   はみ出した分が切られてしまう（canvasView.tsの.text-editor-overlayと
-   同じ理由でbody直下に置いている）。 */
-.shared-room-actions-menu {
-  position: fixed;
-  z-index: 21;
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-  padding: 6px;
-  border-radius: 12px;
-  background: var(--paper-1);
-  box-shadow: var(--shadow-popover);
-}
-
-.shared-room-action-btn {
-  appearance: none;
-  border: none;
-  background: none;
+/* --- リネーム中、ルーム名ボタン(.shared-room-btn)をこの入力欄に置き換える
+   （sharedRoomMenu.tsのstartRename参照）。ボタンと違う見た目・サイズだと
+   置き換わった瞬間に不格好に浮いて見える（ユーザー指摘）ため、.pill-btn/
+   .shared-room-btnと同じpadding・font-size・border-radiusにして、
+   ボタン⇔入力欄の切り替えが同じ大きさのまま起きるようにする。 --- */
+.shared-room-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
   font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  color: var(--ink-solid);
-  cursor: pointer;
-}
-
-.shared-room-action-btn:hover {
-  background: var(--paper-2);
+  font-size: var(--text-xs);
+  /* .pill-btn/.shared-room-btnは枠線を持たない(border:none)ぶん、そのまま
+     同じ padding だと枠線1pxずつ(計2px)背が高くなってしまう——上下の
+     paddingを1pxずつ削って総高さを完全に一致させる。 */
+  padding: 4px 12px;
+  border: 1px solid var(--ink-20);
+  border-radius: var(--radius-full);
+  background: var(--paper-1);
+  color: inherit;
 }
 
 /* 破壊的な操作だと分かるよう、他のピルよりわずかに赤みを持たせる
    （押す前にconfirm()でも確認するが、見た目でも区別できるようにする）。
    他のメンバーが誰も残っていない場合はルーム自体の削除に繋がる操作
-   （POST /shared-canvases/:id/leave、バックエンド仕様）。 */
+   （POST /shared-canvases/:id/leave、バックエンド仕様）。彩度(chroma)を
+   抑えめにして、警告色ではあっても刺々しくない柔らかい赤にする
+   （ユーザー指示）。 */
 .shared-room-leave {
   flex: 0 0 auto;
-  color: oklch(45% 0.13 25 / 0.8);
+  color: oklch(55% 0.09 25 / 0.85);
 }
 
 .shared-room-leave:hover {
-  background: oklch(90% 0.05 25 / 0.5);
-  color: oklch(40% 0.15 25 / 0.95);
-}
-
-.shared-room-rename-input {
-  flex: 1;
-  font: inherit;
-  font-size: var(--text-sm);
-  padding: 3px 6px;
-  border: 1px solid var(--ink-20);
-  border-radius: 6px;
-  background: var(--paper-1);
-  color: inherit;
+  background: oklch(92% 0.035 25 / 0.5);
+  color: oklch(48% 0.1 25 / 0.95);
 }
 
 /* --- 文字を主体にしたボタンの共通の見た目。アイコンのみの.toolbar-btnと違い、
@@ -1404,6 +1475,43 @@ body {
 
 .pill-btn:hover {
   background: var(--paper-3);
+}
+
+/* --- アイコン+文字のpill-btn（「新しいルームを作成」「共有URLをコピー」、
+   ユーザー指示）。.pill-btn自体には付けず専用の修飾クラスにするのは、
+   文字だけの.pill-btn（ゲスト参加・セッション開始等）のレイアウトに
+   影響させないため。 --- */
+.pill-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pill-btn--icon svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+/* --- 共有タブの3ボタン（＋ルームを作成／見た目の設定／セッションを開始）は、
+   画面幅が狭いと1行に並びきらない（ユーザー指摘）。それぞれのボタンが
+   .label-full（通常表示）と.label-short（短縮表示）の2つを持ち、
+   画面幅に応じてどちらかだけを見せる——テキストを動的に書き換えるのではなく
+   出し分けにすることで、他の.control-block同様「固定pxではなく画面幅に
+   連動」という考え方をここでも踏襲する（sharedRoomMenu.ts/
+   appearanceSelector.ts/sessionPanel.ts参照）。 --- */
+.label-short {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .label-full {
+    display: none;
+  }
+
+  .label-short {
+    display: inline;
+  }
 }
 
 /* --- 「残り時間」ピル（reviveInfoPill.ts）。.shared-room-trigger等と同じく
@@ -1472,6 +1580,69 @@ body {
   padding: 14px 16px;
 }
 
+/* --- .icon-popoverの既定は「トリガーの真上に、トリガーを中心として」開く
+   （left:50%+transform:translateX(-50%)）。ルーム作成ボタンはinfo-row内で
+   中央寄せされた3ボタンの1つで、画面中央からずれた位置にあることが多いため、
+   モバイル幅では横幅340px近いこのポップオーバーがその位置（横方向）を
+   中心に開くと画面端からはみ出し、リスト（部屋ID・退出ボタン等）が左右で
+   切れて見える（ユーザー報告）。横方向だけトリガー基準ではなく画面中央基準の
+   固定表示に切り替える——部屋一覧という性質上、横位置がトリガーの真上で
+   なくても違和感がない。
+   縦方向は画面中央（top:50%）にすると、ボタン自体は画面下寄り（info-row、
+   フッターのすぐ上）にあるのに対してポップオーバーが画面中央付近まで
+   離れてしまい、ボタンから遠すぎて浮いて見える（ユーザー指摘）。縦方向は
+   トリガーの真上（info-rowのすぐ上）に留めたいので、info-row自身の位置
+   （bottom: var(--app-footer-height) + 8px、style.css .info-row参照）に
+   info-rowの高さ(34px、固定値——.info-row参照)と見た目の隙間(10px)を足した
+   位置を基準にする——画面中央基準にするのは横方向のはみ出し対策のためだけで、
+   縦方向まで画面中央にする必要は無い。
+   属性セレクタ込みの分.icon-popoverの基本ルールより詳細度が高いため、
+   ファイル内の前後関係に関わらず確実に勝つ。 */
+@media (max-width: 480px) {
+  .shared-room-popover.icon-popover {
+    position: fixed;
+    left: 50%;
+    top: auto;
+    right: auto;
+    bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
+    margin: 0;
+    max-width: min(340px, 92vw);
+    max-height: 60vh;
+    overflow-y: auto;
+    transform: translateX(-50%) translateY(6px);
+  }
+
+  .shared-room-popover.icon-popover.is-visible {
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* --- .session-panel-popoverも.shared-room-popoverと同じ理由でモバイル幅では
+   はみ出す（ユーザー報告：スマホでセッションのメニューが画面内に収まって
+   いない）——トリガー（セッションのpill-btn）はinfo-row内で中央寄せされた
+   3ボタンの1つで画面中央からずれており、min-width:260pxのこのポップオーバー
+   がトリガー中心（.icon-popover既定のleft:50%+transform:translateX(-50%)）
+   で開くと画面端からはみ出す。.shared-room-popoverと同じ対処（横方向は
+   画面中央基準の固定表示、縦方向はinfo-rowのすぐ上）を適用する。 --- */
+@media (max-width: 480px) {
+  .session-panel-popover.icon-popover {
+    position: fixed;
+    left: 50%;
+    top: auto;
+    right: auto;
+    bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
+    margin: 0;
+    max-width: min(340px, 92vw);
+    max-height: 60vh;
+    overflow-y: auto;
+    transform: translateX(-50%) translateY(6px);
+  }
+
+  .session-panel-popover.icon-popover.is-visible {
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 /* --- 見た目の設定（appearanceSelector.ts）のトリガーボタン。共有ルーム
    メニューのトリガーと同じ理由（ページの地色に埋もれないよう明るいトーンで
    個別に上書き）に加え、アイコン+文字を横並びにする。 --- */
@@ -1498,17 +1669,26 @@ body {
 
 /* --- 見た目の設定のポップアップ。「フレームの形」「フレームの色」の2区画を
    縦に並べる——.shared-menu-section/.shared-section-labelを共有ルームメニュー
-   と同じ区切りの見た目のまま流用する。 --- */
+   と同じ区切りの見た目のまま流用するが、仕切り線(border-top)自体は
+   .settings-popoverと同じ理由で打ち消す（ユーザー指示：区切り線をなくしたい）
+   ——余白(padding-top)は区画の区別として残す。 --- */
 .appearance-popover {
   min-width: 220px;
   padding: 14px 16px;
+}
+
+.appearance-popover .shared-menu-section {
+  border-top: none;
 }
 
 /* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
    背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
    他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。
    文字を持たない（ユーザー指示）ため、他のpill-btnと違いwidth/heightを
-   固定して正円のアイコンボタンにする。 --- */
+   固定してアイコンボタンにする。左のview-nav（画面切り替え）を正円/pillの
+   見た目から長方形のスイッチに変えたのに合わせ、こちらも正円から正方形へ
+   （border-radiusをview-navと同じ--radius-smに）変えてトーンを揃える
+   （ユーザー指示）。 --- */
 .settings-trigger {
   display: flex;
   align-items: center;
@@ -1516,6 +1696,7 @@ body {
   width: 32px;
   height: 32px;
   padding: 0;
+  border-radius: var(--radius-sm);
   background: var(--paper-1);
 }
 
@@ -1703,12 +1884,16 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  /* .app-footer（position:fixed、高さはcontrol-panelの72px＋自身のpadding＋
-     セーフエリアでおおよそ90〜100px、下端の余白を広げた分(+12px)を含む）の
-     裏に隠れないよう、その高さぶん＋見た目の隙間(8px)だけ上げる
-     （ユーザー指摘：ツールバー直上に見えるはずがbottom:0だとツールバーの裏＝
-     画面の真下に来てしまい隠れていた）。 */
-  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+  /* .app-footer（position:fixed）の裏に隠れないよう、その高さぶん＋見た目の
+     隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずがbottom:0だと
+     ツールバーの裏＝画面の真下に来てしまい隠れていた）。以前はフッターの高さが
+     常に一定という前提で決め打ちの値(108px)を使っていたが、モバイル幅の
+     ハンドル開閉でフッターの高さ自体が変わるようになった（.control-panel-body
+     参照）ため、実測値（--app-footer-height、main.tsがResizeObserverで追従）を
+     参照する形にした——安全側のフォールバック値のみ決め打ちで残す。
+     --app-footer-height自体に.app-footerのpadding（セーフエリア込み）が
+     反映済みのため、ここでenv(safe-area-inset-bottom)は重ねて足さない。 */
+  bottom: calc(var(--app-footer-height, 100px) + 8px);
   display: flex;
   justify-content: center;
   align-items: center;

@@ -6,7 +6,6 @@ import { claimGuestInvite, loadGuestSession, saveGuestSession, type StoredGuestS
 import { ICONS } from "./icons";
 import {
   createSharedCanvas,
-  getSharedCanvas,
   joinSharedCanvas,
   leaveSharedCanvas,
   listSharedCanvases,
@@ -21,23 +20,9 @@ const JOIN_PARAM = "join";
 // サイレントに再開できるようにするため、handlePendingInvite参照)。
 const INVITE_PARAM = "invite";
 const ROOM_PARAM = "room";
-const CREATE_LABEL = "+ 新しい共有キャンバスを作る";
-const COPY_LABEL = "コピー";
+const CREATE_LABEL = "新しいルームを作成";
+const COPY_LABEL = "共有URLをコピー";
 const GUEST_JOIN_LABEL = "ゲストとして参加";
-
-/** ルーム一覧の各項目に添えるステータス。一覧取得API(listSharedCanvases)は
- *  セッション状態を返さないため、行ごとに個別にgetSharedCanvas(id)を叩いて
- *  判定する（issue #79：一覧でも進行中/終了が分かるようにしたいというユーザー指示）。
- *  - active: セッション進行中(session !== null)
- *  - ended: セッションは今動いていないが、確定済み(fadeExempt)のメモが残っている
- *    ＝過去にセッションを実施済み
- *  - not-started: セッションを一度も実施していない */
-type RoomStatus = "active" | "ended" | "not-started";
-const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
-  active: "進行中",
-  ended: "終了",
-  "not-started": "未実施",
-};
 
 /**
  * 眼鏡キャンバスの下（smuiView.getRoomMenuSlot()）に置く、共有キャンバス
@@ -81,9 +66,10 @@ export class SharedRoomMenu {
   private guestStatusEl!: HTMLElement;
   private guestInfoEl!: HTMLElement;
   private mainEl!: HTMLElement;
+  private createBtnLabelEl!: HTMLElement;
   private createBtn!: HTMLButtonElement;
   private statusEl!: HTMLElement;
-  private inviteInput!: HTMLInputElement;
+  private copyBtnLabelEl!: HTMLElement;
   private copyBtn!: HTMLButtonElement;
   private roomListEl!: HTMLUListElement;
   private emptyEl!: HTMLElement;
@@ -91,17 +77,10 @@ export class SharedRoomMenu {
 
   private rooms: SharedCanvasSummary[] = [];
   private selectedId: string | null = null;
-  /** ルームIDごとのステータス取得結果のキャッシュ。refreshRoomList()の
-   *  たびにクリアし、開き直すたびに最新の状態を取り直す。 */
-  private roomStatus = new Map<string, RoomStatus>();
-  /** 非同期で届いたステータスを、再描画済みの最新のDOM要素へ正しく反映する
-   *  ための対応表（renderRoomList()のたびに作り直す）。 */
-  private roomStatusBadgeEls = new Map<string, HTMLElement>();
-
-  /** ルームごとの「その他の操作」メニュー（今は「名前を変更」の1件のみ、
-   *  今後増える操作もここに並べていく想定）。同時に1つしか開かない。 */
-  private roomActionsMenuEl: HTMLElement | null = null;
-  private roomActionsMenuCleanup: (() => void) | null = null;
+  /** 選択中のルームへの招待リンク。表示用の入力欄は持たず（ユーザー指示：
+   *  文字＋アイコンの「共有URLをコピー」ボタン1つにまとめる）、コピー時に
+   *  参照するためだけに保持する。 */
+  private inviteUrl: string | null = null;
 
   constructor(
     container: HTMLElement,
@@ -222,17 +201,46 @@ export class SharedRoomMenu {
     this.mainEl.className = "shared-room-menu-main";
     this.mainEl.hidden = true;
 
-    // 3つの区画（作成／招待リンク／ルーム一覧）を.shared-menu-sectionで区切り、
+    // 2つの区画（ルーム一覧／作成・招待）を.shared-menu-sectionで区切り、
     // 同じカードの中でも役割の境目が見えるようにする（ユーザー指摘：色々な
-    // 要素が区切りなく1枚に同居している）。
+    // 要素が区切りなく1枚に同居している）。「新しいルームを作成」「共有URLを
+    // コピー」は既存ルームの一覧よりも下の、カードの右下に横並びで置く
+    // （ユーザー指示）——新規作成・招待は毎回の操作ではなく、既存ルームの
+    // 参加・選択の方が主な用途のため。招待リンクは以前ラベル+入力欄+コピー
+    // ボタンの3点だったが、表示用の値を持つ意味が薄い（コピーできれば十分）
+    // ため、アイコン付きの「共有URLをコピー」ボタン1つに統合した（ユーザー指示）。
     const createSection = document.createElement("div");
-    createSection.className = "shared-menu-section";
+    createSection.className = "shared-menu-section shared-create-section";
+    const actionsRow = document.createElement("div");
+    actionsRow.className = "shared-create-actions";
+
     this.createBtn = document.createElement("button");
     this.createBtn.type = "button";
-    this.createBtn.className = "pill-btn pill-btn--primary";
-    this.createBtn.textContent = CREATE_LABEL;
+    this.createBtn.className = "pill-btn pill-btn--primary pill-btn--icon";
+    this.createBtnLabelEl = document.createElement("span");
+    this.createBtnLabelEl.className = "shared-create-btn-label";
+    this.createBtnLabelEl.textContent = CREATE_LABEL;
+    this.createBtn.innerHTML = ICONS.plus;
+    this.createBtn.appendChild(this.createBtnLabelEl);
     this.createBtn.addEventListener("click", () => void this.handleCreate());
-    createSection.appendChild(this.createBtn);
+    actionsRow.appendChild(this.createBtn);
+
+    // ルームを選ぶまでは押せない・薄い表示のまま常に出しておく（ユーザー
+    // 指摘：どこに出るか事前に分かるようにしたい、という以前の入力欄と同じ
+    // 考え方をボタンの disabled 表示に引き継ぐ）。
+    this.copyBtn = document.createElement("button");
+    this.copyBtn.type = "button";
+    this.copyBtn.className = "pill-btn pill-btn--icon";
+    this.copyBtnLabelEl = document.createElement("span");
+    this.copyBtnLabelEl.className = "shared-copy-btn-label";
+    this.copyBtnLabelEl.textContent = COPY_LABEL;
+    this.copyBtn.innerHTML = ICONS.link;
+    this.copyBtn.appendChild(this.copyBtnLabelEl);
+    this.copyBtn.disabled = true;
+    this.copyBtn.addEventListener("click", () => void this.copyInviteLink());
+    actionsRow.appendChild(this.copyBtn);
+
+    createSection.appendChild(actionsRow);
     // ここには成功メッセージ（「作成しました」等）は出さない——招待リンクが
     // 現れること自体が成功の合図になるため、専用の1行を使ってまで知らせる
     // 必要がない（ユーザー指摘：無駄な表示で1行使わない）。エラーと、
@@ -240,40 +248,6 @@ export class SharedRoomMenu {
     this.statusEl = document.createElement("p");
     this.statusEl.className = "shared-status";
     createSection.appendChild(this.statusEl);
-    this.mainEl.appendChild(createSection);
-
-    const inviteSection = document.createElement("div");
-    inviteSection.className = "shared-menu-section";
-    const inviteRow = document.createElement("div");
-    inviteRow.className = "shared-invite";
-    const inviteLabel = document.createElement("div");
-    inviteLabel.className = "shared-section-label";
-    inviteLabel.textContent = "招待リンク";
-    inviteRow.appendChild(inviteLabel);
-    // 入力欄＋コピーは見出し行と分け、この2つだけの行にする——招待リンク:
-    // ラベルまで同じ行に入れていた以前は、狭い幅でコピーボタンが弾かれて
-    // 次の行に落ちてしまっていた（ユーザー指摘：1行で表示すべき）。
-    const inviteInputRow = document.createElement("div");
-    inviteInputRow.className = "shared-invite-input-row";
-    this.inviteInput = document.createElement("input");
-    this.inviteInput.className = "shared-invite-input";
-    this.inviteInput.readOnly = true;
-    // ルームを選ぶまでは行自体を隠すのではなく、disabled・薄い表示のまま
-    // 常に出しておく（ユーザー指摘：どこに出るか事前に分かるようにしたい）。
-    this.inviteInput.disabled = true;
-    this.inviteInput.placeholder = "ルームを作成・選択すると表示されます";
-    this.inviteInput.addEventListener("focus", () => this.inviteInput.select());
-    inviteInputRow.appendChild(this.inviteInput);
-    this.copyBtn = document.createElement("button");
-    this.copyBtn.type = "button";
-    this.copyBtn.className = "pill-btn";
-    this.copyBtn.textContent = COPY_LABEL;
-    this.copyBtn.disabled = true;
-    this.copyBtn.addEventListener("click", () => void this.copyInviteLink());
-    inviteInputRow.appendChild(this.copyBtn);
-    inviteRow.appendChild(inviteInputRow);
-    inviteSection.appendChild(inviteRow);
-    this.mainEl.appendChild(inviteSection);
 
     const listSection = document.createElement("div");
     listSection.className = "shared-menu-section";
@@ -293,6 +267,7 @@ export class SharedRoomMenu {
     listSection.appendChild(this.emptyEl);
 
     this.mainEl.appendChild(listSection);
+    this.mainEl.appendChild(createSection);
 
     this.popover.appendChild(this.mainEl);
     this.anchor.appendChild(this.popover);
@@ -322,7 +297,6 @@ export class SharedRoomMenu {
     this.btn.dataset.active = "false";
     this.popoverFade(false);
     notifyClose(this.closeRef);
-    this.closeRoomActionsMenu();
   }
 
   private setStatus(text: string): void {
@@ -419,7 +393,14 @@ export class SharedRoomMenu {
       this.btn.title = this.selectedId;
     } else {
       this.btnIconEl.hidden = true;
-      this.btnLabelEl.textContent = "＋ルームを作成";
+      // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
+      // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
+      // メディアクエリで出し分けて短縮表示にする（style.css参照）。未接続時は
+      // btnIconEl（実アイコン）を出さず「＋」の文字がアイコン代わりのため
+      // （ユーザー指摘：スマホでルームのアイコンが消える）、短縮表示でも
+      // 「＋」は削らずに残す。
+      this.btnLabelEl.innerHTML =
+        '<span class="label-full">＋ルームを作成</span><span class="label-short">＋ルーム</span>';
       this.btn.title = "";
     }
   }
@@ -439,8 +420,7 @@ export class SharedRoomMenu {
         const { token } = await mintInvite(id);
         url.searchParams.set(INVITE_PARAM, token);
         url.searchParams.set(ROOM_PARAM, id);
-        this.inviteInput.value = url.toString();
-        this.inviteInput.disabled = false;
+        this.inviteUrl = url.toString();
         this.copyBtn.disabled = false;
         return;
       } catch {
@@ -448,8 +428,7 @@ export class SharedRoomMenu {
       }
     }
     url.searchParams.set(JOIN_PARAM, id);
-    this.inviteInput.value = url.toString();
-    this.inviteInput.disabled = false;
+    this.inviteUrl = url.toString();
     this.copyBtn.disabled = false;
   }
 
@@ -492,7 +471,7 @@ export class SharedRoomMenu {
     this.busy = true;
     this.setStatus("");
     this.createBtn.disabled = true;
-    this.createBtn.textContent = "作成中…";
+    this.createBtnLabelEl.textContent = "作成中…";
     try {
       const id = await createSharedCanvas();
       await this.refreshRoomList();
@@ -509,29 +488,30 @@ export class SharedRoomMenu {
     } finally {
       this.busy = false;
       this.createBtn.disabled = false;
-      this.createBtn.textContent = CREATE_LABEL;
+      this.createBtnLabelEl.textContent = CREATE_LABEL;
     }
   }
 
   /** コピーの成否は、別行のステータス文字ではなくボタン自身の文字を
    *  一瞬だけ差し替えて伝える（ユーザー指摘：無駄な表示で1行使わない）。
-   *  失敗時だけは操作のやり直し方（選択してコピー）を説明する必要がある
-   *  ため、従来通りstatusEl（エラー用）に出す。 */
+   *  以前は失敗時に入力欄を選択状態にするフォールバックがあったが、
+   *  表示用の入力欄自体を廃止した（ユーザー指示：ボタン1つに統合）ため、
+   *  失敗はstatusEl（エラー用）に出すだけにする。 */
   private async copyInviteLink(): Promise<void> {
+    if (!this.inviteUrl) return;
     try {
-      await navigator.clipboard.writeText(this.inviteInput.value);
+      await navigator.clipboard.writeText(this.inviteUrl);
       this.flashCopyButton("コピーしました");
     } catch {
-      this.inviteInput.select();
-      this.setStatus("コピーできませんでした。選択してご自身でコピーしてください");
+      this.setStatus("コピーできませんでした");
     }
   }
 
   private flashCopyButton(text: string): void {
     window.clearTimeout(this.copyFeedbackTimer);
-    this.copyBtn.textContent = text;
+    this.copyBtnLabelEl.textContent = text;
     this.copyFeedbackTimer = window.setTimeout(() => {
-      this.copyBtn.textContent = COPY_LABEL;
+      this.copyBtnLabelEl.textContent = COPY_LABEL;
     }, 1500);
   }
 
@@ -542,45 +522,21 @@ export class SharedRoomMenu {
       this.setStatus(e instanceof Error ? e.message : "一覧の取得に失敗しました");
       this.rooms = [];
     }
-    // 開き直すたびに最新のステータスを取り直す（進行中→終了等の変化を拾うため）。
-    this.roomStatus.clear();
     this.renderRoomList();
   }
 
-  /** 1ルームぶんのステータスを取得し、そのルームの行がまだ表示中であれば
-   *  バッジへ反映する。一覧の行を再構築するのではなく該当バッジだけを
-   *  差し替えるため、他の行の表示（リネーム中の入力欄等）を巻き込まない。 */
-  private async loadRoomStatus(id: string): Promise<void> {
-    let status: RoomStatus;
-    try {
-      const detail = await getSharedCanvas(id);
-      status = detail.session ? "active" : detail.memos.some((m) => m.fadeExempt) ? "ended" : "not-started";
-    } catch {
-      return; // 取得できなければバッジ無しのまま（一覧自体の表示は既に済んでいるため致命的ではない）
-    }
-    this.roomStatus.set(id, status);
-    const badge = this.roomStatusBadgeEls.get(id);
-    if (badge) this.applyRoomStatusBadge(badge, status);
-  }
-
-  private applyRoomStatusBadge(el: HTMLElement, status: RoomStatus | undefined): void {
-    if (!status) {
-      el.hidden = true;
-      return;
-    }
-    el.hidden = false;
-    el.textContent = ROOM_STATUS_LABEL[status];
-    el.dataset.status = status;
-  }
-
-  /** ルームの行は[ルーム名(操作トリガー付き)][退出]の2要素だけに絞る
-   *  （ユーザー指示：認知負荷を下げたい）。「名前を変更」は常時表示のボタンではなく、
-   *  ルーム名にホバー（PC）／長押し（タッチ）したときだけ開く操作メニューに
-   *  格上げする——ホバーしただけでは確定せず、メニューから選んで初めて実行される。 */
+  /** ルームの行は[ルーム名][名前を変更][退出]の3要素。以前は「名前を変更」を
+   *  ホバー／長押しで開く別メニュー（.shared-room-list外・body直下に置く
+   *  必要があった、.shared-room-listのoverflow-y:autoで切られないように
+   *  するため）に格上げしていたが、そのメニューがexclusivePopover.tsの
+   *  「ポップオーバーの外をクリックしたら閉じる」判定の対象外（body直下＝
+   *  .icon-anchorの外）になり、メニュー内のボタンを押した瞬間に判定が
+   *  先に発火してルームメニュー全体が閉じてしまい、名前変更が実質使えなく
+   *  なっていた（ユーザー指摘・診断）。アクションはどうせ1つしかないため、
+   *  別メニューに格上げする理由自体が無く、常時表示のアイコンボタンに戻す
+   *  （.icon-anchorの内側に留まるため上記の問題も構造的に起きない）。 */
   private renderRoomList(): void {
-    this.closeRoomActionsMenu();
     this.roomListEl.innerHTML = "";
-    this.roomStatusBadgeEls.clear();
     this.emptyEl.hidden = this.rooms.length > 0;
     for (const room of this.rooms) {
       const li = document.createElement("li");
@@ -598,42 +554,32 @@ export class SharedRoomMenu {
       // titleは表示中のラベル自体にしてホバーで全文を確認できるようにする。
       btn.title = label;
       btn.setAttribute("aria-pressed", String(room.id === this.selectedId));
-      nameWrap.appendChild(btn);
-
-      const statusBadge = document.createElement("span");
-      statusBadge.className = "shared-room-status-badge";
-      this.applyRoomStatusBadge(statusBadge, this.roomStatus.get(room.id));
-      this.roomStatusBadgeEls.set(room.id, statusBadge);
-      nameWrap.appendChild(statusBadge);
-      if (!this.roomStatus.has(room.id)) void this.loadRoomStatus(room.id);
-
-      const actionsBtn = document.createElement("button");
-      actionsBtn.type = "button";
-      actionsBtn.className = "shared-room-actions-trigger";
-      actionsBtn.setAttribute("aria-label", "ルームの操作メニュー");
-      actionsBtn.innerHTML = ICONS.moreActions;
-      actionsBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.openRoomActionsMenu(actionsBtn, li, room);
-      });
-      nameWrap.appendChild(actionsBtn);
-
-      const selectRoom = () => {
+      btn.addEventListener("click", () => {
         this.selectedId = room.id;
         this.updateTriggerLabel();
         this.renderRoomList();
         this.onSelectRoom(room.id);
         void this.showInviteLink(room.id);
         this.close();
-      };
-      this.attachRoomNamePress(btn, actionsBtn, li, room, selectRoom);
+      });
+      nameWrap.appendChild(btn);
+
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "pill-btn shared-room-rename";
+      renameBtn.textContent = "編集";
+      renameBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.startRename(li, room);
+      });
+      nameWrap.appendChild(renameBtn);
 
       li.appendChild(nameWrap);
 
       const leaveBtn = document.createElement("button");
       leaveBtn.type = "button";
       leaveBtn.className = "pill-btn shared-room-leave";
-      leaveBtn.textContent = "退出";
+      leaveBtn.textContent = "退室";
       leaveBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         void this.handleLeave(room.id, label, leaveBtn);
@@ -642,131 +588,6 @@ export class SharedRoomMenu {
 
       this.roomListEl.appendChild(li);
     }
-  }
-
-  /** ルーム名ボタンの押し方を、マウスは通常クリック（＝選択）、タッチ／ペンは
-   *  長押しで操作メニューを開く・短いタップで選択、の2通りに振り分ける
-   *  （ユーザー指示：タッチでは長押しでメニューを開けるようにしたい）。
-   *  マウスは:hoverで見える「…」アイコン（openRoomActionsMenu）から開くため、
-   *  ここでは長押し扱いにしない。 */
-  private attachRoomNamePress(
-    btn: HTMLButtonElement,
-    actionsBtn: HTMLButtonElement,
-    li: HTMLLIElement,
-    room: SharedCanvasSummary,
-    selectRoom: () => void
-  ): void {
-    const LONG_PRESS_MS = 500;
-    const MOVE_CANCEL_PX = 10;
-    let timer: number | undefined;
-    let longPressed = false;
-    let startX = 0;
-    let startY = 0;
-
-    const clearTimer = () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-    };
-
-    btn.addEventListener("pointerdown", (ev) => {
-      if (ev.pointerType === "mouse") return;
-      longPressed = false;
-      startX = ev.clientX;
-      startY = ev.clientY;
-      clearTimer();
-      timer = window.setTimeout(() => {
-        longPressed = true;
-        this.openRoomActionsMenu(actionsBtn, li, room);
-      }, LONG_PRESS_MS);
-    });
-    btn.addEventListener("pointermove", (ev) => {
-      if (timer === undefined) return;
-      if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > MOVE_CANCEL_PX) clearTimer();
-    });
-    btn.addEventListener("pointerup", clearTimer);
-    btn.addEventListener("pointercancel", clearTimer);
-    btn.addEventListener("click", (ev) => {
-      if (longPressed) {
-        // 長押しで既にメニューを開いたので、そのあとに来るclick（＝選択）は
-        // 打ち消す——選択とメニュー表示が同時に起きるのを防ぐ。
-        ev.preventDefault();
-        longPressed = false;
-        return;
-      }
-      selectRoom();
-    });
-  }
-
-  /** ルーム名にホバー（PC）／長押し（タッチ）したときに開く、そのルームの
-   *  操作メニュー。今は「名前を変更」の1件のみだが、今後増える操作もここに
-   *  並べていく想定（ユーザー指示）。.shared-room-list（一覧）はoverflow-y:auto
-   *  で内側だけスクロールするため、その中にposition:absoluteの子として置くと
-   *  はみ出した分が切られてしまう——canvasView.tsの.text-editor-overlayと
-   *  同じ理由でposition:fixed・body直下にして回避している。 */
-  private openRoomActionsMenu(anchorBtn: HTMLButtonElement, li: HTMLLIElement, room: SharedCanvasSummary): void {
-    this.closeRoomActionsMenu();
-
-    const actions: { label: string; onSelect: () => void }[] = [
-      { label: "名前を変更", onSelect: () => this.startRename(li, room) },
-    ];
-
-    const menu = document.createElement("div");
-    menu.className = "shared-room-actions-menu";
-    for (const action of actions) {
-      const actionBtn = document.createElement("button");
-      actionBtn.type = "button";
-      actionBtn.className = "shared-room-action-btn";
-      actionBtn.textContent = action.label;
-      actionBtn.addEventListener("click", () => {
-        this.closeRoomActionsMenu();
-        action.onSelect();
-      });
-      menu.appendChild(actionBtn);
-    }
-    document.body.appendChild(menu);
-    this.roomActionsMenuEl = menu;
-
-    const anchorRect = anchorBtn.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const margin = 6;
-    let top = anchorRect.bottom + margin;
-    if (top + menuRect.height > window.innerHeight - margin) {
-      top = anchorRect.top - menuRect.height - margin;
-    }
-    const left = Math.max(
-      margin,
-      Math.min(anchorRect.right - menuRect.width, window.innerWidth - menuRect.width - margin)
-    );
-    menu.style.top = `${top}px`;
-    menu.style.left = `${left}px`;
-
-    const onOutside = (ev: PointerEvent) => {
-      if (ev.target instanceof Node && (menu.contains(ev.target) || anchorBtn.contains(ev.target))) return;
-      this.closeRoomActionsMenu();
-    };
-    const onKeydown = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") this.closeRoomActionsMenu();
-    };
-    // 開いた直後の同じクリック／タップで即座に閉じてしまわないよう、
-    // 次のイベントループから listen する。
-    const listenTimer = window.setTimeout(() => {
-      document.addEventListener("pointerdown", onOutside);
-      document.addEventListener("keydown", onKeydown);
-    }, 0);
-    this.roomActionsMenuCleanup = () => {
-      window.clearTimeout(listenTimer);
-      document.removeEventListener("pointerdown", onOutside);
-      document.removeEventListener("keydown", onKeydown);
-    };
-  }
-
-  private closeRoomActionsMenu(): void {
-    this.roomActionsMenuCleanup?.();
-    this.roomActionsMenuCleanup = null;
-    this.roomActionsMenuEl?.remove();
-    this.roomActionsMenuEl = null;
   }
 
   /** ルームから退出する。他のメンバーが誰も残っていない場合、サーバー側で
