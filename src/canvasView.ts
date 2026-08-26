@@ -1333,7 +1333,7 @@ export class CircularCanvas {
     if (eraserCursorPoint) {
       const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
       ctx.beginPath();
-      ctx.arc(p.x, p.y, this.getToolState().eraserRadius, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
       ctx.strokeStyle = ERASER_CURSOR;
       ctx.lineWidth = 1.2;
       ctx.stroke();
