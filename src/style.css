@@ -526,7 +526,10 @@ body {
   touch-action: pan-x pan-y;
   display: flex;
   justify-content: center;
-  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  /* 下端の余白が窮屈だった（ユーザー指摘）ため、他の3辺(8px)より広めに取る
+   *  ——個人キャンバス・共有ビュー共通の単一の.app-footerなので、両方に
+   *  自然に反映される。 */
+  padding: 8px 16px calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
   /* .app-footer自体は背景を持たない——中身の3ブロック（.control-block）が
      それぞれ個別に不透明な背景（var(--paper-1)）を持っているため、コンテナ
      側で重ねて背景を敷くと色浮きするだけで意味が無かった（ユーザー指摘）。 */
@@ -872,11 +875,16 @@ body {
 }
 
 /* 共有ルームの見た目(見た目の設定、appearanceSelector.ts)がルームマスターに
-   よって固定されている間、非マスターは押せない。今選ばれているものが
-   何かは分かるよう、選択中(data-active)だけは薄くしない。 */
+   よって固定されている間、非マスターは押せない。投票フェーズ中に「選択」
+   以外の道具を締め出す場合(toolbar.ts setOnlyToolEnabled)も同じ見た目を使う。
+   選択中(data-active)は薄くしないが、グレースケール化はして「今は固定されて
+   いる」ことを示す——不透明度の差(0.55→0.3)だけでは、単に「今選ばれていない
+   道具」との見分けが付きにくく、参加者から見て本当にロックされているのか
+   分かりづらいという指摘があった（issue #79）。 */
 .toolbar-btn:disabled {
-  cursor: default;
+  cursor: not-allowed;
   pointer-events: none;
+  filter: grayscale(1);
 }
 
 .toolbar-btn:disabled:not([data-active="true"]) {
@@ -1245,6 +1253,36 @@ body {
   font-weight: 600;
 }
 
+/* ルームのセッション状態バッジ(issue #79)。取得できるまでhiddenのまま。 */
+.shared-room-status-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: var(--text-2xs);
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  color: var(--ink-50);
+  background: var(--paper-2);
+  border: 1px solid var(--ink-12);
+}
+
+.shared-room-status-badge[data-status="active"] {
+  color: var(--paper-1);
+  background: var(--accent-blue);
+  border-color: transparent;
+}
+
+.shared-room-status-badge[data-status="ended"] {
+  color: var(--ink-60);
+  background: var(--paper-3);
+}
+
+.shared-room-status-badge[data-status="not-started"] {
+  color: var(--ink-40);
+  background: transparent;
+}
+
 /* 「…」操作メニュートリガー。PCではホバーするまで見えないようにして
    見える要素を増やさない（ユーザー指示）。タッチ（hover非対応）では
    このメディアクエリ自体が当たらないため常に非表示のままで良い
@@ -1610,10 +1648,11 @@ body {
   left: 0;
   right: 0;
   /* .app-footer（position:fixed、高さはcontrol-panelの72px＋自身のpadding＋
-     セーフエリアでおおよそ80〜90px）の裏に隠れないよう、その高さぶん＋
-     見た目の隙間(8px)だけ上げる（ユーザー指摘：ツールバー直上に見えるはずが
-     bottom:0だとツールバーの裏＝画面の真下に来てしまい隠れていた）。 */
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+     セーフエリアでおおよそ90〜100px、下端の余白を広げた分(+12px)を含む）の
+     裏に隠れないよう、その高さぶん＋見た目の隙間(8px)だけ上げる
+     （ユーザー指摘：ツールバー直上に見えるはずがbottom:0だとツールバーの裏＝
+     画面の真下に来てしまい隠れていた）。 */
+  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: center;
   align-items: center;
@@ -2239,4 +2278,113 @@ body {
 
 .tutorial-sandbox-skip {
   color: var(--ink-40);
+}
+
+/* --- フェーズ切り替えの「カットイン」演出 (issue #79) -------------------
+   共同アイデア出しセッションのフェーズが切り替わった瞬間、格闘ゲーム風の
+   帯+フラッシュで「アイデア出し開始」等を一瞬だけ大きく見せる。
+   phaseCutIn.tsが呼ぶたびに.phase-cutinを1つ生成し、アニメーション終了で
+   自分自身を消す（使い捨てのDOM）。 --- */
+.phase-cutin {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  pointer-events: none;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.phase-cutin-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--paper-1);
+  opacity: 0;
+  animation: phase-cutin-flash 0.5s ease-out forwards;
+}
+
+.phase-cutin-band {
+  position: absolute;
+  left: -15%;
+  right: -15%;
+  height: 22%;
+  min-height: 84px;
+  background: var(--ink-solid);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-130%) skewY(-3deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: phase-cutin-band 1s cubic-bezier(0.22, 0.9, 0.24, 1) forwards;
+}
+
+.phase-cutin-text {
+  font-family: "Klee One", "Noto Sans JP", sans-serif;
+  font-weight: 600;
+  font-size: clamp(28px, 5.5vw, 56px);
+  letter-spacing: 0.06em;
+  color: var(--paper-1);
+  white-space: nowrap;
+  transform: skewY(3deg) translateX(-24px);
+  opacity: 0;
+  animation: phase-cutin-text 0.6s ease-out 0.18s forwards;
+}
+
+@keyframes phase-cutin-flash {
+  0% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes phase-cutin-band {
+  0% {
+    transform: translateX(-130%) skewY(-3deg);
+  }
+  22% {
+    transform: translateX(0%) skewY(-3deg);
+  }
+  72% {
+    transform: translateX(0%) skewY(-3deg);
+  }
+  100% {
+    transform: translateX(130%) skewY(-3deg);
+  }
+}
+
+@keyframes phase-cutin-text {
+  0% {
+    opacity: 0;
+    transform: skewY(3deg) translateX(-24px);
+  }
+  18% {
+    opacity: 1;
+    transform: skewY(3deg) translateX(0);
+  }
+  70% {
+    opacity: 1;
+    transform: skewY(3deg) translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: skewY(3deg) translateX(20px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-cutin-flash,
+  .phase-cutin-band,
+  .phase-cutin-text {
+    animation: none;
+  }
+  .phase-cutin-band {
+    transform: skewY(0deg);
+  }
+  .phase-cutin-text {
+    opacity: 1;
+    transform: none;
+  }
 }

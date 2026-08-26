@@ -94,7 +94,11 @@ void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!
       () => void refreshFromCloud(store),
       (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
       (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
-      (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat)
+      (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
+      () => {
+        void refreshFromCloud(store);
+        smuiView.notifyReconnected();
+      }
     );
     disconnectRealtime = realtime.disconnect;
     subscribeToRoom = realtime.subscribeToRoom;

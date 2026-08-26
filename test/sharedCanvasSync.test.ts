@@ -23,7 +23,7 @@ describe("SharedRoomSync poll()の多重実行防止", () => {
     vi.mocked(getSharedCanvas).mockReturnValue(pending);
 
     const onRemoteChange = vi.fn();
-    const sync = new SharedRoomSync("room-1", onRemoteChange);
+    const sync = new SharedRoomSync("room-1", onRemoteChange, vi.fn());
 
     sync.pollNow();
     sync.pollNow();
@@ -47,7 +47,7 @@ describe("SharedRoomSync poll()の多重実行防止", () => {
     vi.useFakeTimers();
     vi.mocked(getSharedCanvas).mockResolvedValue({ id: "room-1", memos: [] });
     vi.mocked(saveSharedCanvas).mockResolvedValue(undefined);
-    const sync = new SharedRoomSync("room-1", vi.fn());
+    const sync = new SharedRoomSync("room-1", vi.fn(), vi.fn());
 
     sync.schedulePush([]); // pushTimerがセットされ、hasPendingLocalChanges()がtrueになる
     sync.pollNow();
