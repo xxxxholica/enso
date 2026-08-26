@@ -13,17 +13,17 @@ import type { Memo } from "./types";
  * 状態をGETで取得し直させる方式に統一する（個人・共有キャンバス双方、
  * issue #79）。初回接続時は呼ばない（呼び出し側が別途初期ロードを行うため）。
  *
- * サーバー(api.onunu.me)からの通知には2種類ある。個人キャンバスの変更・
- * 共有キャンバスの名前/見た目変更は、中身を持たない軽い「変わったよ」pingだけ
- * ({ type: "changed" }、共有の場合はcanvasId付き)——受け取ったら呼び出し側が
- * 渡したonChanged/onSharedChangedを呼び、実際の反映は既存のcloudSync.
- * refreshFromCloud()やSharedRoomSync.pollNow()（＝通常のGETでの取得し直し）に
- * 任せる。一方、共有キャンバスのメモ1件の作成・編集・削除は{ type: "memo-upserted",
- * canvasId, memo, originClientId }/{ type: "memo-deleted", canvasId, memoId,
+ * サーバー(api.onunu.me)からの通知には2種類ある。共有キャンバスの名前/見た目
+ * 変更だけは、中身を持たない軽い「変わったよ」ping({ type: "changed", canvasId })
+ * ——受け取ったら呼び出し側が渡したonSharedChangedを呼び、実際の反映は
+ * SharedRoomSync.pollNow()（＝通常のGETでの取得し直し）に任せる。それ以外
+ * （個人キャンバス・共有キャンバスどちらのメモ1件の作成・編集・削除）は
+ * { type: "memo-upserted", memo, originClientId }/{ type: "memo-deleted", memoId,
  * originClientId }としてその中身ごと届く(issue #99)——GETし直さず即座に反映する。
- * originClientIdは送信元が名乗ったクライアントID(clientId.ts)で、自分自身が送った
- * 変更のエコーはここで無視する(サーバー側でX-Client-Idヘッダーをそのまま
- * 転送しているだけ、index.js参照)。
+ * 共有キャンバスの場合だけcanvasIdが付く（個人キャンバスはアカウントに1つだけ
+ * なのでcanvasId自体を持たない）。originClientIdは送信元が名乗ったクライアントID
+ * (clientId.ts)で、自分自身が送った変更のエコーはここで無視する(サーバー側で
+ * X-Client-Idヘッダーをそのまま転送しているだけ、index.js参照)。
  *
  * 共有ルームの購読は、サーバー側に明示的な購読解除(unsubscribe)が無く、
  * 一度subscribeしたcanvasIdはソケットが切れるまで届き続ける仕様
@@ -59,32 +59,50 @@ export interface RealtimeSyncHandle {
   subscribeToRoom: (canvasId: string) => void;
 }
 
+export interface RealtimeSyncCallbacks {
+  // 個人キャンバスのメモ1件が他タブ/他端末で作成・編集されるたびに届く
+  // (issue #99)。フルGETを挟まず、その場でメモの中身を反映する。自分自身が
+  // 送った変更のエコーはここで既に除外済み(originClientIdがCLIENT_IDと
+  // 一致するものは呼ばない)。
+  onPersonalMemoUpserted: (memo: Memo) => void;
+  // 同じく個人キャンバスのメモ1件が削除されたときに届く。
+  onPersonalMemoDeleted: (memoId: string) => void;
+  // 共有キャンバスの名前・見た目の変更。メモを伴わない低頻度の変更なので、
+  // 引き続き軽量pingを受けてフルGETし直す（SharedRoomSync.pollNow()）。
+  onSharedChanged: (canvasId: string) => void;
+  // 共同アイデア出しセッションの状態変化(開始/進行/延長/終了)。メモ内容を
+  // 伴わないため、onSharedChangedのような「フルGETし直し」を挟まず、
+  // このDTOをそのまま反映すればよい。
+  onSessionChanged: (canvasId: string, session: SessionState | null) => void;
+  // 投票フェーズ中、熱量が変わるたびに届く軽量な通知。フルGETを挟まず、
+  // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
+  // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
+  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void;
+  // 共有キャンバスのメモ1件が作成・編集されるたびに届く(issue #99)。onPersonalMemoUpserted
+  // と同じ考え方で、GETし直さずその場でメモの中身を反映する。
+  onMemoUpserted: (canvasId: string, memo: Memo) => void;
+  // 同じく共有キャンバスのメモ1件が削除されたときに届く。
+  onMemoDeleted: (canvasId: string, memoId: string) => void;
+  // 再接続が成立した瞬間に1回だけ呼ぶ。初回接続では呼ばない
+  // （呼び出し側の初期ロードと重複するため）。
+  onReconnected: () => void;
+}
+
 /**
  * ログイン中に1回呼ぶ。接続が切れた場合は指数バックオフで自動的に再接続を
  * 試みる（スマホのスリープからの復帰やネットワーク切り替えでの切断を想定）。
  */
-export function connectRealtimeSync(
-  session: AuthSession,
-  onChanged: () => void,
-  onSharedChanged: (canvasId: string) => void,
-  // 共同アイデア出しセッションの状態変化(開始/進行/延長/終了)。メモ内容を
-  // 伴わないため、onSharedChangedのような「フルGETし直し」を挟まず、
-  // このDTOをそのまま反映すればよい。
-  onSessionChanged: (canvasId: string, session: SessionState | null) => void,
-  // 投票フェーズ中、熱量が変わるたびに届く軽量な通知。フルGETを挟まず、
-  // 手元のメモにその場で反映する（相対密度はcanvasView.tsが毎フレーム全メモ
-  // から計算し直すため、サーバーが同梱するmaxHeatはここでは使わない）。
-  onHeatChanged: (canvasId: string, memoId: string, heat: number) => void,
-  // 共有キャンバスのメモ1件が作成・編集されるたびに届く(issue #99)。フルGETを
-  // 挟まず、その場でメモの中身を反映する。自分自身が送った変更のエコーは
-  // ここで既に除外済み(originClientIdがCLIENT_IDと一致するものは呼ばない)。
-  onMemoUpserted: (canvasId: string, memo: Memo) => void,
-  // 同じくメモ1件が削除されたときに届く。
-  onMemoDeleted: (canvasId: string, memoId: string) => void,
-  // 再接続が成立した瞬間に1回だけ呼ぶ。初回接続では呼ばない
-  // （呼び出し側の初期ロードと重複するため）。
-  onReconnected: () => void
-): RealtimeSyncHandle {
+export function connectRealtimeSync(session: AuthSession, callbacks: RealtimeSyncCallbacks): RealtimeSyncHandle {
+  const {
+    onPersonalMemoUpserted,
+    onPersonalMemoDeleted,
+    onSharedChanged,
+    onSessionChanged,
+    onHeatChanged,
+    onMemoUpserted,
+    onMemoDeleted,
+    onReconnected,
+  } = callbacks;
   let socket: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let reconnectDelay = RECONNECT_BASE_MS;
@@ -157,30 +175,19 @@ export function connectRealtimeSync(
         return;
       }
       if (parsed.originClientId === CLIENT_ID) return; // 自分が送った変更のエコーは無視する
-      if (
-        parsed.type === "memo-upserted" &&
-        typeof parsed.canvasId === "string" &&
-        typeof parsed.memo === "object" &&
-        parsed.memo !== null
-      ) {
-        onMemoUpserted(parsed.canvasId, parsed.memo as Memo);
+      if (parsed.type === "memo-upserted" && typeof parsed.memo === "object" && parsed.memo !== null) {
+        if (typeof parsed.canvasId === "string") onMemoUpserted(parsed.canvasId, parsed.memo as Memo);
+        else onPersonalMemoUpserted(parsed.memo as Memo);
         return;
       }
-      if (
-        parsed.type === "memo-deleted" &&
-        typeof parsed.canvasId === "string" &&
-        typeof parsed.memoId === "string"
-      ) {
-        onMemoDeleted(parsed.canvasId, parsed.memoId);
+      if (parsed.type === "memo-deleted" && typeof parsed.memoId === "string") {
+        if (typeof parsed.canvasId === "string") onMemoDeleted(parsed.canvasId, parsed.memoId);
+        else onPersonalMemoDeleted(parsed.memoId);
         return;
       }
-      if (parsed.type !== "changed") return;
-      if (typeof parsed.canvasId === "string") {
+      if (parsed.type === "changed" && typeof parsed.canvasId === "string") {
         console.log("[realtimeSync] shared canvas changed notification received", parsed.canvasId);
         onSharedChanged(parsed.canvasId);
-      } else {
-        console.log("[realtimeSync] changed notification received");
-        onChanged();
       }
     });
 
