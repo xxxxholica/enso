@@ -18,15 +18,12 @@ import {
   loadFramePattern,
   loadFrameShape,
   loadThemePreference,
-  loadUsageGuideSeen,
-  markUsageGuideSeen,
   saveFramePattern,
   saveFrameShape,
   saveThemePreference,
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
-import { openUsageGuide } from "./usageGuide";
 
 // テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
 // 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
@@ -175,19 +172,7 @@ setupControlPanelPages(
 // ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
 // 変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-// 初回だけ、テンプレート選択の前に円相の由来と基本操作を紹介する使い方ページを
-// 挟む（読み物として静的に見せるだけで、実キャンバス・実storeには一切触れない。
-// usageGuide.ts参照）。見終えた／閉じた後は、これまで通りテンプレート選択へ続く。
-const openTemplatePicker = () => {
-  if (!loadUsageGuideSeen()) {
-    openUsageGuide(() => {
-      markUsageGuideSeen();
-      templatePicker.open();
-    });
-    return;
-  }
-  templatePicker.open();
-};
+const openTemplatePicker = () => templatePicker.open();
 
 const getToolState = () => ({
   tool: toolbar.getTool(),

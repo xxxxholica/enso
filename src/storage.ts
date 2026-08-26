@@ -10,7 +10,6 @@ const STORAGE_KEY = "memos";
 const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
 const CUSTOM_TEMPLATES_KEY = "customTemplates";
-const USAGE_GUIDE_SEEN_KEY = "usageGuideSeen";
 const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
@@ -173,19 +172,6 @@ export function loadCustomTemplates(): TemplateDef[] {
 
 export function saveCustomTemplates(templates: TemplateDef[]): void {
   localStorage.setItem(CUSTOM_TEMPLATES_KEY, JSON.stringify(templates));
-}
-
-/** 使い方ページ（円相の由来と基本操作を紹介する読み物）を、既に見たかどうか。 */
-export function loadUsageGuideSeen(): boolean {
-  try {
-    return localStorage.getItem(USAGE_GUIDE_SEEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function markUsageGuideSeen(): void {
-  localStorage.setItem(USAGE_GUIDE_SEEN_KEY, "1");
 }
 
 /** ヘッダーの「設定」ボタン（settingsMenu.ts）で選ぶテーマ（自動/ライト/ダーク）。
