@@ -10,7 +10,7 @@
    装飾的な値（虹色スワッチのグラデーション等）は無理に揃えずそのまま残す。
    余白は4pxグリッド、文字サイズは今後ここへ段階的に揃えていく目標値。 --- */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
   --ink-solid: oklch(22% 0.012 55);
   --ink-95: oklch(22% 0.012 55 / 0.95);
@@ -70,6 +70,83 @@
      2段階で共有している。 */
   --shadow-card: 0 1px 2px var(--ink-08), 0 4px 14px var(--ink-06);
   --shadow-popover: 0 2px 6px var(--ink-08), 0 18px 48px var(--ink-12);
+}
+
+/* --- ダークテーマ（settingsMenu.tsの「設定」ボタン内、テーマ切り替え機能。
+   ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
+   ライトテーマの色トークンは「暖色系グレースケール1本（インク）＋紙の明度
+   違い」の2系統だったため、ダークもこの構造をそのまま踏襲し、同じ色相・
+   彩度のまま明度だけ反転させている——インクは暗い色から明るい色へ、紙は
+   明るい色から暗い色へ。これにより「暖かい紙とインク」という世界観を
+   ダークテーマでも保っている（無彩色の黒ではなく、ごくわずかに暖色寄りの
+   黒に紙を沈める）。paper-1（カード・ポップオーバーの背景）が他のpaper-*
+   より明るい、という relative な明度関係もライトテーマと同じに保っている
+   （ダークUIでも「浮いている面はわずかに明るい」方が一貫して見えるため）。
+   3状態（自動/ライト/ダーク）の切り替えはhtml要素のdata-theme属性で行う
+   （settingsMenu.ts・theme.ts参照）——data-theme無し（既定）はOSの設定に
+   従い、"light"/"dark"は明示的に固定する。 --- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ink-solid: oklch(92% 0.006 75);
+    --ink-95: oklch(92% 0.006 75 / 0.95);
+    --ink-85: oklch(92% 0.006 75 / 0.85);
+    --ink-80: oklch(92% 0.006 75 / 0.8);
+    --ink-70: oklch(92% 0.006 75 / 0.7);
+    --ink-60: oklch(92% 0.006 75 / 0.6);
+    --ink-55: oklch(92% 0.006 75 / 0.55);
+    --ink-50: oklch(92% 0.006 75 / 0.5);
+    --ink-45: oklch(92% 0.006 75 / 0.45);
+    --ink-40: oklch(92% 0.006 75 / 0.4);
+    --ink-35: oklch(92% 0.006 75 / 0.35);
+    --ink-20: oklch(92% 0.006 75 / 0.2);
+    --ink-12: oklch(92% 0.006 75 / 0.12);
+    --ink-08: oklch(92% 0.006 75 / 0.08);
+    --ink-06: oklch(92% 0.006 75 / 0.06);
+
+    --paper-0: oklch(20% 0.01 75);
+    --paper-1: oklch(24% 0.008 75);
+    --paper-2: oklch(16% 0.01 75);
+    --paper-2-hover: oklch(19% 0.012 75);
+    --paper-3: oklch(12% 0.012 75);
+    --paper-4: oklch(10% 0.012 75);
+
+    --rule-line: oklch(78% 0.07 240 / 0.55);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ink-solid: oklch(92% 0.006 75);
+  --ink-95: oklch(92% 0.006 75 / 0.95);
+  --ink-85: oklch(92% 0.006 75 / 0.85);
+  --ink-80: oklch(92% 0.006 75 / 0.8);
+  --ink-70: oklch(92% 0.006 75 / 0.7);
+  --ink-60: oklch(92% 0.006 75 / 0.6);
+  --ink-55: oklch(92% 0.006 75 / 0.55);
+  --ink-50: oklch(92% 0.006 75 / 0.5);
+  --ink-45: oklch(92% 0.006 75 / 0.45);
+  --ink-40: oklch(92% 0.006 75 / 0.4);
+  --ink-35: oklch(92% 0.006 75 / 0.35);
+  --ink-20: oklch(92% 0.006 75 / 0.2);
+  --ink-12: oklch(92% 0.006 75 / 0.12);
+  --ink-08: oklch(92% 0.006 75 / 0.08);
+  --ink-06: oklch(92% 0.006 75 / 0.06);
+
+  --paper-0: oklch(20% 0.01 75);
+  --paper-1: oklch(24% 0.008 75);
+  --paper-2: oklch(16% 0.01 75);
+  --paper-2-hover: oklch(19% 0.012 75);
+  --paper-3: oklch(12% 0.012 75);
+  --paper-4: oklch(10% 0.012 75);
+
+  --rule-line: oklch(78% 0.07 240 / 0.55);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -351,6 +428,14 @@ body {
 
 /* --- テキスト入力オーバーレイ。円のクリップ外に出しても構わないよう画面固定で、
    完成後の描画（memo.x/yを中心に上下左右センタリング）と見た目を揃えている。 --- */
+/* 円の中の「紙」（canvas描画部分）は、実際の紙と同じ白さを保つ考え方で
+   テーマに関わらず常にライトのまま（ユーザー確認済み、settingsMenu.ts参照）
+   ——このtextareaは書き込み中、その紙の上に直接重なって表示されるため、
+   周囲のUIクロムと違いvar(--ink-*)/var(--paper-*)（テーマに応じて明度が
+   反転する）を使わず、紙と同じ固定の明るい色のままにしている。ダーク
+   テーマでこれらのトークンに合わせてしまうと、常に白いままの紙の上に
+   暗い箱が浮いて見える、あるいは逆に明るくなった枠線・プレースホルダーが
+   白い紙に溶けて見えなくなる、という不具合になる（実機確認で発見）。 */
 .text-editor-overlay {
   position: fixed;
   z-index: 20;
@@ -359,7 +444,7 @@ body {
   overflow: hidden;
   box-sizing: border-box;
   padding: 4px 6px;
-  border: 1px dashed var(--ink-35);
+  border: 1px dashed oklch(22% 0.012 55 / 0.35);
   border-radius: 6px;
   background: oklch(98% 0.005 75 / 0.9);
   text-align: center;
@@ -367,7 +452,7 @@ body {
 }
 
 .text-editor-overlay::placeholder {
-  color: var(--ink-35);
+  color: oklch(22% 0.012 55 / 0.35);
 }
 
 /* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「ドラッグで書き始める」と
@@ -818,30 +903,12 @@ body {
   white-space: nowrap;
 }
 
-/* --- ペンの太さ／消しゴムの大きさを1本で共有するスライダー（GoodNotesの
-   ようにバーで変えたい、というユーザー指示）。DurationSelectorの
-   .duration-seekbarと同じ「ラベルを上、スライダーを下」の縦積みだが、
-   表示する数値が短い（xxpx）ため幅はもっと控えめにしている。 --- */
-.thickness-control {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 6px;
-  min-width: 72px;
-}
-
-.thickness-label {
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-70);
-}
-
-/* --- ペンの太さ／消しゴムの大きさ・振り返りの時刻を選ぶスライダー共通の
-   見た目。以前はaccent-colorだけを当てたブラウザ標準の見た目だったが、
-   GoodNotesのような「意図して作られた道具」に見えるよう、細い軌道の上に
-   インクの一滴のようなつまみを置く形に作り直した（UI再設計）。 --- */
-.thickness-slider,
+/* --- 消しゴムの大きさ・振り返りの時刻を選ぶスライダー共通の見た目。以前は
+   accent-colorだけを当てたブラウザ標準の見た目だったが、GoodNotesのような
+   「意図して作られた道具」に見えるよう、細い軌道の上にインクの一滴のような
+   つまみを置く形に作り直した（UI再設計）。ペンの太さは選べる仕様をやめ常に
+   PEN_LINE_WIDTH固定にしたため、専用スライダー（旧.thickness-slider）は
+   廃止した（toolbar.ts参照）。 --- */
 .duration-seekbar-slider,
 .session-slider {
   appearance: none;
@@ -853,7 +920,6 @@ body {
   cursor: pointer;
 }
 
-.thickness-slider::-webkit-slider-runnable-track,
 .duration-seekbar-slider::-webkit-slider-runnable-track,
 .session-slider::-webkit-slider-runnable-track {
   height: 3px;
@@ -861,7 +927,6 @@ body {
   background: var(--ink-20);
 }
 
-.thickness-slider::-moz-range-track,
 .duration-seekbar-slider::-moz-range-track,
 .session-slider::-moz-range-track {
   height: 3px;
@@ -869,7 +934,6 @@ body {
   background: var(--ink-20);
 }
 
-.thickness-slider::-webkit-slider-thumb,
 .duration-seekbar-slider::-webkit-slider-thumb,
 .session-slider::-webkit-slider-thumb {
   appearance: none;
@@ -883,7 +947,6 @@ body {
   transition: transform 0.15s ease;
 }
 
-.thickness-slider::-moz-range-thumb,
 .duration-seekbar-slider::-moz-range-thumb,
 .session-slider::-moz-range-thumb {
   width: 15px;
@@ -895,13 +958,11 @@ body {
   transition: transform 0.15s ease;
 }
 
-.thickness-slider:active::-webkit-slider-thumb,
 .duration-seekbar-slider:active::-webkit-slider-thumb,
 .session-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
 }
 
-.thickness-slider:active::-moz-range-thumb,
 .duration-seekbar-slider:active::-moz-range-thumb,
 .session-slider:active::-moz-range-thumb {
   transform: scale(1.2);
@@ -932,7 +993,11 @@ body {
   height: 26px;
   border-radius: 50%;
   border: 2px solid var(--paper-1);
-  box-shadow: 0 0 0 1px oklch(22% 0.012 55 / 0.15), 0 1px 3px var(--ink-12);
+  /* 固定の暗い色(旧oklch(22% 0.012 55 / 0.15))だと、ダークテーマでボタンの
+     地色(--paper-1)がスワッチの色（特に黒インク）と同化して輪郭が見えなく
+     なっていた。ink-20（ライトでは暗い輪郭、ダークでは明るい輪郭）にする
+     ことで、どちらのテーマでもスワッチの色に関わらず輪郭が見えるようにする。 */
+  box-shadow: 0 0 0 1px var(--ink-20), 0 1px 3px var(--ink-12);
   cursor: pointer;
   padding: 0;
   overflow: hidden;
@@ -1310,7 +1375,7 @@ body {
   font: inherit;
   font-size: var(--text-sm);
   padding: 3px 6px;
-  border: 1px solid oklch(22% 0.012 55 / 0.25);
+  border: 1px solid var(--ink-20);
   border-radius: 6px;
   background: var(--paper-1);
   color: inherit;
@@ -1349,12 +1414,12 @@ body {
    消しただけでなく、ボタンらしい反応も持たせないことで「ただの表示」だと
    伝わるようにした）。 --- */
 .revive-info-pill {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
   cursor: default;
 }
 
 .revive-info-pill:hover {
-  background: oklch(98% 0.005 75);
+  background: var(--paper-1);
 }
 
 /* --- 主要な操作（そのカードの中で「まず押すべき」1つ）だけに使う塗りの
@@ -1437,6 +1502,35 @@ body {
    と同じ区切りの見た目のまま流用する。 --- */
 .appearance-popover {
   min-width: 220px;
+  padding: 14px 16px;
+}
+
+/* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
+   背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
+   他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。 --- */
+.settings-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper-1);
+}
+
+.settings-trigger svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.settings-trigger:hover {
+  background: var(--paper-2-hover);
+}
+
+.settings-trigger[data-active="true"] {
+  background: var(--paper-3);
+}
+
+.settings-popover {
+  min-width: 180px;
   padding: 14px 16px;
 }
 
@@ -1630,7 +1724,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background: oklch(93% 0.006 75 / 0.82);
+  background: color-mix(in oklch, var(--paper-2) 82%, transparent);
   overflow-y: auto;
 }
 
@@ -1737,13 +1831,13 @@ body {
   padding: 14px;
   border: 1px solid var(--ink-12);
   border-radius: 18px;
-  background: oklch(93% 0.006 75 / 0.5);
+  background: color-mix(in oklch, var(--paper-2) 50%, transparent);
   transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
 .template-card:hover {
   background: var(--paper-1);
-  border-color: oklch(22% 0.012 55 / 0.22);
+  border-color: var(--ink-20);
   transform: translateY(-1px);
 }
 
@@ -1964,7 +2058,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px 16px;
-  background: oklch(93% 0.006 75 / 0.86);
+  background: color-mix(in oklch, var(--paper-2) 86%, transparent);
   overflow-y: auto;
 }
 

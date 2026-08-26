@@ -11,10 +11,15 @@ const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
 const CUSTOM_TEMPLATES_KEY = "customTemplates";
 const USAGE_GUIDE_SEEN_KEY = "usageGuideSeen";
+const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
+/** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。 */
+export type ThemePreference = "system" | "light" | "dark";
+const DEFAULT_THEME: ThemePreference = "system";
+const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark"]);
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -181,4 +186,20 @@ export function loadUsageGuideSeen(): boolean {
 
 export function markUsageGuideSeen(): void {
   localStorage.setItem(USAGE_GUIDE_SEEN_KEY, "1");
+}
+
+/** ヘッダーの「設定」ボタン（settingsMenu.ts）で選ぶテーマ（自動/ライト/ダーク）。
+ *  既定は"system"——OSの設定に従う（ユーザー指示：設定ボタンを追加して
+ *  テーマ変更機能を入れたい）。 */
+export function loadThemePreference(): ThemePreference {
+  try {
+    const raw = localStorage.getItem(THEME_KEY);
+    return raw !== null && VALID_THEMES.has(raw as ThemePreference) ? (raw as ThemePreference) : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
+
+export function saveThemePreference(pref: ThemePreference): void {
+  localStorage.setItem(THEME_KEY, pref);
 }

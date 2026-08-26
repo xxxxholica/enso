@@ -11,18 +11,27 @@ import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
 import { refreshFromCloud, schedulePush, setTokenGetter, syncOnSignIn } from "./cloudSync";
 import { connectRealtimeSync } from "./realtimeSync";
+import { SettingsMenu } from "./settingsMenu";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
 import {
   loadFramePattern,
   loadFrameShape,
+  loadThemePreference,
   loadUsageGuideSeen,
   markUsageGuideSeen,
   saveFramePattern,
   saveFrameShape,
+  saveThemePreference,
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
+import { applyTheme } from "./theme";
 import { openUsageGuide } from "./usageGuide";
+
+// テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
+// 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
+// ため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
+applyTheme(loadThemePreference());
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -36,6 +45,7 @@ app.innerHTML = `
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
       <button type="button" id="usage-guide-btn" class="header-text-btn">使い方</button>
+      <div id="settings-slot"></div>
       <div id="account-slot"></div>
     </div>
   </header>
@@ -169,6 +179,12 @@ const openTemplatePicker = () => {
 
 const usageGuideBtn = document.querySelector<HTMLButtonElement>("#usage-guide-btn")!;
 usageGuideBtn.addEventListener("click", () => openUsageGuide());
+
+const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
+new SettingsMenu(settingsSlot, loadThemePreference(), (pref) => {
+  saveThemePreference(pref);
+  applyTheme(pref);
+});
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
