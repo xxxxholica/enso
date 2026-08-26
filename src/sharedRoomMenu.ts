@@ -51,6 +51,7 @@ export class SharedRoomMenu {
   private open = false;
   private readonly closeRef = () => this.close();
 
+  private anchor!: HTMLElement;
   private btn!: HTMLButtonElement;
   private btnIconEl!: HTMLElement;
   private btnLabelEl!: HTMLElement;
@@ -98,8 +99,8 @@ export class SharedRoomMenu {
   }
 
   private buildDom(container: HTMLElement): void {
-    const anchor = document.createElement("div");
-    anchor.className = "icon-anchor";
+    this.anchor = document.createElement("div");
+    this.anchor.className = "icon-anchor";
 
     // 以前はアイコンのみのボタンだったが、何のボタンか一目で分かりにくかった
     // （ユーザー指摘）ため、文字を持たせる——未接続時は「＋ルームを作成」、
@@ -119,7 +120,7 @@ export class SharedRoomMenu {
     this.btn.appendChild(this.btnIconEl);
     this.btnLabelEl = document.createElement("span");
     this.btn.appendChild(this.btnLabelEl);
-    anchor.appendChild(this.btn);
+    this.anchor.appendChild(this.btn);
 
     this.popover = document.createElement("div");
     // ボタンが眼鏡キャンバスの下（画面下寄り）に置かれるようになったため、
@@ -212,8 +213,8 @@ export class SharedRoomMenu {
     this.mainEl.appendChild(listSection);
 
     this.popover.appendChild(this.mainEl);
-    anchor.appendChild(this.popover);
-    container.appendChild(anchor);
+    this.anchor.appendChild(this.popover);
+    container.appendChild(this.anchor);
   }
 
   private toggle(): void {
@@ -223,7 +224,7 @@ export class SharedRoomMenu {
 
   private openMenu(): void {
     if (this.open) return;
-    notifyOpen(this.closeRef);
+    notifyOpen(this.closeRef, this.anchor);
     this.open = true;
     this.btn.dataset.active = "true";
     this.popoverFade(true);

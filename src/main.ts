@@ -44,9 +44,7 @@ app.innerHTML = `
         <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
-      <button type="button" id="usage-guide-btn" class="header-text-btn">使い方</button>
       <div id="settings-slot"></div>
-      <div id="account-slot"></div>
     </div>
   </header>
   <main class="app-main">
@@ -86,7 +84,18 @@ let disconnectRealtime: (() => void) | null = null;
 // onSelectRoomから呼ぶ。selectRoom自体はスクロールの都合でsmuiViewが持つ）。
 let subscribeToRoom: ((canvasId: string) => void) | null = null;
 
-void mountAccountWidget(document.querySelector<HTMLDivElement>("#account-slot")!, (session) => {
+// 設定メニュー（テーマ・使い方に加え、アカウント区画を持つ）を先に作り、その
+// アカウント区画の枠にmountAccountWidgetでClerkの中身（未ログイン時のログイン
+// ボタン／ログイン中のユーザーアイコン・メニュー）を描き込む——以前はヘッダーに
+// 独立した専用の枠(#account-slot)を持っていたが、設定ボタンの隣に並んでいるのが
+// 冗長という指摘のため、設定メニューの中へ完全に統合した。
+const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
+const settingsMenu = new SettingsMenu(settingsSlot, loadThemePreference(), (pref) => {
+  saveThemePreference(pref);
+  applyTheme(pref);
+});
+
+void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   if (session) {
     setTokenGetter(session.getToken);
     void syncOnSignIn(store);
@@ -179,15 +188,6 @@ const openTemplatePicker = () => {
   }
   templatePicker.open();
 };
-
-const usageGuideBtn = document.querySelector<HTMLButtonElement>("#usage-guide-btn")!;
-usageGuideBtn.addEventListener("click", () => openUsageGuide());
-
-const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
-new SettingsMenu(settingsSlot, loadThemePreference(), (pref) => {
-  saveThemePreference(pref);
-  applyTheme(pref);
-});
 
 const getToolState = () => ({
   tool: toolbar.getTool(),

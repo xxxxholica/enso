@@ -199,7 +199,7 @@ export class SessionPanel {
 
   private openPopover(): void {
     if (!this.isMaster) return;
-    notifyOpen(this.closeRef);
+    notifyOpen(this.closeRef, this.anchor);
     this.open = true;
     this.popover.hidden = false;
     this.popoverFade(true);
