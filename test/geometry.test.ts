@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   circleIntersectsBox,
+  clampBoxCenter,
   clampToCircle,
   clampToGlasses,
   eraseFromStroke,
@@ -25,6 +26,39 @@ describe("clampToCircle", () => {
   it("斜め方向でも半径ちょうどに収まる", () => {
     const p = clampToCircle({ x: 300, y: 400 }, 100);
     expect(Math.hypot(p.x, p.y)).toBeCloseTo(100);
+  });
+});
+
+describe("clampBoxCenter（テキストメモを新規に置く瞬間、箱の端が枠外に出ないようにする）", () => {
+  const circleClamp = (p: { x: number; y: number }) => clampToCircle(p, 1);
+
+  it("箱が完全に収まる位置ならそのまま", () => {
+    const p = clampBoxCenter({ x: 0.2, y: 0.1 }, 0.2, 0.05, circleClamp);
+    expect(p).toEqual({ x: 0.2, y: 0.1 });
+  });
+
+  it("境界近くをタップすると、箱の四隅すべてが境界内に収まる位置まで中心が引き寄せられる", () => {
+    const halfW = 0.2;
+    const halfH = 0.05;
+    const p = clampBoxCenter({ x: 0.95, y: 0 }, halfW, halfH, circleClamp);
+
+    const corners = [
+      { x: p.x - halfW, y: p.y - halfH },
+      { x: p.x + halfW, y: p.y - halfH },
+      { x: p.x - halfW, y: p.y + halfH },
+      { x: p.x + halfW, y: p.y + halfH },
+    ];
+    for (const c of corners) {
+      expect(Math.hypot(c.x, c.y)).toBeLessThanOrEqual(1 + 1e-9);
+    }
+    // 中心点だけをクランプする従来の実装ならx=0.95のまま(タップ位置をそのまま採用)
+    // になってしまうため、箱の端を考慮してそれより手前に寄ることを確認する。
+    expect(p.x).toBeLessThan(0.95);
+  });
+
+  it("原点に置いても収まりきらないほど巨大な箱は、原点（最善位置）に置かれる", () => {
+    const p = clampBoxCenter({ x: 0.5, y: 0.5 }, 5, 5, circleClamp);
+    expect(p).toEqual({ x: 0, y: 0 });
   });
 });
 

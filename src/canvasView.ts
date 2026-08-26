@@ -5,7 +5,7 @@ import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
-import { circleIntersectsBox, isInsideClamp, pointNearStrokes } from "./geometry";
+import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
 import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -934,19 +934,43 @@ export class CircularCanvas {
     const resizeToContent = () => {
       const canvasRect = this.canvas.getBoundingClientRect();
       const scale = this.effectiveScale();
-      const viewportOffsetX = window.visualViewport?.offsetLeft ?? 0;
-      const viewportOffsetY = window.visualViewport?.offsetTop ?? 0;
+      const vv = window.visualViewport;
+      const viewportOffsetX = vv?.offsetLeft ?? 0;
+      const viewportOffsetY = vv?.offsetTop ?? 0;
       const toScreenPx = (referencePx: number) => (referencePx / REFERENCE_RADIUS) * scale;
       const screenX = canvasRect.left + this.frame.centerPx.x + this.viewPan.x + anchor.x * scale + viewportOffsetX;
       const screenY = canvasRect.top + this.frame.centerPx.y + this.viewPan.y + anchor.y * scale + viewportOffsetY;
 
       const boxWidthPx = toScreenPx(measureTextBoxWidthPx(this.ctx, el.value, widthMeasureFontSize));
       el.style.width = `${boxWidthPx}px`;
-      el.style.left = `${screenX - boxWidthPx / 2}px`;
       el.style.height = "auto";
       const h = el.scrollHeight;
       el.style.height = `${h}px`;
-      el.style.top = `${screenY - h / 2}px`;
+
+      // ソフトキーボードが開くと、実際に見えている範囲（visual viewport）が
+      // 画面下側から縮む。上記のscreenX/screenYはタップ位置をそのまま画面座標に
+      // 変換しただけなので、画面下部をタップした直後にキーボードが開くと、
+      // その縮んだ「見えている範囲」の外＝キーボードの裏に配置されてしまう
+      // ことがある（ユーザー報告：画面下部でテキストを追加しようとすると
+      // キーボードによりさらに下へ飛んでいく）。最終的な位置を、実際に見えて
+      // いる範囲（visualViewportの現在のoffsetLeft/Top〜+width/height、
+      // 取得できない環境ではwindow.innerWidth/Heightにフォールバック）の中に
+      // 収まるようクランプする——入力欄自体がその範囲より大きい極端なケースは
+      // 見えている範囲の左上に揃えるだけにする。
+      const margin = 8;
+      const visibleWidth = vv?.width ?? window.innerWidth;
+      const visibleHeight = vv?.height ?? window.innerHeight;
+
+      const minLeft = viewportOffsetX + margin;
+      const maxLeft = viewportOffsetX + visibleWidth - boxWidthPx - margin;
+      const left = maxLeft >= minLeft ? Math.min(Math.max(screenX - boxWidthPx / 2, minLeft), maxLeft) : minLeft;
+
+      const minTop = viewportOffsetY + margin;
+      const maxTop = viewportOffsetY + visibleHeight - h - margin;
+      const top = maxTop >= minTop ? Math.min(Math.max(screenY - h / 2, minTop), maxTop) : minTop;
+
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
     };
     resizeToContent();
     el.addEventListener("input", resizeToContent);
@@ -1004,8 +1028,13 @@ export class CircularCanvas {
       const boxWidthPx = measureTextBoxWidthPx(this.ctx, value, fontSize);
       const lines = wrapTextAtReferenceScale(this.ctx, value, fontSize, boxWidthPx);
       const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx);
+      // タップした場所をそのまま箱の中心にすると、境界に近い場所をタップした
+      // 場合に箱の端が枠の外へはみ出して配置されてしまう（ユーザー指摘）。
+      // 実際の文面から箱サイズが決まったこの時点で、箱全体が枠に収まる位置へ
+      // 寄せてから確定する。
+      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.frame.currentShape().clamp);
       this.ensureUndoSnapshot();
-      this.store.createTextMemo(anchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
+      this.store.createTextMemo(safeAnchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
