@@ -21,7 +21,6 @@ export const ICONS: Record<
   | "shapeOval"
   | "shapeSquare"
   | "sharedRooms"
-  | "appearance"
   | "settings"
   | "patternMatte"
   | "patternTortoiseshell"
@@ -148,10 +147,6 @@ export const ICONS: Record<
     <svg viewBox="0 0 24 24" ${common}>
       <circle cx="9" cy="12" r="5.5" />
       <circle cx="15" cy="12" r="5.5" />
-    </svg>`,
-  appearance: `
-    <svg viewBox="0 0 24 24" ${common}>
-      <path d="M9 4L4 7.5L6.5 10.5L9 8.5V20H15V8.5L17.5 10.5L20 7.5L15 4H14C14 5.38 13.1 6.4 12 6.4C10.9 6.4 10 5.38 10 4Z" />
     </svg>`,
   // 「設定」トリガー用の歯車。外周のリングと太めの短い8本のスポークで、
   // sun（放射状の細い線のみ）と見分けが付くようにしている。

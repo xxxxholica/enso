@@ -5,8 +5,8 @@ import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { RewindSelector } from "./rewindSelector";
 import { AppearanceSelector } from "./appearanceSelector";
-import { FrameColorSelector } from "./frameColorSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
+import { buildFramePatternPicker } from "./framePattern";
 import { setupControlPanelDrawer } from "./controlPanelDrawer";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { mountAccountWidget } from "./clerkAccount";
@@ -192,16 +192,6 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   contentScaleFactor: PERSONAL_CONTENT_SCALE_FACTOR,
 });
 
-// フレームの色（マット/べっ甲/クリア/木目）の変更ボタン。共有キャンバスの
-// AppearanceSelectorと同じframePattern.tsの4種を、個人キャンバスにも
-// 色だけ（形は変更なし）で開放する（ユーザー指示）。この端末だけのローカル
-// 設定（storage.tsのloadPersonalFramePattern/savePersonalFramePattern、
-// サーバー同期なし）。
-new FrameColorSelector(canvasInfoRow, personalFramePatternId, (id) => {
-  savePersonalFramePattern(id);
-  canvasView.setFramePattern(id);
-});
-
 // 設定メニュー（テーマ・使い方・エクスポートに加え、アカウント区画を持つ）。
 // 以前はヘッダー右上に固定表示していたが、常に居座って邪魔という指摘のため、
 // 各タブの操作列（キャンバスタブ: canvasInfoRow、共有タブ: smuiView.
@@ -230,6 +220,19 @@ const settingsMenu = new SettingsMenu(
   () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
   () => templatePicker.open()
 );
+
+// 「見た目の設定」区画(issue #154、ユーザー指示)。以前は個人キャンバスの操作列に
+// 独立ボタン(FrameColorSelector)として置かれていたが、設定メニューの
+// getAppearanceSlot()へ統合した。共有キャンバスAppearanceSelectorと同じ
+// framePattern.tsの4種を、個人キャンバスにも色だけ（形は変更なし）で開放する
+// （ユーザー指示）。この端末だけのローカル設定（storage.tsのloadPersonalFramePattern/
+// savePersonalFramePattern、サーバー同期なし）。共有タブを見ている間は隠す
+// （setView参照、初期表示はキャンバスタブなのでここでは何もしなくてよい）。
+const personalPatternPicker = buildFramePatternPicker(personalFramePatternId, (id) => {
+  savePersonalFramePattern(id);
+  canvasView.setFramePattern(id);
+});
+settingsMenu.getAppearanceSlot().appendChild(personalPatternPicker.element);
 
 void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
   if (session) {
@@ -262,11 +265,11 @@ void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
 // （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
 // ——選んだ共有キャンバス（ルーム）のMemoStoreだけを扱う（個人MemoStoreの
 // storeはcanvasViewにのみ渡す）。
-// ルームの作成・選択（SharedRoomMenu）・見た目の設定（AppearanceSelector、
-// フレームの形・色）は、いずれも眼鏡キャンバスの下に横並びで埋め込む
-// （smuiView.getRoomMenuSlot()/getAppearanceSlot()、ユーザー指示）——
-// smuiView自身がsharedPanelのhidden属性で他の2画面では自動的に隠れるため、
-// 個別のフェード処理は不要。
+// ルームの作成・選択（SharedRoomMenu）は、眼鏡キャンバスの下に埋め込む
+// （smuiView.getRoomMenuSlot()、ユーザー指示）——smuiView自身がsharedPanelの
+// hidden属性で他の2画面では自動的に隠れるため、個別のフェード処理は不要。
+// 「見た目の設定」（AppearanceSelector）は設定メニューへ統合済み(issue #154、
+// 下記のsettingsMenu.getAppearanceSlot()参照)。
 let frameShapeId = loadFrameShape();
 let framePatternId = loadFramePattern();
 const smuiView = new SmuiView(sharedPanel, getToolState, frameShapeId, framePatternId, toolbar);
@@ -288,8 +291,12 @@ toolbarEl.classList.add("is-visible");
 durationSlot.classList.add("is-visible");
 canvasPanel.classList.add("is-visible");
 
+// 「見た目の設定」区画の共有キャンバス側の中身(issue #154)。以前は共有タブの
+// 操作列に独立ボタンとして置かれていたが、設定メニューのgetAppearanceSlot()
+// (個人用のpersonalPatternPickerと同じ場所)へ統合した——タブ切り替えのたび
+// どちらか一方だけをhiddenで出す(setView参照)。ここでは共有タブが初期表示
+// ではないため、構築直後はhiddenにしておく。
 const appearanceSelector = new AppearanceSelector(
-  smuiView.getAppearanceSlot(),
   frameShapeId,
   framePatternId,
   (id) => {
@@ -308,6 +315,8 @@ const appearanceSelector = new AppearanceSelector(
   (id) => smuiView.setPair2FrameShape(id),
   (id) => smuiView.setPair2FramePattern(id)
 );
+appearanceSelector.element.hidden = true;
+settingsMenu.getAppearanceSlot().appendChild(appearanceSelector.element);
 
 // 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。招待リンク経由の
 // 自動参加（?join=...）は表示中の画面と無関係に裏で動くため、ボタン自体は
@@ -415,6 +424,10 @@ function setView(view: "canvas" | "shared"): void {
     setToolbarVisible(view === "canvas" || view === "shared");
     // 「テンプレートを使用」（設定メニュー内）は個人キャンバス専用（issue #79ユーザー指示）。
     settingsMenu.setTemplateSectionVisible(view === "canvas");
+    // 「見た目の設定」（設定メニュー内、issue #154）は個人・共有で中身が違うため、
+    // 今表示中のタブの側だけを見せる。
+    personalPatternPicker.element.hidden = view !== "canvas";
+    appearanceSelector.element.hidden = view !== "shared";
     // 設定ボタン自体も、今表示中のタブの操作列へ移す（ヘッダー固定をやめた、
     // ユーザー指示）。
     settingsMenu.moveTo(view === "canvas" ? canvasInfoRow : smuiView.getSettingsSlot());

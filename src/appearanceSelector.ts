@@ -1,5 +1,3 @@
-import { createFadeVisibility } from "./fadeVisibility";
-import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { FRAME_SHAPE_ORDER, getFrameShape } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import { buildFramePatternPicker } from "./framePattern";
@@ -14,27 +12,16 @@ const SHAPE_ICON: Record<FrameShapeId, string> = {
 
 /**
  * 共有キャンバス（眼鏡形状）の「見た目の設定」。フレームの形（丸眼鏡/楕円/
- * 長方形）と色（マット/べっ甲/クリア/木目）を1つにまとめ、ルーム作成・選択
- * メニュー（SharedRoomMenu）と同じ.icon-anchor/.icon-popoverパターンの
- * トリガーボタン1つに収める（ユーザー指示）——以前は形・色それぞれに別々の
- * トリガーボタンを並べていたが、指示を受けて1つの「見た目の設定」ボタンの
- * 中で「フレームの形」「フレームの色」の2区画に分けて選ぶ形にした。
- *
- * ルームの一覧選択（決定して閉じる操作）と違い、こちらは形・色を交互に
- * 試しながら決めたい設定なので、選んでもポップアップは閉じない——トリガー
- * ボタンをもう一度押すまで開いたままにする。
- *
- * ルームメニュー（SharedRoomMenu）とは並べて置かれているため、両方同時に
- * 開いていると窮屈（ユーザー指摘）——exclusivePopover経由で、こちらを開くと
- * 向こうが開いていれば自動で閉じる（逆も同様）。
+ * 長方形）と色（マット/べっ甲/クリア/木目）を1つにまとめた区画——以前は
+ * 独立のトリガーボタン+ポップオーバーだったが、設定メニュー(SettingsMenu)の
+ * 「見た目の設定」区画へ統合した(issue #154、ユーザー指示)。トリガー・開閉の
+ * 概念は持たず、`element`を呼び出し元(main.ts)が設定メニューのスロットへ
+ * そのまま差し込むだけの中身専用クラスになっている。
  */
 export class AppearanceSelector {
-  private anchor: HTMLElement;
-  private triggerBtn: HTMLButtonElement;
-  private popover: HTMLElement;
-  private popoverFade: (show: boolean) => void;
-  private open = false;
-  private readonly closeRef = () => this.close();
+  /** 呼び出し元(main.ts)がSettingsMenu.getAppearanceSlot()へ差し込む中身。
+   *  共有タブを見ている間だけhidden=falseにする(main.tsのsetView参照)。 */
+  readonly element: HTMLElement;
 
   private shapeId: FrameShapeId;
   private patternId: FramePatternId;
@@ -54,7 +41,6 @@ export class AppearanceSelector {
   private pairTabButtons = new Map<0 | 1, HTMLButtonElement>();
 
   constructor(
-    container: HTMLElement,
     initialShapeId: FrameShapeId,
     initialPatternId: FramePatternId,
     onShapeChange: (id: FrameShapeId) => void,
@@ -69,24 +55,7 @@ export class AppearanceSelector {
     this.pair2PatternId = initialPatternId;
     this.onPair2ShapeChange = onPair2ShapeChange;
 
-    this.anchor = document.createElement("div");
-    this.anchor.className = "icon-anchor";
-
-    this.triggerBtn = document.createElement("button");
-    this.triggerBtn.type = "button";
-    this.triggerBtn.className = "pill-btn appearance-trigger";
-    this.triggerBtn.setAttribute("aria-label", "見た目の設定");
-    // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
-    // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
-    // メディアクエリで出し分けて短縮表示にする（style.css参照）。
-    this.triggerBtn.innerHTML = `${ICONS.appearance}<span class="label-full">見た目の設定</span><span class="label-short">見た目</span>`;
-    this.triggerBtn.addEventListener("click", () => this.toggle());
-    this.anchor.appendChild(this.triggerBtn);
-
-    this.popover = document.createElement("div");
-    this.popover.className = "appearance-popover icon-popover";
-    this.popover.hidden = true;
-    this.popoverFade = createFadeVisibility(this.popover);
+    this.element = document.createElement("div");
 
     // 「メガネ1」「メガネ2」の切り替えタブ(issue #113④)。共同アイデア出し
     // フェーズ①でレンズ分割が2組になっている(3人以上参加)間だけ表示する
@@ -110,7 +79,7 @@ export class AppearanceSelector {
       pairTabPill.appendChild(btn);
     }
     this.pairTabRow.appendChild(pairTabPill);
-    this.popover.appendChild(this.pairTabRow);
+    this.element.appendChild(this.pairTabRow);
 
     const shapeSection = document.createElement("div");
     shapeSection.className = "shared-menu-section";
@@ -131,7 +100,7 @@ export class AppearanceSelector {
       shapeRow.appendChild(btn);
     }
     shapeSection.appendChild(shapeRow);
-    this.popover.appendChild(shapeSection);
+    this.element.appendChild(shapeSection);
 
     // 「メガネ2」も同じピッカー(1個)を使い回す——タブ切り替え(selectPair)の
     // たびにsetValue()で表示中の組の値に差し替える(syncShapeと同じやり方)。
@@ -146,34 +115,10 @@ export class AppearanceSelector {
       this.patternId = id;
       onPatternChange(id);
     });
-    this.popover.appendChild(this.patternPicker.element);
-
-    this.anchor.appendChild(this.popover);
-    container.appendChild(this.anchor);
+    this.element.appendChild(this.patternPicker.element);
 
     this.syncShape();
     this.syncPairTabs();
-  }
-
-  private toggle(): void {
-    if (this.open) this.close();
-    else this.openMenu();
-  }
-
-  private openMenu(): void {
-    if (this.open) return;
-    notifyOpen(this.closeRef, this.anchor);
-    this.open = true;
-    this.triggerBtn.dataset.active = "true";
-    this.popoverFade(true);
-  }
-
-  private close(): void {
-    if (!this.open) return;
-    this.open = false;
-    this.triggerBtn.dataset.active = "false";
-    this.popoverFade(false);
-    notifyClose(this.closeRef);
   }
 
   /** 「メガネ1」「メガネ2」タブの切り替え(issue #113④)。形・色のボタン群は

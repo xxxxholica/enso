@@ -154,9 +154,10 @@ const PATTERN_ICON: Record<FramePatternId, string> = {
 
 /**
  * 「フレームの色」区画（ボタン列+選択状態の同期）を組み立てる共通ヘルパー。
- * AppearanceSelector（共有キャンバス、ロック・リモート同期あり）とFrameColorSelector
- * （個人キャンバス、ロック・同期なし）の両方が、それぞれのポップオーバーに
- * 埋め込んで使う——ボタン生成・選択状態の同期ロジックの重複を避けるため。
+ * AppearanceSelector（共有キャンバス、ロック・リモート同期あり）と、main.tsが
+ * 個人キャンバス用に直接呼ぶ側（ロック・同期なし）の両方が、設定メニュー
+ * （SettingsMenu、issue #154）の「見た目の設定」区画に埋め込んで使う——
+ * ボタン生成・選択状態の同期ロジックの重複を避けるため。
  */
 export function buildFramePatternPicker(
   initialId: FramePatternId,

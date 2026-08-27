@@ -78,6 +78,12 @@ export class SettingsMenu {
    *  （ユーザー指摘：バーで色を変えてもスワッチの見た目が追従していなかった）。 */
   private customSwatchBtn!: HTMLButtonElement;
   private accountSlot!: HTMLElement;
+  /** 「見た目の設定」区画の器(issue #154)。以前は個人・共有各タブの操作列に
+   *  独立ボタン(FrameColorSelector/AppearanceSelector)として置かれていたが、
+   *  設定メニューへ統合した——テーマ区画と使い方区画の間（ユーザー指示）。
+   *  このクラス自身は中身(柄・形のピッカー)を持たず、main.tsが個人用・共有用
+   *  それぞれの中身をここへ差し込み、タブ切り替えのたびhiddenで出し分ける。 */
+  private appearanceSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
   /** 「テンプレート」区画本体。共有タブでは出さない（issue #79ユーザー指示：
@@ -184,6 +190,7 @@ export class SettingsMenu {
 
     this.popover.appendChild(themeSection);
 
+    this.popover.appendChild(this.buildAppearanceSection());
     this.popover.appendChild(this.buildTemplateSection());
     this.popover.appendChild(this.buildUsageSection());
     this.popover.appendChild(new ExportSection(getExportSource, () => this.close()).element);
@@ -193,6 +200,29 @@ export class SettingsMenu {
     container.appendChild(this.anchor);
 
     this.syncTheme();
+  }
+
+  /** 「見た目の設定」区画(issue #154)。中身(柄・形のピッカー)は個人・共有
+   *  タブで異なる(FrameColorSelector相当/AppearanceSelector)ため、このクラス
+   *  自身は持たず、main.tsがgetAppearanceSlot()経由で差し込む——テンプレート
+   *  区画と同じ、置き場所だけを提供するパターン。区画自体の見出し(「見た目の
+   *  設定」)は付けない——差し込まれる中身自身が「フレームの形」「フレームの
+   *  色」という自分の見出しを既に持っており、二重に見えて冗長だったため
+   *  （ユーザー指摘）。 */
+  private buildAppearanceSection(): HTMLElement {
+    const section = document.createElement("div");
+    section.className = "shared-menu-section";
+
+    this.appearanceSlot = document.createElement("div");
+    section.appendChild(this.appearanceSlot);
+    return section;
+  }
+
+  /** buildAppearanceSection()の器。main.tsが個人用・共有用それぞれの中身を
+   *  ここへ差し込み、タブ切り替えのたびhiddenで出し分ける(main.tsのsetView
+   *  参照)。 */
+  getAppearanceSlot(): HTMLElement {
+    return this.appearanceSlot;
   }
 
   /** 「＋テンプレートを使用」（全画面のテンプレート選択、templatePicker.ts）を開く。
