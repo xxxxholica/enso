@@ -4,9 +4,19 @@ import type { MemoOp } from "./memoStore";
 import type { Memo } from "./types";
 
 /** GET経由の変更検知で見るべき部分だけを取り出す。ownerId等は対象外
- *  （実質不変のため）。sessionは別途onSessionSeenで毎回渡すためここでは扱わない。 */
-function syncKey(detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId">): string {
-  return JSON.stringify({ memos: detail.memos, frameShapeId: detail.frameShapeId, framePatternId: detail.framePatternId });
+ *  （実質不変のため）。sessionは別途onSessionSeenで毎回渡すためここでは扱わない。
+ *  frameShapeId2/framePatternId2は「メガネ2」専用の見た目の手動上書き
+ *  (issue #113④)——これだけが変わった場合も変更として検知できるよう含める。 */
+function syncKey(
+  detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId" | "frameShapeId2" | "framePatternId2">
+): string {
+  return JSON.stringify({
+    memos: detail.memos,
+    frameShapeId: detail.frameShapeId,
+    framePatternId: detail.framePatternId,
+    frameShapeId2: detail.frameShapeId2,
+    framePatternId2: detail.framePatternId2,
+  });
 }
 
 /** 1回のドラッグ中に連続して届くpushOp()呼び出しをまとめるための短いデバウンス。
@@ -58,7 +68,9 @@ export class SharedRoomSync {
   }
 
   /** 初回ハイドレート直後など、今の内容をpush不要の「同期済み」として記録しておく。 */
-  markSynced(detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId">): void {
+  markSynced(
+    detail: Pick<SharedCanvasDetail, "memos" | "frameShapeId" | "framePatternId" | "frameShapeId2" | "framePatternId2">
+  ): void {
     this.lastSyncedJson = syncKey(detail);
   }
 

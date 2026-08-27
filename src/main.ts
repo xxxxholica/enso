@@ -254,7 +254,12 @@ const appearanceSelector = new AppearanceSelector(
     framePatternId = id;
     saveFramePattern(id);
     smuiView.setFramePattern(id);
-  }
+  },
+  // 「メガネ2」(issue #113④)はルーム・組専用の上書きで、個人のローカル既定値
+  // (loadFrameShape/loadFramePattern)には影響しない——「メガネ1」と違いsaveFrame*
+  // を呼ばない。
+  (id) => smuiView.setPair2FrameShape(id),
+  (id) => smuiView.setPair2FramePattern(id)
 );
 
 // 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。招待リンク経由の
@@ -394,16 +399,23 @@ function frame(): void {
   }
   if (currentView === "shared") {
     smuiView.render(now);
-    // ルーム接続中は見た目の設定をルームマスターに委ねて同期する
-    // （ユーザー指示）——ルームマスター以外は選べないようにロックし、
-    // ルームの値をAppearanceSelectorの表示にも反映する。setLocked/setValues
-    // は値が変わらない限りDOMを触らないので、毎フレーム呼んでも無駄がない。
+    // ルーム接続中は見た目の設定を同期する——編集可能な全ユーザーに開放されて
+    // いるため(issue #113④)、以前のようにルームマスター限定ではなく、定員超過の
+    // 観覧者だけロックする。ルームの値をAppearanceSelectorの表示にも反映する。
+    // setLocked/setValuesは値が変わらない限りDOMを触らないので、毎フレーム
+    // 呼んでも無駄がない。「メガネ2」タブは、共同アイデア出しでレンズ分割が
+    // 2組になっている間だけ表示する(pair2Available)。
     const appearanceSync = smuiView.getAppearanceSync();
     if (appearanceSync) {
       appearanceSelector.setLocked(appearanceSync.locked);
       appearanceSelector.setValues(appearanceSync.shapeId, appearanceSync.patternId);
+      appearanceSelector.setPair2Visible(appearanceSync.pair2Available);
+      if (appearanceSync.pair2Available) {
+        appearanceSelector.setPair2Values(appearanceSync.pair2ShapeId, appearanceSync.pair2PatternId);
+      }
     } else {
       appearanceSelector.setLocked(false);
+      appearanceSelector.setPair2Visible(false);
     }
     zoomed = smuiView.isZoomed();
     mobileTextEditing = smuiView.isEditingTextFixedBottom();

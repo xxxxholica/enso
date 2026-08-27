@@ -100,3 +100,37 @@ describe("FrameGeometry: 共同アイデア出しの組ごとの形状ローテ�
     expect(geometry.frameShapeIdForPair(1)).toBe("round");
   });
 });
+
+describe("FrameGeometry: 「メガネ2」専用の見た目の手動上書き (issue #113④)", () => {
+  it("手動上書きが無い間は、メガネ2(pairIndex=1)は自動ローテーション(issue #113③)のままになる", () => {
+    const geometry = makeGlassesGeometry();
+    geometry.setLensSplitPairCount(2);
+
+    const baseIndex = FRAME_SHAPE_ORDER.indexOf("round");
+    expect(geometry.frameShapeIdForPair(1)).toBe(FRAME_SHAPE_ORDER[(baseIndex + 1) % FRAME_SHAPE_ORDER.length]);
+    expect(geometry.framePatternIdForPair(1)).toBe("tortoiseshell");
+  });
+
+  it("setPair2Appearanceで手動上書きすると、自動ローテーションより優先される", () => {
+    const geometry = makeGlassesGeometry();
+    geometry.setLensSplitPairCount(2);
+    geometry.setPair2Appearance("square", "wood");
+
+    expect(geometry.frameShapeIdForPair(1)).toBe("square");
+    expect(geometry.framePatternIdForPair(1)).toBe("wood");
+    // メガネ1(pairIndex=0)は上書きの影響を受けない。
+    expect(geometry.frameShapeIdForPair(0)).toBe("round");
+    expect(geometry.framePatternIdForPair(0)).toBe("matte");
+  });
+
+  it("setPair2Appearance(null, null)で上書きを解除すると、自動ローテーションに戻る", () => {
+    const geometry = makeGlassesGeometry();
+    geometry.setLensSplitPairCount(2);
+    geometry.setPair2Appearance("square", "wood");
+    geometry.setPair2Appearance(null, null);
+
+    const baseIndex = FRAME_SHAPE_ORDER.indexOf("round");
+    expect(geometry.frameShapeIdForPair(1)).toBe(FRAME_SHAPE_ORDER[(baseIndex + 1) % FRAME_SHAPE_ORDER.length]);
+    expect(geometry.framePatternIdForPair(1)).toBe("tortoiseshell");
+  });
+});
