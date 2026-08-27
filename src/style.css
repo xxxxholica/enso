@@ -1154,6 +1154,73 @@ body[data-view="shared"] #duration-slot {
   cursor: pointer;
 }
 
+/* --- テーマの「好きな色を選ぶ」カラーパレット（settingsMenu.ts、issue #138）。
+   ネイティブの<input type="color">（RGB数値等が出てくる）ではなく、Chromeの
+   テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——素の
+   <input type="range">に虹色のグラデーショントラックを描くだけで、ドラッグ・
+   タップ・キーボード操作がそのまま使える。.duration-seekbar-slider/
+   .session-sliderと同じ構造（appearance:noneのtrack+thumb）だが、trackの
+   背景だけ単色ではなく色相環のグラデーションにしている。 --- */
+.theme-hue-slider {
+  appearance: none;
+  width: 100%;
+  min-width: 120px;
+  height: 20px;
+  margin: 4px 0 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.theme-hue-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    oklch(75% 0.15 0),
+    oklch(75% 0.15 60),
+    oklch(75% 0.15 120),
+    oklch(75% 0.15 180),
+    oklch(75% 0.15 240),
+    oklch(75% 0.15 300),
+    oklch(75% 0.15 360)
+  );
+}
+
+.theme-hue-slider::-moz-range-track {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    oklch(75% 0.15 0),
+    oklch(75% 0.15 60),
+    oklch(75% 0.15 120),
+    oklch(75% 0.15 180),
+    oklch(75% 0.15 240),
+    oklch(75% 0.15 300),
+    oklch(75% 0.15 360)
+  );
+}
+
+.theme-hue-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--paper-1);
+  border: 2px solid var(--ink-solid);
+  box-shadow: 0 1px 3px var(--ink-20);
+}
+
+.theme-hue-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--paper-1);
+  border: 2px solid var(--ink-solid);
+  box-shadow: 0 1px 3px var(--ink-20);
+}
+
 /* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）で
    使う。共有ルームメニュー内の文字ボタンは.pill-btn（下記）を使う——
    アイコンのみの.toolbar-btnと違い、文字だけだと押せることが伝わりにくい

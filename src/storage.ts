@@ -18,15 +18,18 @@ const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", 
 /** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
  *  "sky"（水色プリセット）・"custom"（好きな色を選ぶ、issue #138）はOSに存在
  *  しないパステルテーマのため、"system"では選ばれず、明示的に選んだ時だけ
- *  固定される——色トークンの計算はtheme.ts参照。"custom"の実際の色は
- *  themePreference自体ではなくCUSTOM_THEME_COLOR_KEY（下記）に別途持つ。 */
+ *  固定される——色トークンの計算はtheme.ts参照。"custom"の実際の色相は
+ *  themePreference自体ではなくCUSTOM_THEME_HUE_KEY（下記）に別途持つ。 */
 export type ThemePreference = "system" | "light" | "dark" | "sky" | "custom";
 const DEFAULT_THEME: ThemePreference = "system";
 const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "sky", "custom"]);
-const CUSTOM_THEME_COLOR_KEY = "customThemeColor";
-/** カラーパレットを一度も開いていない状態での初期選択色（水色寄り）。 */
-const DEFAULT_CUSTOM_THEME_COLOR = "#7dd3fc";
-const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const CUSTOM_THEME_HUE_KEY = "customThemeHue";
+/** カラーパレット（Chromeのテーマ設定のような横バー1本の色相スライダー、
+ *  issue #138）をまだ一度も操作していない状態での初期値（水色寄り、theme.ts
+ *  のSKY_HUEと同じ）。RGB値を直接扱わず、OKLCHの色相(0〜360度)だけを保持する
+ *  ——このアプリのパステル配色は色相だけから機械的に導き出すため(theme.ts
+ *  のbuildPastelThemeVars参照)、明度・彩度まで保持する必要が無い。 */
+const DEFAULT_CUSTOM_THEME_HUE = 220;
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -199,17 +202,18 @@ export function saveThemePreference(pref: ThemePreference): void {
 }
 
 /** テーマ「好きな色を選ぶ」（settingsMenu.tsのカラーパレット、issue #138）で
- *  最後に選んだ色。#rrggbb形式の文字列のみ受け付ける——不正な値・未設定の間は
- *  DEFAULT_CUSTOM_THEME_COLORへフォールバックする。 */
-export function loadCustomThemeColor(): string {
+ *  最後に選んだ色相(OKLCH、0〜360度)。0〜360の有限な数値以外・未設定の間は
+ *  DEFAULT_CUSTOM_THEME_HUEへフォールバックする。 */
+export function loadCustomThemeHue(): number {
   try {
-    const raw = localStorage.getItem(CUSTOM_THEME_COLOR_KEY);
-    return raw !== null && HEX_COLOR_PATTERN.test(raw) ? raw : DEFAULT_CUSTOM_THEME_COLOR;
+    const raw = localStorage.getItem(CUSTOM_THEME_HUE_KEY);
+    const hue = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(hue) && hue >= 0 && hue <= 360 ? hue : DEFAULT_CUSTOM_THEME_HUE;
   } catch {
-    return DEFAULT_CUSTOM_THEME_COLOR;
+    return DEFAULT_CUSTOM_THEME_HUE;
   }
 }
 
-export function saveCustomThemeColor(hex: string): void {
-  localStorage.setItem(CUSTOM_THEME_COLOR_KEY, hex);
+export function saveCustomThemeHue(hue: number): void {
+  localStorage.setItem(CUSTOM_THEME_HUE_KEY, String(hue));
 }

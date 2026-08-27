@@ -15,11 +15,11 @@ import { SettingsMenu } from "./settingsMenu";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
 import {
-  loadCustomThemeColor,
+  loadCustomThemeHue,
   loadFramePattern,
   loadFrameShape,
   loadThemePreference,
-  saveCustomThemeColor,
+  saveCustomThemeHue,
   saveFramePattern,
   saveFrameShape,
   saveThemePreference,
@@ -30,7 +30,7 @@ import { applyTheme } from "./theme";
 // テーマ（自動/ライト/ダーク/水色/好きな色）は、他の何よりも先に適用する——
 // 後回しにすると一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」
 // が見えるため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
-applyTheme(loadThemePreference(), loadCustomThemeColor());
+applyTheme(loadThemePreference(), loadCustomThemeHue());
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -98,14 +98,14 @@ const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
 const settingsMenu = new SettingsMenu(
   settingsSlot,
   loadThemePreference(),
-  loadCustomThemeColor(),
+  loadCustomThemeHue(),
   (pref) => {
     saveThemePreference(pref);
-    applyTheme(pref, loadCustomThemeColor());
+    applyTheme(pref, loadCustomThemeHue());
   },
-  (hex) => {
-    saveCustomThemeColor(hex);
-    applyTheme("custom", hex);
+  (hue) => {
+    saveCustomThemeHue(hue);
+    applyTheme("custom", hue);
   },
   () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
   () => templatePicker.open()

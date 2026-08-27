@@ -59,13 +59,13 @@ export class SettingsMenu {
 
   private theme: ThemePreference;
   private onThemeChange: (pref: ThemePreference) => void;
-  private onCustomColorChange: (hex: string) => void;
+  private onCustomHueChange: (hue: number) => void;
   private themeButtons = new Map<ThemePreference, HTMLButtonElement>();
-  /** カラーパレット（好きな色を選ぶ、issue #138）。道具バーのカスタムインク
-   *  スワッチ（toolbar.ts）と同じ、円形ボタンの中に透明な<input type="color">
-   *  を重ねて置く形——ボタンをクリックするとネイティブのカラーピッカーが開く。 */
-  private customColorInput!: HTMLInputElement;
-  private customSwatchBtn!: HTMLButtonElement;
+  /** カラーパレット（好きな色を選ぶ、issue #138）。ネイティブのカラー
+   *  ピッカー（RGB数値等が出てくる）ではなく、Chromeのテーマ設定と同じ
+   *  横1本の色相グラデーションバー（ユーザー指示）——虹色の帯を左右にドラッグ
+   *  するだけで選べる。値は0〜360度のOKLCH色相のみ（RGBは一切経由しない）。 */
+  private hueSlider!: HTMLInputElement;
   private accountSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
@@ -79,15 +79,15 @@ export class SettingsMenu {
   constructor(
     container: HTMLElement,
     initialTheme: ThemePreference,
-    initialCustomColor: string,
+    initialCustomHue: number,
     onThemeChange: (pref: ThemePreference) => void,
-    onCustomColorChange: (hex: string) => void,
+    onCustomHueChange: (hue: number) => void,
     getExportSource: () => ExportSource | null,
     onOpenTemplatePicker: () => void
   ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
-    this.onCustomColorChange = onCustomColorChange;
+    this.onCustomHueChange = onCustomHueChange;
     this.onOpenTemplatePicker = onOpenTemplatePicker;
 
     this.anchor = document.createElement("div");
@@ -128,41 +128,34 @@ export class SettingsMenu {
       themeRow.appendChild(btn);
     }
 
-    // カラーパレット（好きな色を選ぶ、issue #138）。道具バーの「好きな色」
-    // スワッチ（toolbar.ts）と全く同じ仕組み——透明な<input type="color">を
-    // ボタンの上に重ね、ボタンのクリックをそのままネイティブのカラー
-    // ピッカーへ橋渡しする。選ぶたびにtheme.tsが色相だけを取り出し、
-    // パステルな配色一式(sky/customと同じレシピ)を組み立てて適用する。
-    this.customColorInput = document.createElement("input");
-    this.customColorInput.type = "color";
-    this.customColorInput.value = initialCustomColor;
-    this.customColorInput.className = "toolbar-color-input";
-    this.customColorInput.setAttribute("aria-label", THEME_LABEL.custom);
-    this.customColorInput.addEventListener("input", () => {
-      const hex = this.customColorInput.value;
-      this.customSwatchBtn.style.background = hex;
-      this.onCustomColorChange(hex);
+    themeSection.appendChild(themeRow);
+
+    // カラーパレット（好きな色を選ぶ、issue #138）。ネイティブの<input
+    // type="color">（RGB数値・16進入力等が出てくる）ではなく、Chromeの
+    // テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——
+    // <input type="range">に虹色のグラデーションを描くだけで、ドラッグ・
+    // タップ・キーボード操作（矢印キー）が素のまま使える。値は0〜360度の
+    // OKLCH色相のみで、選ぶたびにtheme.tsのbuildPastelThemeVarsがパステルな
+    // 配色一式(sky/customと同じレシピ)を組み立てて適用する。
+    this.hueSlider = document.createElement("input");
+    this.hueSlider.type = "range";
+    this.hueSlider.min = "0";
+    this.hueSlider.max = "360";
+    this.hueSlider.step = "1";
+    this.hueSlider.value = String(initialCustomHue);
+    this.hueSlider.className = "theme-hue-slider";
+    this.hueSlider.setAttribute("aria-label", THEME_LABEL.custom);
+    this.hueSlider.addEventListener("input", () => {
+      const hue = Number(this.hueSlider.value);
+      this.onCustomHueChange(hue);
       if (this.theme !== "custom") {
         this.theme = "custom";
         this.syncTheme();
         this.onThemeChange("custom");
       }
     });
+    themeSection.appendChild(this.hueSlider);
 
-    this.customSwatchBtn = document.createElement("button");
-    this.customSwatchBtn.type = "button";
-    this.customSwatchBtn.className = "toolbar-swatch";
-    this.customSwatchBtn.style.background = initialCustomColor;
-    this.customSwatchBtn.setAttribute("aria-label", THEME_LABEL.custom);
-    this.customSwatchBtn.appendChild(this.customColorInput);
-    this.customSwatchBtn.addEventListener("click", (ev) => {
-      if (ev.target === this.customColorInput) return;
-      this.customColorInput.click();
-    });
-    this.themeButtons.set("custom", this.customSwatchBtn);
-    themeRow.appendChild(this.customSwatchBtn);
-
-    themeSection.appendChild(themeRow);
     this.popover.appendChild(themeSection);
 
     this.popover.appendChild(this.buildTemplateSection());

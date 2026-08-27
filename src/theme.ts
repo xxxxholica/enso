@@ -8,15 +8,18 @@ import type { ThemePreference } from "./storage";
  * ——style.css側の@media(prefers-color-scheme)がOSの設定に従って自動で切り替わる。
  *
  * "sky"（水色プリセット）・"custom"（好きな色を選ぶ、issue #138）はこれとは別で、
- * 単色の色相からパステルな配色一式を導き出す必要があるため、CSSの固定値では
- * 表現できない——buildPastelThemeVars()でink-* や paper-*等をその場で計算し、
- * :rootへinline styleとして直接設定する。customColorHexはpref==="custom"の
- * 時だけ使う（他のprefでは無視してよい）。
+ * 色相からパステルな配色一式を導き出す必要があるため、CSSの固定値では表現
+ * できない——buildPastelThemeVars()でink-* や paper-*等をその場で計算し、
+ * :rootへinline styleとして直接設定する。customHueはpref==="custom"の時だけ
+ * 使う（他のprefでは無視してよい）。settingsMenu.tsのカラーパレットはRGB値を
+ * 直接扱わない横1本の色相スライダー（Chromeのテーマ設定と同じ見た目、ユーザー
+ * 指示）のため、ここで受け取るのも0〜360度の数値のみで、色そのもの（#rrggbb等）
+ * は一切経由しない。
  */
-export function applyTheme(pref: ThemePreference, customColorHex?: string): void {
+export function applyTheme(pref: ThemePreference, customHue?: number): void {
   const root = document.documentElement;
   if (pref === "sky" || pref === "custom") {
-    const hue = pref === "custom" ? extractOklchHue(customColorHex ?? SKY_HUE_FALLBACK_COLOR) : SKY_HUE;
+    const hue = pref === "custom" ? (customHue ?? SKY_HUE) : SKY_HUE;
     applyPastelThemeVars(hue);
     root.dataset.theme = pref;
     return;
@@ -29,11 +32,9 @@ export function applyTheme(pref: ThemePreference, customColorHex?: string): void
   }
 }
 
-/** 「水色」プリセットの色相（OKLCH、度）。 */
+/** 「水色」プリセットの色相（OKLCH、度）。カラーパレットの初期値
+ *  （storage.tsのDEFAULT_CUSTOM_THEME_HUE）とも揃えてある。 */
 const SKY_HUE = 220;
-/** カスタムカラーがまだ一度も保存されていない・不正な値だった場合のフォールバック
- *  （storage.tsのloadCustomThemeColorの既定値と同じ水色系）。 */
-const SKY_HUE_FALLBACK_COLOR = "#7dd3fc";
 
 /** パステルテーマ(sky/custom)で使うink-* / paper-* / rule-lineのCSSカスタム
  *  プロパティ名一覧。適用時はここに値を設定し、他のテーマへ切り替える時は
@@ -67,7 +68,7 @@ const PASTEL_PROPERTY_NAMES = [
 /** 指定した色相(hue、OKLCH度)から、light/darkと同じ「インク1色＋紙の明度違い」
  *  の構造を保ったまま、Chromeのカスタムテーマのようなパステルな配色一式を
  *  機械的に導き出す。彩度・明度は固定のレシピで決め、色相だけを可変にする
- *  ——ユーザーがどんな色を選んでも、極端に濃い/薄い配色にならないようにするため。 */
+ *  ——ユーザーがどの色相を選んでも、極端に濃い/薄い配色にならないようにするため。 */
 function buildPastelThemeVars(hue: number): Record<(typeof PASTEL_PROPERTY_NAMES)[number], string> {
   const ink = (alpha?: number) => `oklch(30% 0.03 ${hue}${alpha !== undefined ? ` / ${alpha}` : ""})`;
   return {
@@ -107,37 +108,4 @@ function clearPastelThemeVars(): void {
   for (const name of PASTEL_PROPERTY_NAMES) {
     document.documentElement.style.removeProperty(name);
   }
-}
-
-function srgbChannelToLinear(c: number): number {
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-
-/** #rrggbb形式の色から、OKLCH色空間での色相(hue、度、0〜360)だけを取り出す。
- *  ChromeのカスタムテーマUIと同じく、選んだ色そのままの明度・彩度は使わず
- *  （buildPastelThemeVars参照）色相だけを借りるため、L/Cは計算しない。
- *  計算式はBjörn OttossonのOKLab変換をそのまま使用（sRGB→線形RGB→LMS→OKLab→
- *  OKLCHの色相）。 */
-function extractOklchHue(hex: string): number {
-  const match = /^#?([0-9a-fA-F]{6})$/.exec(hex);
-  const normalized = match ? match[1] : "7dd3fc";
-  const r = srgbChannelToLinear(parseInt(normalized.slice(0, 2), 16) / 255);
-  const g = srgbChannelToLinear(parseInt(normalized.slice(2, 4), 16) / 255);
-  const b = srgbChannelToLinear(parseInt(normalized.slice(4, 6), 16) / 255);
-
-  const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
-  const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
-  const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
-
-  const l_ = Math.cbrt(l);
-  const m_ = Math.cbrt(m);
-  const s_ = Math.cbrt(s);
-
-  const a = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
-  const bLab = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.808675766 * s_;
-
-  if (Math.abs(a) < 1e-6 && Math.abs(bLab) < 1e-6) return SKY_HUE;
-  const hueRad = Math.atan2(bLab, a);
-  const hueDeg = (hueRad * 180) / Math.PI;
-  return hueDeg < 0 ? hueDeg + 360 : hueDeg;
 }
