@@ -177,6 +177,9 @@ interface TrackedMemo {
 export class TutorialSandbox {
   private canvasWrap: HTMLElement;
   private messageEl: HTMLElement;
+  private watchProgressWrap: HTMLElement;
+  private watchProgressEl: HTMLProgressElement;
+  private watchProgressLabel: HTMLElement;
   private rewindWrap: HTMLElement;
   private setRewindVisible: (show: boolean) => void;
   private nextBtn: HTMLButtonElement;
@@ -239,6 +242,17 @@ export class TutorialSandbox {
     this.messageEl = document.createElement("p");
     this.messageEl.className = "tutorial-sandbox-message";
 
+    this.watchProgressWrap = document.createElement("div");
+    this.watchProgressWrap.className = "tutorial-watch-progress";
+    this.watchProgressWrap.hidden = true;
+    this.watchProgressLabel = document.createElement("span");
+    this.watchProgressLabel.className = "tutorial-watch-progress-label";
+    this.watchProgressEl = document.createElement("progress");
+    this.watchProgressEl.className = "tutorial-watch-progress-bar";
+    this.watchProgressEl.max = 24;
+    this.watchProgressEl.value = 0;
+    this.watchProgressWrap.append(this.watchProgressLabel, this.watchProgressEl);
+
     this.rewindWrap = document.createElement("div");
     this.rewindWrap.className = "tutorial-sandbox-seek fade-visible";
     this.rewindWrap.hidden = true;
@@ -269,7 +283,7 @@ export class TutorialSandbox {
     this.skipBtn.addEventListener("click", () => this.advanceTo("done"));
     actions.append(this.nextBtn, this.skipBtn);
 
-    container.append(this.canvasWrap, this.messageEl, this.rewindWrap, actions);
+    container.append(this.canvasWrap, this.watchProgressWrap, this.messageEl, this.rewindWrap, actions);
   }
 
   /** 使い方ページを開いている間だけ呼ぶ。開き直すたびにまっさらな状態から
@@ -410,6 +424,7 @@ export class TutorialSandbox {
     // ライブ表示に上書きする」という形で確実性を持たせている。
     if (this.step === "done") this.canvasView.setRewindAt(null);
     this.canvasView.render(now);
+    this.syncWatchProgress(now);
     this.checkProgress();
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -477,9 +492,19 @@ export class TutorialSandbox {
 
   private syncStep(): void {
     this.messageEl.textContent = MESSAGES[this.step];
+    this.watchProgressWrap.hidden = this.step !== "watch";
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
+  }
+
+  /** 短縮された「眺める」の経過を、通常の1日寿命における0〜24時間へ換算する。 */
+  private syncWatchProgress(now: number): void {
+    if (this.step !== "watch" || this.watchStartAt === null) return;
+    const ratio = Math.min(1, Math.max(0, (now - this.watchStartAt) / WATCH_DEMO_TOTAL_VIRTUAL_MS));
+    const hours = ratio * 24;
+    this.watchProgressEl.value = hours;
+    this.watchProgressLabel.textContent = `${Math.floor(hours)}時間経過`;
   }
 
   /** 「つぎへ」（"watch"手順専用）はこの手順に入って即座にではなく、
