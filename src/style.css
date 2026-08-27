@@ -1269,6 +1269,9 @@ body[data-view="shared"] #duration-slot {
   /* .toolbar-details-cardと同じ式（固定pxではなくclamp）にして、2ブロックの
      横幅比を画面幅によらず常に1:1に揃える（ユーザー指示・指摘）。 */
   width: clamp(150px, 15vw, 200px);
+  /* ホバー案内(.tool-tooltip、rewindSelector.ts)をこのブロック基準で
+     重ねて表示するため（.toolbar-btnと同じ理由）。 */
+  position: relative;
 }
 
 /* モバイル幅では.control-panel-bodyのグリッド列（1fr 1fr）自体が1:1を保証する
