@@ -181,7 +181,6 @@ export class TutorialSandbox {
   private setRewindVisible: (show: boolean) => void;
   private nextBtn: HTMLButtonElement;
   private skipBtn: HTMLButtonElement;
-  private doneNextBtn: HTMLButtonElement;
   /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
    *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
   private onComplete: (() => void) | null;
@@ -255,6 +254,10 @@ export class TutorialSandbox {
     // （syncNextBtnVisibility/checkProgress参照）ため、決め打ちの遷移先では
     // なく「今の手順の次」へ進める。
     this.nextBtn.addEventListener("click", () => {
+      if (this.step === "done") {
+        this.onComplete?.();
+        return;
+      }
       if (this.step === "watch") this.restoreAllMemos(this.currentVirtualNow());
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
@@ -264,13 +267,7 @@ export class TutorialSandbox {
     this.skipBtn.className = "text-link tutorial-sandbox-skip";
     this.skipBtn.textContent = "この体験をスキップ";
     this.skipBtn.addEventListener("click", () => this.advanceTo("done"));
-    this.doneNextBtn = document.createElement("button");
-    this.doneNextBtn.type = "button";
-    this.doneNextBtn.className = "pill-btn";
-    this.doneNextBtn.textContent = "つぎへ";
-    this.doneNextBtn.hidden = true;
-    this.doneNextBtn.addEventListener("click", () => this.onComplete?.());
-    actions.append(this.nextBtn, this.skipBtn, this.doneNextBtn);
+    actions.append(this.nextBtn, this.skipBtn);
 
     container.append(this.canvasWrap, this.messageEl, this.rewindWrap, actions);
   }
@@ -302,6 +299,7 @@ export class TutorialSandbox {
       textEditorZIndex: TEXT_EDITOR_Z_INDEX,
       textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
       minRenderedTextFontPx: 16,
+      nowProvider: () => this.currentVirtualNow(),
     });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
@@ -481,7 +479,6 @@ export class TutorialSandbox {
     this.messageEl.textContent = MESSAGES[this.step];
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
-    this.doneNextBtn.hidden = this.step !== "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
   }
 
@@ -501,6 +498,10 @@ export class TutorialSandbox {
       this.nextBtnTimer = null;
     }
     this.nextBtn.hidden = true;
+    if (this.step === "done") {
+      this.nextBtn.hidden = false;
+      return;
+    }
     if (this.step !== "watch") return;
     this.nextBtnTimer = setTimeout(() => {
       this.nextBtnTimer = null;
@@ -551,7 +552,10 @@ export class TutorialSandbox {
     this.rewindWrap.style.pointerEvents = "none";
     this.rewindSelector?.reset();
     this.canvasView?.setRewindAt(null);
-    this.setRewindVisible(false);
+    // フェードアウト完了までスライダーをレイアウトに残すと、その180ms後に
+    // ボタン位置がもう一度動く。手順切り替え時は即座に外して位置を一度で確定する。
+    this.rewindWrap.classList.remove("is-visible");
+    this.rewindWrap.hidden = true;
   }
 
   /** idで指定した1枚を、位置・文面を引き継いだまま作り直す

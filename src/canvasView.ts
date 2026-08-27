@@ -262,6 +262,8 @@ export interface CircularCanvasOptions {
   textEditorMinWidthPx?: number;
   /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
   minRenderedTextFontPx?: number;
+  /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
+  nowProvider?: () => number;
 }
 
 export class CircularCanvas {
@@ -373,6 +375,7 @@ export class CircularCanvas {
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
   private minRenderedTextFontPx: number | undefined;
+  private nowProvider: () => number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -414,6 +417,7 @@ export class CircularCanvas {
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
     this.minRenderedTextFontPx = options.minRenderedTextFontPx;
+    this.nowProvider = options.nowProvider ?? Date.now;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -788,7 +792,11 @@ export class CircularCanvas {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
       const { color, lifespanDays, lineWidth } = this.getToolState();
-      const memo = this.store.createMemo(p, { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth });
+      const memo = this.store.createMemo(
+        p,
+        { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth },
+        this.nowProvider()
+      );
       this.state.activeMemoId = memo.id;
     }
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
@@ -1240,7 +1248,16 @@ export class CircularCanvas {
       // 寄せてから確定する。
       const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.frame.currentShape().clamp);
       this.ensureUndoSnapshot();
-      this.store.createTextMemo(safeAnchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
+      this.store.createTextMemo(
+        safeAnchor,
+        value,
+        lines,
+        fontSize,
+        width,
+        height,
+        { color, lifespanDays: this.getToolState().lifespanDays },
+        this.nowProvider()
+      );
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
@@ -1312,12 +1329,16 @@ export class CircularCanvas {
     const boxWidthPx = measureTextBoxWidthPx(this.ctx, text, fontSize);
     const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize, boxWidthPx);
     const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
-    const memo = this.store.createTextMemo({ x: 0, y: 0 }, text, lines, fontSize, width, height, {
-      color,
-      lifespanDays,
-      align: "left",
-      lineHeight,
-    });
+    const memo = this.store.createTextMemo(
+      { x: 0, y: 0 },
+      text,
+      lines,
+      fontSize,
+      width,
+      height,
+      { color, lifespanDays, align: "left", lineHeight },
+      this.nowProvider()
+    );
     this.openTextEditor({ x: 0, y: 0 }, memo);
   }
 

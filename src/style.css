@@ -2524,13 +2524,26 @@ body[data-view="shared"] #duration-slot {
 }
 
 .tutorial-sandbox-actions {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: center;
+  width: 100%;
+  min-height: 34px;
 }
 
 .tutorial-sandbox-skip {
+  position: absolute;
+  left: calc(50% + 64px);
   color: var(--ink-40);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .tutorial-sandbox-skip {
+    left: auto;
+    right: 0;
+  }
 }
 
 /* --- フェーズ切り替えの「カットイン」演出 (issue #79) -------------------
