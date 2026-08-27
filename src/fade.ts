@@ -53,23 +53,6 @@ export function remainingMs(elapsedMs: number, lifespanDays: LifespanDays): numb
 }
 
 /**
- * ミリ秒を「2日5時間」「3時間」「45分」のような簡潔な日本語表現にする
- * （なぞっている間に表示する残り時間・延長可能時間の文言用）。厳密な精度は
- * 求めず、一番大きい2つの単位だけを見せる——振り返りの目盛りと同じく、
- * このアプリでは時間表現は目安で十分という考え方に合わせている。
- */
-export function formatDurationJa(ms: number): string {
-  if (ms <= 0) return "0分";
-  const totalMinutes = Math.round(ms / (60 * 1000));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return hours > 0 ? `${days}日${hours}時間` : `${days}日`;
-  if (hours > 0) return minutes > 0 ? `${hours}時間${minutes}分` : `${hours}時間`;
-  return minutes > 0 ? `${minutes}分` : "1分未満";
-}
-
-/**
  * 振り返り（タイムラインスライダー）用: なぞり直した時刻の履歴（traceHistory、
  * 先頭は必ずcreatedAt）から、過去の任意時刻tにおける不透明度を再現する。
  * tがcreatedAtより前ならまだ存在しないのでnullを返す。

@@ -3,10 +3,10 @@ import type { Point } from "./types";
 /** キャンバスの一辺（px）の下限・上限。極端に小さい/大きいウィンドウでも破綻しないように。
  *  通常キャンバスと振り返りのプレビューキャンバスの両方がこの定数を共有することで、
  *  「同じ大きさ」を保証する。 */
-export const MIN_CANVAS_SIZE = 200;
+const MIN_CANVAS_SIZE = 200;
 /** 以前は900だったが、上部のタイトル表示を廃止して画面切り替えを下部の操作パネルに
  *  統合したことで縦方向の余白が増えたため、円をさらに大きく見せられるよう引き上げた。 */
-export const MAX_CANVAS_SIZE = 1100;
+const MAX_CANVAS_SIZE = 1100;
 
 export interface CanvasGeometry {
   width: number;

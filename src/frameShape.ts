@@ -112,17 +112,6 @@ export function getFrameShape(id: FrameShapeId): FrameShape {
 }
 
 /**
- * 3形状のうちもっとも大きいmaxReach（＝長方形の角）。SMUIのレンズは、今選んで
- * いる形状に関わらず常にこの値を基準にキャンバスの余白を計算する
- * ——形状ごとに余白を最小化すると、丸眼鏡・楕円は大きく、長方形だけ角のぶん
- * 余白が要ってあまり大きくならず、形状を切り替えるたびに大きさが変わって
- * しまう（ブリッジの長さも形状によって変わって見えてしまう）。3形状とも
- * 同じ余白基準に揃えることで、切り替えても大きさ・接合部の長さが変わらない
- * （ユーザー指摘：長方形の接合部だけ短くなっていないように見える、への対応）。
- */
-export const MAX_SHAPE_REACH = Math.max(...FRAME_SHAPE_ORDER.map((id) => FRAME_SHAPES[id].maxReach));
-
-/**
  * 眼鏡形状（共有キャンバス専用、左右レンズ+ブリッジを1つの連続領域として描く）。
  * FrameShapeIdは増やさず、既存3種類のレンズスタイル（丸眼鏡/楕円/長方形）を
  * そのまま「レンズの形」として再利用する——AppearanceSelectorは変更不要。
@@ -139,7 +128,7 @@ export const GLASSES_CENTER_OFFSET = 1.3;
  *  実際の高さはCircularCanvasがその時のframeStrokeWidthから動的に計算して
  *  buildPathに渡す（canvasView.ts参照）——この定数は、その値を渡されなかった
  *  場合だけのフォールバック。 */
-export const GLASSES_BRIDGE_HALF_HEIGHT_DEFAULT = 0.12;
+const GLASSES_BRIDGE_HALF_HEIGHT_DEFAULT = 0.12;
 /** 全レンズスタイル共通の縦方向reach（半径・半辺はいずれも1）。 */
 export const GLASSES_VERTICAL_REACH = 1.0;
 
@@ -300,11 +289,9 @@ export function getGlassesFrameShape(id: FrameShapeId): FrameShape {
   return GLASSES_SHAPES[id];
 }
 
-/** MAX_SHAPE_REACHの眼鏡版。切り替えても大きさが変わらないよう、共有
- *  キャンバスは常にこの値を基準に余白・スケールを計算する（canvasView.ts参照）。 */
-export const GLASSES_MAX_REACH = Math.max(...FRAME_SHAPE_ORDER.map((id) => GLASSES_SHAPES[id].maxReach));
-/** 同上、横方向のみの版。共有キャンバスのコンテナのアスペクト比を決めるのに使う。 */
-export const GLASSES_MAX_HORIZONTAL_REACH = Math.max(
+/** 共有キャンバス（眼鏡形状）の横方向reach。全レンズスタイルのうちもっとも
+ *  横に張り出す値を基準にコンテナのアスペクト比を決める（canvasView.ts参照）。 */
+const GLASSES_MAX_HORIZONTAL_REACH = Math.max(
   ...FRAME_SHAPE_ORDER.map((id) => GLASSES_SHAPES[id].horizontalReach)
 );
 
