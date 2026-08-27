@@ -106,8 +106,6 @@ const WATCH_NEXT_BTN_DELAY_MS = 9_000;
  *  なってしまうため、この一度きり位置・文面を保ったまま復活させる
  *  （ユーザー指示：「一度そこで復活させてほしい。位置は保持する
  *  前提で」）。 */
-const REVIVE_BACKDATE_MS = 5 * HOUR;
-
 type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
 const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
 
@@ -207,6 +205,9 @@ export class TutorialSandbox {
    *  lastTracedAt。checkProgressはこの中のどれか1枚でも増減していれば
    *  keep/releaseを達成扱いにする。 */
   private memoBaselines: TrackedMemo[] = [];
+  /** 「眺める」に入る直前の全メモ。復活時は寿命を含めてこの状態へ戻す。 */
+  private watchStartMemos: Memo[] = [];
+  private watchStartAt: number | null = null;
   /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
    *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
    *  （内容は問わない）。 */
@@ -254,6 +255,7 @@ export class TutorialSandbox {
     // （syncNextBtnVisibility/checkProgress参照）ため、決め打ちの遷移先では
     // なく「今の手順の次」へ進める。
     this.nextBtn.addEventListener("click", () => {
+      if (this.step === "watch") this.restoreAllMemos(this.currentVirtualNow());
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
     });
@@ -321,6 +323,8 @@ export class TutorialSandbox {
     this.canvasView = null;
     this.store = null;
     this.memoBaselines = [];
+    this.watchStartMemos = [];
+    this.watchStartAt = null;
     this.knownMemoIds = new Set();
     this.ambientId = null;
     this.decoyId = null;
@@ -462,7 +466,12 @@ export class TutorialSandbox {
   private advanceTo(step: StepId): void {
     if (STEP_ORDER.indexOf(step) <= STEP_ORDER.indexOf(this.step)) return;
     this.step = step;
-    if (step === "watch") this.reseedForWatchDemo(this.currentVirtualNow());
+    if (step === "watch") {
+      const now = this.currentVirtualNow();
+      this.watchStartMemos = [...structuredClone(this.store?.getAll() ?? [])];
+      this.watchStartAt = now;
+      this.reseedForWatchDemo(now);
+    }
     if (step === "rewind") this.mountRewind();
     if (step === "done") this.showPresentForDone();
     this.syncStep();
@@ -495,7 +504,6 @@ export class TutorialSandbox {
     if (this.step !== "watch") return;
     this.nextBtnTimer = setTimeout(() => {
       this.nextBtnTimer = null;
-      this.freezeToRealPace(this.currentVirtualNow());
       this.nextBtn.hidden = false;
     }, WATCH_NEXT_BTN_DELAY_MS);
   }
@@ -618,42 +626,23 @@ export class TutorialSandbox {
    *  ようになる瞬間（syncNextBtnVisibility）に一度だけ呼ぶ——それ以降は
    *  実際に押すまで実時間をどれだけかけようと、本物の緩やかな寿命でしか
    *  薄れないため、対象を取り逃す心配がなくなる。 */
-  private freezeToRealPace(now: number): void {
+  /** 「眺める」で薄れたものを、「つぎへ」が押された瞬間にまとめて戻す。
+   *  内容と位置はそのまま保ち、全メモを本来の寿命・完全に見える状態へ揃える。 */
+  private restoreAllMemos(now: number): void {
     if (!this.store) return;
-    const rescale = (id: string): Memo | null => {
-      const existing = this.store!.getAll().find((m) => m.id === id);
-      if (!existing) return null;
-      if (existing.status === "active") {
-        const elapsedMs = Math.max(0, now - existing.lastTracedAt);
-        const scaledBackdateMs = elapsedMs * (FIXED_LIFESPAN_DAYS! / WATCH_DEMO_LIFESPAN_DAYS!);
-        // 比を保った換算の結果、本物の寿命（24h相当）ですら経過扱いになって
-        // しまう場合（tick()がこの時点のnowにまだ追いついておらず、statusが
-        // "active"のまま実質消えている場合）は、比を保つ意味が無い
-        // （不透明度0＝掴めるはずのstatusのまま実質見えない・消えているのと
-        // 同じ）ため、下の「既に消えきっていた」場合と同じ復活処理へ
-        // フォールバックする。
-        if (scaledBackdateMs < FIXED_LIFESPAN_DAYS! * MS_PER_DAY) {
-          return this.reseedOne(id, now, scaledBackdateMs, FIXED_LIFESPAN_DAYS);
-        }
-      }
-      return this.reseedOne(id, now, REVIVE_BACKDATE_MS, FIXED_LIFESPAN_DAYS);
-    };
-
-    this.memoBaselines = this.memoBaselines.map((baseline) => {
-      const fresh = rescale(baseline.id);
-      return fresh ? trackedMemoOf(fresh) : baseline;
-    });
-
-    if (this.decoyId) {
-      const fresh = rescale(this.decoyId);
-      if (fresh) {
-        this.decoyId = fresh.id;
-        if (!this.memoBaselines.some((b) => b.id === fresh.id)) {
-          this.memoBaselines.push(trackedMemoOf(fresh));
-        }
-      }
-    }
+    const elapsed = this.watchStartAt === null ? 0 : now - this.watchStartAt;
+    const source = this.watchStartMemos.length > 0 ? this.watchStartMemos : this.store.getAll();
+    const restored = source.map((memo) => ({
+      ...structuredClone(memo),
+      createdAt: memo.createdAt + elapsed,
+      lastTracedAt: memo.lastTracedAt + elapsed,
+      traceHistory: memo.traceHistory.map((timestamp) => timestamp + elapsed),
+      status: "active" as const,
+    }));
+    this.store.replaceAll(restored);
+    this.memoBaselines = restored.map(trackedMemoOf);
   }
+
 }
 
 /** 短い「思いつき」のテキストメモを、指定した仮想時刻に作られたことにして
