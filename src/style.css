@@ -308,7 +308,14 @@ body {
 .app-wordmark {
   margin: 0;
   font-family: "Klee One", "Noto Sans JP", sans-serif;
-  font-weight: 600;
+  /* Klee OneはGoogle Fontsで400/600の2ウェイトしか読み込んでいない
+     （index.html参照）ため、700を指定しても600の字形をブラウザがわずかに
+     太らせる疑似ボールドにしかならず、狙った太さが出なかった（ユーザー
+     報告）。書体自体（Klee One）は変えないまま、字形の輪郭に細い縁取り
+     （-webkit-text-stroke）を足して太く見せる——実質は太らせるというより
+     縁取りで肉厚にする力技だが、フォントを差し替えずに済む。 */
+  font-weight: 700;
+  -webkit-text-stroke: 0.6px var(--ink-solid);
   font-size: var(--text-lg);
   letter-spacing: 0.02em;
   color: var(--ink-solid);
@@ -1747,16 +1754,15 @@ body[data-view="shared"] #duration-slot {
   font-weight: 600;
 }
 
-/* --- 設定（settingsMenu.ts）のトリガーボタン。各タブの.info-row最後尾に置く
-   （SettingsMenu.moveTo参照）——他のトリガー(.shared-room-trigger等)と同じ
-   理由でトーンを個別に上書きする。文字を持たない（ユーザー指示）ため、
-   他のpill-btnと違いwidth/heightを固定してアイコンボタンにする。正円
-   （border-radius: var(--radius-full)、width/heightが等しいのでちょうど円に
-   なる）にして、同じ行に並ぶ.shared-room-trigger/.session-panel-trigger
-   （いずれもpill形状）とトーンを揃える
-   （ユーザー指示：メニューのサイズがまばらでUXが悪い）。「見た目の設定」
-   （旧.appearance-trigger）は設定メニューへ統合済みのため、この行自体には
-   もう並ばない(issue #154)。 --- */
+/* --- アプリのメインメニュー(settingsMenu.ts)のトリガーボタン。画面左上
+   （ヘッダー、issue #161）に固定表示する。透明な帯である.app-header
+   （下のキャンバスの地色がそのまま透ける）の上に置くため、既定では
+   背景を持たせず地色に同化させる（ユーザー指示：白い丸だと浮いて見える）。
+   ホバー・展開中だけ.paper系の背景を出し、操作可能・操作中であることが
+   分かるようにする。文字を持たない（ユーザー指示）ため、他のpill-btnと
+   違いwidth/heightを固定してアイコンボタンにする。正円
+   （border-radius: var(--radius-full)、width/heightが等しいのでちょうど
+   円になる）にする。 --- */
 .settings-trigger {
   display: flex;
   align-items: center;
@@ -1765,7 +1771,7 @@ body[data-view="shared"] #duration-slot {
   height: 32px;
   padding: 0;
   border-radius: var(--radius-full);
-  background: var(--paper-1);
+  background: transparent;
 }
 
 .settings-trigger svg {
@@ -1819,10 +1825,10 @@ body[data-view="shared"] #duration-slot {
   display: none;
 }
 
-/* --- 設定ボタンは常に各.info-rowの最後尾（最右端）に置かれるため、他の
-   .icon-popover（トリガーを中心に開く既定）と違い、右端をトリガーの右端に
-   揃えて開く——中央寄せのままだと画面幅によらずポップオーバーの右側が
-   常に画面外へはみ出してしまう（実測で確認済み）。
+/* --- 設定ボタンは画面左上（ヘッダー）に固定表示されるため(issue #161)、他の
+   .icon-popover（トリガーを中心に上向きで開く既定）と違い、トリガーの左端に
+   揃えて下向きに開く——中央寄せ・上向きのままだと画面左端からはみ出す・
+   トリガーの上（ヘッダーの外）に開いてしまう。
    区画数が増えて.shared-menu-sectionの仕切り線(border-top)が煩雑になった
    （ユーザー指示：区切り線をなくしたい）ため、このポップオーバー内に限り
    線だけを打ち消す——余白(padding-top)は区画の区別として残す。min-widthは
@@ -1831,13 +1837,35 @@ body[data-view="shared"] #duration-slot {
 .settings-popover {
   min-width: 260px;
   padding: 14px 16px;
-  left: auto;
-  right: 0;
+  left: 0;
+  right: auto;
+  top: 100%;
+  bottom: auto;
+  margin-top: 10px;
+  margin-bottom: 0;
   transform: translateY(-6px);
+  /* モバイル幅だと画面のほぼ全体をこのメニューが覆い、下のキャンバスが
+     完全に隠れてしまう（ユーザー指摘）ため、他の.icon-popover系と違い
+     背景を少し透かす——下の絵がうっすら透けることで、メニューを開いた
+     ままでもキャンバス上にいる感覚を保つ（デザイン上の狙い、ユーザー指示）。 */
+  background: color-mix(in oklch, var(--paper-1) 85%, transparent);
+  backdrop-filter: blur(6px);
 }
 
 .settings-popover .shared-menu-section {
   border-top: none;
+}
+
+/* --- 設定メニューの一番上の「円相」見出し(issue #161)。左上のトリガーの
+   位置に元々あった常時表示のアプリ名(.app-wordmark)と入れ替わる形で
+   ここへ移した——すぐ下の「テーマ」区画と間隔を空ける。 --- */
+.settings-title {
+  /* Klee Oneの字形の天地の空き方が均等でなく、.settings-popoverの
+     padding-top(14px)だけだと上の余白が下（この8pxのmargin-bottom＋
+     文字の下側の空き）より狭く見えた（ユーザー指摘）ため、文字ごと
+     少し下へ寄せて釣り合わせる。 */
+  margin-top: 4px;
+  margin-bottom: 8px;
 }
 
 /* --- 「使い方を見る」ボタンを、上のテーマ行と左右の余白が揃うまで幅いっぱいに

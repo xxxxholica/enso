@@ -39,7 +39,7 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <header class="app-header">
     <div class="app-header-left">
-      <h1 class="app-wordmark">円相</h1>
+      <div id="settings-slot"></div>
     </div>
     <div class="app-header-right">
       <nav class="view-nav">
@@ -192,11 +192,14 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   contentScaleFactor: PERSONAL_CONTENT_SCALE_FACTOR,
 });
 
-// 設定メニュー（テーマ・使い方・エクスポートに加え、アカウント区画を持つ）。
-// 以前はヘッダー右上に固定表示していたが、常に居座って邪魔という指摘のため、
-// 各タブの操作列（キャンバスタブ: canvasInfoRow、共有タブ: smuiView.
-// getSettingsSlot()）へ移した——インスタンスは1個のままで、タブ切り替えの
-// たびsettingsMenu.moveTo()でDOM上の置き場所だけを動かす（setView()参照）。
+// 設定メニュー（テーマ・見た目の設定・テンプレート・使い方・エクスポートに
+// 加え、アカウント区画を持つ）。以前は各タブの操作列（ツールバーの真上）に
+// あったが、真ん中寄りで見つけにくい・他の操作ボタンと並んで煩雑という
+// 指摘のため、画面左上（ヘッダー）へ固定で置くようにした（issue #161）。
+// 左上には元々「円相」というアプリ名を常時表示していたが、トリガー
+// ボタンと被るため、そちらはやめてポップオーバーの一番上に見出しとして
+// 移した（buildTitleSection参照）——タブ切り替えでの置き場所の移動
+// （旧moveTo()）はもう不要（常に#settings-slotに固定）。
 // アカウント区画の枠にはmountAccountWidgetでClerkの中身（未ログイン時の
 // ログインボタン／ログイン中のアカウント情報ボタン）を描き込む。
 //
@@ -205,8 +208,9 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
 // エラー表示に留める。smuiView/currentViewはこの時点ではまだ定義されて
 // いないが、このコールバックは書き出しボタンが押された時にだけ呼ばれる
 // ため、それまでに定義が済んでいれば問題ない。
+const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
 const settingsMenu = new SettingsMenu(
-  canvasInfoRow,
+  settingsSlot,
   loadThemePreference(),
   loadCustomThemeHue(),
   (pref) => {
@@ -428,9 +432,6 @@ function setView(view: "canvas" | "shared"): void {
     // 今表示中のタブの側だけを見せる。
     personalPatternPicker.element.hidden = view !== "canvas";
     appearanceSelector.element.hidden = view !== "shared";
-    // 設定ボタン自体も、今表示中のタブの操作列へ移す（ヘッダー固定をやめた、
-    // ユーザー指示）。
-    settingsMenu.moveTo(view === "canvas" ? canvasInfoRow : smuiView.getSettingsSlot());
     setDurationVisible(view === "canvas");
     smuiView.setActive(view === "shared");
   }, FADE_TRANSITION_MS);
