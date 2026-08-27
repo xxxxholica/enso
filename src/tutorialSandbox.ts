@@ -107,14 +107,15 @@ const WATCH_NEXT_BTN_DELAY_MS = 9_000;
  *  なってしまうため、この一度きり位置・文面を保ったまま復活させる
  *  （ユーザー指示：「一度そこで復活させてほしい。位置は保持する
  *  前提で」）。 */
-type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
-const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
+type StepId = "write" | "watch" | "keep" | "erase" | "release" | "rewind" | "done";
+const STEP_ORDER: StepId[] = ["write", "watch", "keep", "erase", "release", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
   write: "円をタップするか、そのままキー入力して、思いついたことを書いてみましょう。",
   watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
-  release: "今度は、要らない一枚に触れたまま、時計回りに回して早く手放してみましょう。",
+  erase: "消したいメモを指やマウスでなぞってみましょう。消しゴムなら、待たずにその場で消せます。",
+  release: "今度は、要らない一枚に触れたまま、時計回りに回して少しずつ薄めてみましょう。",
   rewind: "下のスライダーを動かして、少し前の盤面を振り返ってみましょう。",
   done: "全部は残せません。だからこそ、そうやって選び続けた一枚には意味があります。",
 };
@@ -127,8 +128,9 @@ const MESSAGES: Record<StepId, string> = {
 const STEP_TITLES: Record<StepId, string> = {
   write: "書き込む",
   watch: "眺める",
-  keep: "巻き戻す",
-  release: "進める",
+  keep: "メモを残す",
+  erase: "メモを消す",
+  release: "メモを薄める",
   rewind: "振り返る",
   done: "選びとる",
 };
@@ -212,6 +214,9 @@ export class TutorialSandbox {
   /** 「眺める」に入る直前の全メモ。復活時は寿命を含めてこの状態へ戻す。 */
   private watchStartMemos: Memo[] = [];
   private watchStartAt: number | null = null;
+  /** 「メモを消す」に入る直前の状態。次へ進む際に消しゴム操作を取り消す。 */
+  private eraseStartMemos: Memo[] = [];
+  private eraseStartAt: number | null = null;
   /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
    *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
    *  （内容は問わない）。 */
@@ -275,6 +280,7 @@ export class TutorialSandbox {
         return;
       }
       if (this.step === "watch") this.restoreAllMemos(this.currentVirtualNow());
+      if (this.step === "erase") this.restoreAfterErase(this.currentVirtualNow());
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
     });
@@ -341,6 +347,8 @@ export class TutorialSandbox {
     this.memoBaselines = [];
     this.watchStartMemos = [];
     this.watchStartAt = null;
+    this.eraseStartMemos = [];
+    this.eraseStartAt = null;
     this.knownMemoIds = new Set();
     this.ambientId = null;
     this.decoyId = null;
@@ -357,7 +365,7 @@ export class TutorialSandbox {
    *  （道具バー自体は持たない。ユーザー指示）。 */
   private toolStateFor(): ToolState {
     return {
-      tool: this.step === "write" ? "text" : "move",
+      tool: this.step === "write" ? "text" : this.step === "erase" ? "eraser" : "move",
       color: INK,
       // 「書く」手順で書いた1枚も、添え物2枚と一緒に薄れていく様子を見せたい
       // （ユーザー指示：「書き込みが全部薄くなるといいかも」）ため、"write"の
@@ -452,6 +460,11 @@ export class TutorialSandbox {
       if (this.nextBtn.hidden && this.anyMemoMoved(memos, "up")) {
         this.nextBtn.hidden = false;
       }
+    } else if (this.step === "erase") {
+      const erased = this.memoBaselines.some((baseline) => !memos.some((memo) => memo.id === baseline.id));
+      if (this.nextBtn.hidden && erased) {
+        this.nextBtn.hidden = false;
+      }
     } else if (this.step === "release") {
       if (this.nextBtn.hidden && this.anyMemoMoved(memos, "down")) {
         this.nextBtn.hidden = false;
@@ -493,6 +506,10 @@ export class TutorialSandbox {
       this.watchStartMemos = [...structuredClone(this.store?.getAll() ?? [])];
       this.watchStartAt = now;
       this.reseedForWatchDemo(now);
+    }
+    if (step === "erase") {
+      this.eraseStartMemos = [...structuredClone(this.store?.getAll() ?? [])];
+      this.eraseStartAt = this.currentVirtualNow();
     }
     if (step === "rewind") this.mountRewind();
     if (step === "done") this.showPresentForDone();
@@ -688,6 +705,22 @@ export class TutorialSandbox {
       // 「眺める」専用の短い寿命は演出終了時に破棄し、ユーザーが書いたものも
       // 元からあるものも、チュートリアル開始時と同じ通常寿命へ統一する。
       lifespanDays: FIXED_LIFESPAN_DAYS,
+      status: "active" as const,
+    }));
+    this.store.replaceAll(restored);
+    this.memoBaselines = restored.map(trackedMemoOf);
+  }
+
+  /** 消しゴムの結果を元へ戻す。操作にかかった時間ぶん時刻も平行移動し、
+   *  消す前の濃さ・残り時間をそのまま保つ。 */
+  private restoreAfterErase(now: number): void {
+    if (!this.store || this.eraseStartMemos.length === 0) return;
+    const elapsed = this.eraseStartAt === null ? 0 : now - this.eraseStartAt;
+    const restored = this.eraseStartMemos.map((memo) => ({
+      ...structuredClone(memo),
+      createdAt: memo.createdAt + elapsed,
+      lastTracedAt: memo.lastTracedAt + elapsed,
+      traceHistory: memo.traceHistory.map((timestamp) => timestamp + elapsed),
       status: "active" as const,
     }));
     this.store.replaceAll(restored);
