@@ -348,25 +348,17 @@ export class MemoStore {
   /**
    * 既存のテキストメモの内容を書き換える（テキストの編集機能）。フォントサイズ・色・
    * 消えるまでの期間は変更しない（内容を編集する操作であって、見た目の再設定ではないため）。
-   * 手描きメモを触ったときと同様、編集も「触れた」ことになるので、なぞって復活と同じく
-   * 不透明度を100%に戻し猶予期間の起点をリセットする。
+   * ペン/マーカーで既存メモに重ねて描画しても復活しないのと同様、テキストの編集も
+   * lastTracedAt/traceHistoryには一切触れない（時間の変更はしない——ユーザー指示）。
+   * 時間を戻したい場合は専用の「なぞる」道具（reviveMemo）を使う。
    */
-  updateTextMemo(
-    memoId: string,
-    text: string,
-    textLines: string[],
-    boxWidth: number,
-    boxHeight: number,
-    now: number = Date.now()
-  ): void {
+  updateTextMemo(memoId: string, text: string, textLines: string[], boxWidth: number, boxHeight: number): void {
     const memo = this.memos.find((m) => m.id === memoId);
     if (!memo || memo.kind !== "text" || memo.status !== "active") return;
     memo.text = text;
     memo.textLines = textLines;
     memo.boxWidth = boxWidth;
     memo.boxHeight = boxHeight;
-    memo.lastTracedAt = now;
-    memo.traceHistory.push(now);
     this.persist();
     this.emitOp({ upserts: [memo], deletes: [] });
   }

@@ -374,6 +374,13 @@ export class CircularCanvas {
    *  実際に消している最中（mode==="erasing"）のカーソル表示はstate.lastPoint
    *  を使う既存の仕組みのままなので、ここでは触らない。 */
   private eraserHoverPoint: Point | null = null;
+  /** マウスカーソルが現在フレーム（円/長方形等）の輪郭の内側にあるか。横長の
+   *  ウィンドウでは円フレームの左右に余白ができ、その余白は<canvas>要素としては
+   *  範囲内でも実際には描画・操作できない——render()でのカーソル形状の決定に使い、
+   *  余白の上では道具に応じた形状(crosshair/grab)ではなく既定のカーソルに戻す
+   *  （不具合報告：円の外でもカーソルが描画用に変化してしまう）。onPointerMoveで
+   *  クランプ前の生の座標(isInsideClamp)を使って更新する。 */
+  private pointerInsideFrame = true;
   /** 今の1回のジェスチャー（1回のドラッグでの描画・消去・移動・振り回し、
    *  または1回のテキスト編集セッション）の中で、undo履歴用のスナップショット
    *  （store.snapshotForUndo()）を既に積んだかどうか（issue #89）。
@@ -1491,6 +1498,11 @@ export class CircularCanvas {
     // （ピンチ中はbeginPinch()がactivePointerIdをnullに戻すため、ここには来ない）。
     if (this.activePointerId !== null && ev.pointerId !== this.activePointerId) return;
 
+    // 円フレームの左右の余白など、<canvas>要素としては範囲内でも実際の輪郭の
+    // 外側にいるかどうかをrender()のカーソル決定用に更新する（onPointerDownの
+    // 「見た目の枠の外側は無視する」判定と同じisInsideClampを使う）。
+    this.pointerInsideFrame = isInsideClamp(this.toNormalizedRaw(ev.clientX, ev.clientY), this.inputClamp());
+
     if (this.state.mode === "idle") {
       this.updateHoverInfo(ev);
       return;
@@ -1615,6 +1627,7 @@ export class CircularCanvas {
     this.hoverInfoMemoId = null;
     this.hoverInfoPoint = null;
     this.eraserHoverPoint = null;
+    this.pointerInsideFrame = true;
   };
 
   private onPointerUp = (ev: PointerEvent): void => {
@@ -1818,6 +1831,13 @@ export class CircularCanvas {
     if (this.interactive) {
       if (this.rewindAt !== null) {
         // 過去を遡って見ている間は操作できないため、道具に応じたカーソルは出さない。
+        this.canvas.style.cursor = "default";
+      } else if (this.state.mode === "idle" && !this.pointerInsideFrame) {
+        // 横長ウィンドウでの円フレーム左右の余白等、<canvas>要素の範囲内だが
+        // 実際の輪郭の外側にマウスがある間は、描画/移動可能に見えるカーソルを
+        // 出さない（不具合報告：余白でもcrosshair/grabに変化してしまう）。
+        // 既にジェスチャーが始まっている場合(mode!=="idle")は、pointer capture
+        // により輪郭の外へ多少はみ出しても従来通りgrabbing等を保つ。
         this.canvas.style.cursor = "default";
       } else {
         // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
