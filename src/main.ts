@@ -166,7 +166,7 @@ const getToolState = () => ({
 
 // 「＋テンプレートを使用」は道具バー側（onOpenTemplatePicker、上記）へ
 // 試験的に移したため、空キャンバスの案内には渡さない——省略時は
-// 「ドラッグで書き始める」の案内だけを出す（canvasView.ts参照）。
+// 「自由に書いてみる」の案内だけを出す（canvasView.ts参照）。
 // frameStrokeWidthは既定(1px固定)のままだと、フレームの色（マット/べっ甲/
 // クリア/木目、いずれも柄・質感を見せるパターン）を選んでもほぼ見えない
 // （ユーザー指摘）ため、共有キャンバス（SMUI_FRAME_WEIGHT_RATIO、smuiView.ts）

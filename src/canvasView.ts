@@ -33,6 +33,37 @@ const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
  *  下にずらして置くか（正規化単位）。以前canvasに直接fillTextしていたときと
  *  同じ位置。 */
 const EMPTY_STATE_OFFSET_Y = 0.32;
+/** 空のキャンバスの案内文（.canvas-empty-hint）の候補。表示のたびに1つを
+ *  ランダムに選ぶ（syncEmptyState参照、ユーザー指示）。 */
+const EMPTY_STATE_HINTS = [
+  "気になることをメモしてみよう",
+  "落書き感覚でひとこと残してみよう",
+  "食べたいものを記録してみよう",
+  "明日の予定をまとめてみよう",
+  "ひらめきをそのまま置いてみよう",
+  "あ、これあとでやらなきゃ…",
+  "思いついた。忘れる前に書いとこ",
+  "とりあえずここに下書き…",
+  "サクッと書いておく？",
+  "気になったもの、メモメモ",
+];
+/** 次の文言に切り替わるまで、今の文言をそのまま（フェードなしで）表示し続ける時間。 */
+const EMPTY_STATE_HINT_VISIBLE_MS = 6000;
+/** フェードアウトそのものにかける時間（ユーザー指示）。素早く消えるのではなく、
+ *  ゆっくり薄れて消える見た目にする。opacityの遷移時間はJS側（rotateEmptyStateHint）
+ *  からstyle.transitionDurationとして都度渡すため、CSS側には固定のtransition
+ *  durationを書いていない（transition-property/timing-functionのみ、style.css参照）。 */
+const EMPTY_STATE_HINT_FADE_OUT_MS = 5000;
+/** 差し替え後、次の文言をタイプライターのように1文字ずつ打ち込んで見せる際の
+ *  1文字あたりの間隔（ユーザー指示）。 */
+const EMPTY_STATE_HINT_TYPE_MS = 100;
+
+/** exclude（今表示中の文言）以外から1つ選ぶ。切り替え時に同じ文言が
+ *  連続して出ないようにする。 */
+function pickRandomEmptyStateHint(exclude?: string | null): string {
+  const pool = exclude ? EMPTY_STATE_HINTS.filter((h) => h !== exclude) : EMPTY_STATE_HINTS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 /** ルーム未接続時（frameKind:"glasses" かつ interactive:false）の共有キャンバスの
  *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
@@ -220,7 +251,7 @@ export interface CircularCanvasOptions {
   framePatternId?: FramePatternId;
   /** メモが1つも無い空のキャンバスに出す「＋テンプレートを使用」ボタンが押されたときに
    *  呼ばれる（全画面のテンプレート選択を開く。templatePicker.ts、配線はmain.ts）。
-   *  省略した場合はボタンを作らず、「ドラッグで書き始める」の案内だけを出す
+   *  省略した場合はボタンを作らず、「自由に書いてみる」の案内だけを出す
    *  ——interactive:falseのプレースホルダーではそもそも空状態の案内自体を作らない。 */
   onRequestTemplatePicker?: () => void;
   /** 選択道具で掴んで振り回す操作の判定を、既定（ROTATE_MIN_RADIUS_PX/
@@ -305,12 +336,24 @@ export class CircularCanvas {
   /** openTextEditorがhtml/bodyのoverflowを固定している間、元の値に戻すための関数
    *  （閉じるときにnullへ戻す）。理由はopenTextEditor内のコメント参照。 */
   private restoreBodyScroll: (() => void) | null = null;
-  /** 空のキャンバスに重ねる案内（「ドラッグで書き始める」＋「＋テンプレートを使用」）。
+  /** 空のキャンバスに重ねる案内（「自由に書いてみる」＋「＋テンプレートを使用」）。
    *  ボタンとして押せる・読み上げられる必要があるため、canvasへの描画ではなく本物の
    *  DOMで持つ。interactive:falseのプレースホルダーでは作らない（nullのまま）。 */
   private emptyStateEl: HTMLElement | null = null;
+  private emptyStateHintEl: HTMLElement | null = null;
   private setEmptyStateVisible: ((show: boolean) => void) | null = null;
   private emptyStateShown = false;
+  /** 案内文をEMPTY_STATE_HINT_VISIBLE_MSだけ表示した後、フェードアウトを
+   *  開始するまでの1回限りのタイマー。案内が表示されている間だけ動かす
+   *  （startEmptyStateHintRotation/stopEmptyStateHintRotation参照）。 */
+  private emptyStateHintHoldTimer: ReturnType<typeof setTimeout> | null = null;
+  /** フェードアウトが終わってテキストを差し替える1回限りのタイマー。案内が
+   *  消える・破棄されるタイミングで取り残さないようstopEmptyStateHintRotationで
+   *  一緒に消す。 */
+  private emptyStateHintFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 差し替え後の文言を1文字ずつ打ち込んで見せる間のタイマー。同上の理由で
+   *  stopEmptyStateHintRotationで一緒に消す。 */
+  private emptyStateHintTypeTimer: ReturnType<typeof setInterval> | null = null;
   /** 今の「なぞる」ジェスチャー（pointerdownからpointerupまで）で、既に回復させた
    *  メモのID。なぞって復活には寿命に応じたクールタイムがある（memoStore.tsの
    *  reviveMemo参照）ため、1回連続でなぞっている間にpointermoveが何度も発火しても
@@ -590,8 +633,9 @@ export class CircularCanvas {
 
     const hint = document.createElement("p");
     hint.className = "canvas-empty-hint";
-    hint.textContent = "ドラッグで書き始める";
+    hint.textContent = pickRandomEmptyStateHint();
     el.appendChild(hint);
+    this.emptyStateHintEl = hint;
 
     // 「書き始める2つの選択肢」を並べて見せる（ユーザー指示：テンプレートを
     // 道具バーの1ボタンから、キャンバスを使い始める最初の選択肢へ格上げする）。
@@ -643,12 +687,84 @@ export class CircularCanvas {
    *  表示・非表示が実際に切り替わった瞬間だけにする。 */
   private syncEmptyState(activeMemoCount: number): void {
     if (!this.emptyStateEl || !this.setEmptyStateVisible) return;
-    // 過去を遡って見ている間は書き込めないため、「ドラッグで書き始める」案内は出さない。
+    // 過去を遡って見ている間は書き込めないため、「自由に書いてみる」案内は出さない。
     const show = this.rewindAt === null && activeMemoCount === 0 && !this.textEditor;
     if (show === this.emptyStateShown) return;
     this.emptyStateShown = show;
-    if (show) this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
+    if (show) {
+      this.syncEmptyStatePosition(); // 隠れている間にリサイズされていた場合に備える
+      if (this.emptyStateHintEl) {
+        // 前回の非表示化がフェードの途中で止められていた場合に備え、
+        // 不透明度を確実にリセットしてから文言を決め直す。
+        this.emptyStateHintEl.style.transitionDuration = "0ms";
+        this.emptyStateHintEl.style.opacity = "1";
+        this.typeEmptyStateHint(pickRandomEmptyStateHint());
+      }
+    } else {
+      this.stopEmptyStateHintRotation();
+    }
     this.setEmptyStateVisible(show);
+  }
+
+  /** 案内文の自動切り替えサイクルのうち「表示している時間」を計るタイマーを
+   *  開始する（案内が表示されている間だけ）。打ち込みが終わった直後
+   *  （typeEmptyStateHint参照）に呼ぶ。二重に走らせないよう、まず既存のタイマーを
+   *  止めてから張り直す。 */
+  private startEmptyStateHintRotation(): void {
+    this.stopEmptyStateHintRotation();
+    this.emptyStateHintHoldTimer = setTimeout(() => this.fadeOutEmptyStateHint(), EMPTY_STATE_HINT_VISIBLE_MS);
+  }
+
+  /** 案内文の自動切り替えを止める。案内が消える瞬間、およびdestroy()で呼ぶ。 */
+  private stopEmptyStateHintRotation(): void {
+    if (this.emptyStateHintHoldTimer !== null) {
+      clearTimeout(this.emptyStateHintHoldTimer);
+      this.emptyStateHintHoldTimer = null;
+    }
+    if (this.emptyStateHintFadeTimer !== null) {
+      clearTimeout(this.emptyStateHintFadeTimer);
+      this.emptyStateHintFadeTimer = null;
+    }
+    if (this.emptyStateHintTypeTimer !== null) {
+      clearInterval(this.emptyStateHintTypeTimer);
+      this.emptyStateHintTypeTimer = null;
+    }
+  }
+
+  /** 案内文をEMPTY_STATE_HINT_FADE_OUT_MSかけてゆっくりフェードアウトさせる
+   *  （ユーザー指示）。完了したら差し替えて打ち込みを始める。 */
+  private fadeOutEmptyStateHint(): void {
+    const el = this.emptyStateHintEl;
+    if (!el) return;
+    el.style.transitionDuration = `${EMPTY_STATE_HINT_FADE_OUT_MS}ms`;
+    el.style.opacity = "0";
+    this.emptyStateHintFadeTimer = setTimeout(() => {
+      this.emptyStateHintFadeTimer = null;
+      this.typeEmptyStateHint(pickRandomEmptyStateHint(el.textContent));
+    }, EMPTY_STATE_HINT_FADE_OUT_MS);
+  }
+
+  /** 案内文をフェードではなく、タイプライターのように1文字ずつ打ち込んで見せる
+   *  （ユーザー指示：フェードインではなく入力されているような見た目にしたい）。
+   *  打ち終えたら「表示している時間」のタイマー（startEmptyStateHintRotation）を
+   *  開始する。 */
+  private typeEmptyStateHint(text: string): void {
+    const el = this.emptyStateHintEl;
+    if (!el) return;
+    el.style.transitionDuration = "0ms";
+    el.style.opacity = "1";
+    el.textContent = "";
+    const chars = Array.from(text); // サロゲートペア・結合文字を1文字単位で崩さない
+    let i = 0;
+    this.emptyStateHintTypeTimer = setInterval(() => {
+      i++;
+      el.textContent = chars.slice(0, i).join("");
+      if (i >= chars.length) {
+        clearInterval(this.emptyStateHintTypeTimer!);
+        this.emptyStateHintTypeTimer = null;
+        this.startEmptyStateHintRotation();
+      }
+    }, EMPTY_STATE_HINT_TYPE_MS);
   }
 
   /** 画面ピクセル座標 → 正規化座標（円の半径・長方形の半辺を1とする、中心が原点）。
@@ -1937,7 +2053,7 @@ export class CircularCanvas {
 
     ctx.restore(); // translate + setTransform
 
-    // DOM側の案内（ドラッグで書き始める／＋テンプレートを使用）の出し入れ。
+    // DOM側の案内（自由に書いてみる／＋テンプレートを使用）の出し入れ。
     this.syncEmptyState(ownLensActiveMemoCount);
   }
 
@@ -1964,6 +2080,7 @@ export class CircularCanvas {
     }
     this.textEditor?.remove();
     this.restoreBodyScroll?.();
+    this.stopEmptyStateHintRotation();
     this.emptyStateEl?.remove();
     this.container.classList.remove("canvas-host");
     this.canvas.remove();

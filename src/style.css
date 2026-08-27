@@ -483,7 +483,7 @@ body[data-view="shared"] #duration-slot {
   color: oklch(22% 0.012 55 / 0.35);
 }
 
-/* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「ドラッグで書き始める」と
+/* --- 空のキャンバス（メモが1つも無いとき）に重ねる案内。「自由に書いてみる」と
    「＋テンプレートを使用」の2つの選択肢を縦に並べる（ユーザー指示：テンプレートを
    キャンバスを使い始める最初の選択肢へ格上げする）。以前はcanvasView.tsが
    ctx.fillTextでcanvasに直接描いていたが、ボタンとして押せる・読み上げられる
@@ -510,13 +510,17 @@ body[data-view="shared"] #duration-slot {
   pointer-events: none;
 }
 
-/* 色は旧HINT_TEXT（canvasにfillTextしていた頃）と同じ値。canvas側の描画色と
-   CSSとで値が二重管理になるが、reviveInfoBox.tsが同じ値を複製しているのと
-   同じ流儀（葉のモジュール同士を結合させない）に合わせている。 */
+/* 空状態で最初に読ませたい案内文のため、視認性を上げて
+   旧HINT_TEXT（canvasにfillTextしていた頃）よりやや大きく・濃くしている。 */
 .canvas-empty-hint {
   margin: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-40);
+  font-size: var(--text-md);
+  color: var(--ink-45);
+  /* 文言の自動切り替え(canvasView.ts:fadeOutEmptyStateHint)用フェード。
+     durationは切り替えの向き（ゆっくり消える／すぐ現れる）でJS側が都度
+     style.transitionDurationとして設定するため、ここでは指定しない。 */
+  transition-property: opacity;
+  transition-timing-function: ease;
 }
 
 /* 白い罫線の紙の上に直接置かれるボタンなので、.pill-btnの既定色（地色に近い
@@ -2633,7 +2637,7 @@ body[data-view="shared"] #duration-slot {
 }
 
 /* 道具バーを持たず「選択」道具に固定しているため、本物の空状態案内
-   （ドラッグで書き始める／＋テンプレートを使用）はここでは意味を持たない
+   （自由に書いてみる／＋テンプレートを使用）はここでは意味を持たない
    ——全メモが消え切った稀なケースでも出さない。 */
 .tutorial-sandbox-canvas-wrap .canvas-empty-state {
   display: none;
