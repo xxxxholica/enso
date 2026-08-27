@@ -1911,6 +1911,16 @@ body[data-view="shared"] #duration-slot {
   flex: 0 0 auto;
 }
 
+/* 残り時間の数字部分だけをtabular-nums化し、.session-form-value(1962-1967行目)と
+   同じ考え方でmin-widthを敷く——桁数が変わる(分の表示が消える、2桁→1桁になる等)
+   たびにボタン幅がガタつくのを防ぐ(issue #152)。フェーズ名部分はここに含めない
+   （フェーズ名は残り時間ほど頻繁に変わらず、対象外でよい）。 */
+.session-panel-trigger-time {
+  display: inline-block;
+  min-width: 3em;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- 共同アイデア出しセッション(sessionPanel.ts)のポップアップ。開始フォームの
    スライダー・進行中の操作ボタンを縦に並べる。項目数が多くギチギチに
    詰まって見えていた（ユーザー指摘）ため、余白・行間とも広めに取っている。 --- */

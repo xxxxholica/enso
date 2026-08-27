@@ -218,6 +218,15 @@ export class SessionPanel {
     this.close();
   }
 
+  /** disabled/innerHTMLは値が変わった時だけ書き換える——render()のたびに無条件で
+   *  書き込むと、ボタンを押している最中(pointerdown〜pointerup)に毎フレーム再代入が
+   *  挟まってしまい、Chromiumがそのクリックのclickイベント生成を握りつぶす不具合が
+   *  あった(実機・コンソールのイベントトレースで確認: pointerdown/pointerupは届くのに
+   *  clickだけ一度も発火しない)。 */
+  private setTriggerLabel(html: string): void {
+    if (this.triggerLabelEl.innerHTML !== html) this.triggerLabelEl.innerHTML = html;
+  }
+
   /** render()のたびに呼ぶ。isMasterはgetCurrentUser()?.id === ownerIdで判定した値を渡す。 */
   update(now: number, isMaster: boolean, session: SessionState | null): void {
     this.isMaster = isMaster;
@@ -225,28 +234,26 @@ export class SessionPanel {
     if (!session) {
       // 未開始: 誰でも見えるが、マスターでなければ押せない（招待リンク欄などと
       // 同じ、隠すのではなく無効表示にする慣習）。
-      // disabled/innerHTMLは値が変わった時だけ書き換える——render()のたびに
-      // 無条件で書き込むと、ボタンを押している最中（pointerdown〜pointerup）に
-      // 毎フレーム再代入が挟まってしまい、Chromiumがそのクリックのclickイベント
-      // 生成を握りつぶす不具合があった（実機・コンソールのイベントトレースで確認：
-      // pointerdown/pointerupは届くのにclickだけ一度も発火しない）。
-      if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
       // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
       // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
-      // メディアクエリで出し分けて短縮表示にする（style.css参照）。セッション
-      // 進行中の表示（下のPHASE_LABEL+残り時間）は対象外——常に短い文字列
-      // なので詰まる心配が無い。
-      const idleLabel = '<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>';
-      if (this.triggerLabelEl.innerHTML !== idleLabel) this.triggerLabelEl.innerHTML = idleLabel;
+      // メディアクエリで出し分けて短縮表示にする（style.css参照）。
+      if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
+      this.setTriggerLabel('<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>');
       this.startForm.hidden = false;
       this.activeControls.hidden = true;
       this.phaseLabelEl.hidden = true;
       return;
     }
 
+    // フェーズ名+残り時間（例:「採択・絞り込み 4分35秒」)。狭幅では.label-short側
+    // だけが見え、残り時間のみに短縮される(issue #150)。時間部分は
+    // .session-panel-trigger-time(tabular-nums + min-width、.session-form-valueと
+    // 同じ考え方)で、桁数が変わってもボタン幅がガタつかないようにする(issue #152)。
     const remaining = formatMinutesSeconds(session.phaseEndsAt - now);
-    const remainingLabel = `${PHASE_LABEL[session.phase]} ${remaining}`;
-    if (this.triggerLabelEl.textContent !== remainingLabel) this.triggerLabelEl.textContent = remainingLabel;
+    const timeHtml = `<span class="session-panel-trigger-time">${remaining}</span>`;
+    this.setTriggerLabel(
+      `<span class="label-full">${PHASE_LABEL[session.phase]} ${timeHtml}</span><span class="label-short">${timeHtml}</span>`
+    );
     if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
     if (!isMaster) {
       // 非マスターは静的な表示のみ——ポップオーバーは開かせない。
