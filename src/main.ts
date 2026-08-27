@@ -172,9 +172,15 @@ const getToolState = () => ({
 // 風フレームほどは主張させず、控えめな比率にする。
 const PERSONAL_FRAME_WEIGHT_RATIO = 0.02;
 const personalFramePatternId = loadPersonalFramePattern();
+// 実験中（方法A）：個人キャンバスを「片眼鏡」(frameKind:"monocle")にする案の
+// 検証用。frameGeometry.ts/canvasView.tsのdrawHingeTabsが片側だけタブを描く
+// （直接の呼び出し元はcanvasView.tsのrenderPair）——幾何形状(clip/clamp)自体は
+// "single"と同じ丸/楕円/長方形をそのまま使うため、書き込み判定・サイズ計算は
+// 変わらない。
 const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   framePatternId: personalFramePatternId,
   frameStrokeWidth: (canvasSizePx) => canvasSizePx * PERSONAL_FRAME_WEIGHT_RATIO,
+  frameKind: "monocle",
 });
 
 // フレームの色（マット/べっ甲/クリア/木目）の変更ボタン。共有キャンバスの

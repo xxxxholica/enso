@@ -1,6 +1,6 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
-import { buildFramePatternPicker, PERSONAL_FRAME_PATTERN_ORDER } from "./framePattern";
+import { buildFramePatternPicker } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { ICONS } from "./icons";
 
@@ -12,10 +12,9 @@ import { ICONS } from "./icons";
  * AppearanceSelectorと揃え(ユーザー指摘：文字が無くて何のボタンか伝わらない)、
  * 同じ.appearance-trigger（アイコン+文字のpill、狭幅では短縮表示）を使う。
  *
- * 選択肢は共有キャンバス用の4種(FRAME_PATTERN_ORDER)に「フレームなし」を
- * 加えた5択(PERSONAL_FRAME_PATTERN_ORDER)——既定もこの「フレームなし」
- * (DEFAULT_PERSONAL_FRAME_PATTERN_ID、storage.tsのloadPersonalFramePattern)
- * にして、この機能を追加する前の見た目を初期状態のまま保つ(ユーザー指示)。
+ * 選択肢は共有キャンバスと同じ4種(FRAME_PATTERN_ORDER)。個人キャンバスは
+ * 常に片眼鏡(frameKind:"monocle"、canvasView.ts)のタブ+チェーンを表示するため
+ * 「フレームなし」の選択肢は不要と判断し廃止した(ユーザー指示)。
  */
 export class FrameColorSelector {
   private anchor: HTMLElement;
@@ -42,11 +41,7 @@ export class FrameColorSelector {
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);
 
-    const patternPicker = buildFramePatternPicker(
-      initialPatternId,
-      (id) => onPatternChange(id),
-      PERSONAL_FRAME_PATTERN_ORDER
-    );
+    const patternPicker = buildFramePatternPicker(initialPatternId, (id) => onPatternChange(id));
     this.popover.appendChild(patternPicker.element);
 
     this.anchor.appendChild(this.popover);

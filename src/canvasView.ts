@@ -214,7 +214,7 @@ export interface CircularCanvasOptions {
    *  長方形）を描く。"glasses": 共有キャンバス専用、横長の矩形コンテナに左右レンズ+
    *  ブリッジを1つの連続領域として描く——frameShapeIdは「眼鏡のレンズスタイル」として
    *  解釈される（frameShape.tsのgetGlassesFrameShape参照）。 */
-  frameKind?: "single" | "glasses";
+  frameKind?: "single" | "glasses" | "monocle";
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）。frameKindに関わらず
    *  反映される。省略時はDEFAULT_FRAME_PATTERN_ID。 */
   framePatternId?: FramePatternId;
@@ -1809,10 +1809,18 @@ export class CircularCanvas {
         this.frame.drawGlassesBridgeBar(ctx, patternStyle);
       }
 
-      // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
-      // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
+      // ヒンジ（クリップの外側に描く純粋な見た目要素で、メモの当たり判定・
+      // クランプとは無関係）。共有キャンバス（眼鏡）は左右のタブ。個人キャンバス
+      // の片眼鏡（"monocle"、実験中）は片側だけのタブ+その下にチェーンを垂らす
+      // （ユーザー指示：出っ張りはそのまま残し、そこからチェーンを伸ばす）。
+      // チェーンだけはフレームの柄（patternStyle）に依存しない固定インク色——
+      // 「フレームなし」でタブが紙と同化して見えづらくなっても、チェーンは
+      // 常に見えるようにするため（ユーザー指摘）。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesHinges(ctx, shape, patternStyle);
+        this.frame.drawHingeTabs(ctx, shape, patternStyle);
+      } else if (this.frame.frameKind === "monocle") {
+        this.frame.drawHingeTabs(ctx, shape, patternStyle, [1]);
+        this.frame.drawMonocleChain(ctx, shape);
       }
 
       ctx.restore();

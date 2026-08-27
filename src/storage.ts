@@ -1,4 +1,4 @@
-import { DEFAULT_FRAME_PATTERN_ID, DEFAULT_PERSONAL_FRAME_PATTERN_ID } from "./framePattern";
+import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { DEFAULT_FRAME_SHAPE_ID } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
@@ -15,7 +15,7 @@ const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
-const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["none", "matte", "tortoiseshell", "clear", "wood"]);
+const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
 /** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。 */
 export type ThemePreference = "system" | "light" | "dark";
 const DEFAULT_THEME: ThemePreference = "system";
@@ -149,17 +149,15 @@ export function saveFramePattern(id: FramePatternId): void {
 
 /** 個人キャンバスで選んだフレームの柄・質感(着せ替え)。共有キャンバス
  *  (loadFramePattern/saveFramePattern)とは別キーで持つ——サーバーに
- *  同期される共有ルームの見た目とは無関係な、この端末だけのローカル設定。
- *  既定は「フレームなし」(DEFAULT_PERSONAL_FRAME_PATTERN_ID、共有キャンバスの
- *  既定"matte"とは異なる、ユーザー指示)。 */
+ *  同期される共有ルームの見た目とは無関係な、この端末だけのローカル設定。 */
 export function loadPersonalFramePattern(): FramePatternId {
   try {
     const raw = localStorage.getItem(PERSONAL_FRAME_PATTERN_KEY);
     return raw !== null && VALID_FRAME_PATTERNS.has(raw as FramePatternId)
       ? (raw as FramePatternId)
-      : DEFAULT_PERSONAL_FRAME_PATTERN_ID;
+      : DEFAULT_FRAME_PATTERN_ID;
   } catch {
-    return DEFAULT_PERSONAL_FRAME_PATTERN_ID;
+    return DEFAULT_FRAME_PATTERN_ID;
   }
 }
 

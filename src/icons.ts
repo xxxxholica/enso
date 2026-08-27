@@ -26,7 +26,6 @@ export const ICONS: Record<
   | "themeSystem"
   | "themeLight"
   | "themeDark"
-  | "patternNone"
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
@@ -183,15 +182,8 @@ export const ICONS: Record<
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
     </svg>`,
-  // 柄・質感のアイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
+  // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
   // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。
-  // 「フレームなし」だけは質感が無いことそのものを表すため、紙と同じ白地に
-  // 薄い破線の枠だけを添えて「空」を示す（他の塗りスウォッチと並んでも
-  // ボタンの位置として認識できるように）。
-  patternNone: `
-    <svg viewBox="0 0 24 24">
-      <rect x="3" y="3" width="18" height="18" rx="5" fill="#ffffff" stroke="oklch(55% 0.01 55 / 0.4)" stroke-width="1.2" stroke-dasharray="3 2.5" />
-    </svg>`,
   patternMatte: `
     <svg viewBox="0 0 24 24">
       <defs>

@@ -7,16 +7,9 @@ import { ICONS } from "./icons";
  * （frameKind:"single"）のどちらでも使う（frameGeometry.ts参照）。
  */
 
-export type FramePatternId = "none" | "matte" | "tortoiseshell" | "clear" | "wood";
-/** 共有キャンバス（眼鏡フレーム、常に何らかの柄が必要）の既定。 */
+export type FramePatternId = "matte" | "tortoiseshell" | "clear" | "wood";
 export const DEFAULT_FRAME_PATTERN_ID: FramePatternId = "matte";
 export const FRAME_PATTERN_ORDER: FramePatternId[] = ["matte", "tortoiseshell", "clear", "wood"];
-
-/** 個人キャンバスの既定は「フレームなし」——このフレーム色機能を追加する前の
- *  見た目（枠を意識させない、紙だけの単色一枚円）をそのまま初期状態として
- *  保つ（ユーザー指示）。5択の並び順もこれを先頭にする。 */
-export const DEFAULT_PERSONAL_FRAME_PATTERN_ID: FramePatternId = "none";
-export const PERSONAL_FRAME_PATTERN_ORDER: FramePatternId[] = ["none", ...FRAME_PATTERN_ORDER];
 
 export interface FramePattern {
   id: FramePatternId;
@@ -27,18 +20,6 @@ export interface FramePattern {
    *  はreachPxに依存しない（原寸のタイルを繰り返すだけ）。 */
   buildStyle(ctx: CanvasRenderingContext2D, reachPx: number): CanvasPattern | CanvasGradient | string;
 }
-
-/** 「フレームなし」（個人キャンバスの既定）。枠の塗り（strokePathとframePathの
- *  差分のリング、canvasView.tsのrenderPair参照）を紙と同じ白にすることで、
- *  幾何形状・太さの計算自体は他の柄と変えずに、見た目だけ枠が無いのと
- *  区別が付かないようにする——paper.tsのPAPER_WHITEと同じ値。 */
-const none: FramePattern = {
-  id: "none",
-  label: "フレームなし",
-  buildStyle() {
-    return "#ffffff";
-  },
-};
 
 const matte: FramePattern = {
   id: "matte",
@@ -158,14 +139,13 @@ const wood: FramePattern = {
   },
 };
 
-const FRAME_PATTERNS: Record<FramePatternId, FramePattern> = { none, matte, tortoiseshell, clear, wood };
+const FRAME_PATTERNS: Record<FramePatternId, FramePattern> = { matte, tortoiseshell, clear, wood };
 
 export function getFramePattern(id: FramePatternId): FramePattern {
   return FRAME_PATTERNS[id];
 }
 
 const PATTERN_ICON: Record<FramePatternId, string> = {
-  none: ICONS.patternNone,
   matte: ICONS.patternMatte,
   tortoiseshell: ICONS.patternTortoiseshell,
   clear: ICONS.patternClear,
@@ -180,8 +160,7 @@ const PATTERN_ICON: Record<FramePatternId, string> = {
  */
 export function buildFramePatternPicker(
   initialId: FramePatternId,
-  onSelect: (id: FramePatternId) => void,
-  order: FramePatternId[] = FRAME_PATTERN_ORDER
+  onSelect: (id: FramePatternId) => void
 ): { element: HTMLElement; setValue: (id: FramePatternId) => void; setDisabled: (disabled: boolean) => void } {
   let currentId = initialId;
   const buttons = new Map<FramePatternId, HTMLButtonElement>();
@@ -195,7 +174,7 @@ export function buildFramePatternPicker(
 
   const row = document.createElement("div");
   row.className = "toolbar-pill";
-  for (const id of order) {
+  for (const id of FRAME_PATTERN_ORDER) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "toolbar-btn";
