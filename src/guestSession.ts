@@ -40,16 +40,14 @@ export function clearGuestSession(canvasId: string): void {
 }
 
 /** 招待トークンをclaimしてゲストとして参加する。認証が確立する前の呼び出し
- *  なのでauthFetchは使わず、生のfetchで直接叩く。 */
-export async function claimGuestInvite(
-  canvasId: string,
-  inviteToken: string,
-  displayName: string
-): Promise<StoredGuestSession> {
+ *  なのでauthFetchは使わず、生のfetchで直接叩く。表示名の入力は求めない
+ *  (以前はissue #128のリアクション実名表示のために必須だったが、その機能自体が
+ *  revertされてどこにも表示されなくなっていたため、収集自体をやめた)。 */
+export async function claimGuestInvite(canvasId: string, inviteToken: string): Promise<StoredGuestSession> {
   const res = await fetch(`${API_BASE}/shared-canvases/${encodeURIComponent(canvasId)}/guest-session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ inviteToken, displayName }),
+    body: JSON.stringify({ inviteToken }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

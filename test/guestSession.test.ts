@@ -67,13 +67,13 @@ describe("guestSession（招待リンク経由のゲスト参加、issue #79）"
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const session = await claimGuestInvite("room-1", "inv_token", "たろう");
+    const session = await claimGuestInvite("room-1", "inv_token");
 
     expect(session).toEqual({ canvasId: "room-1", token: "gst_xyz", expiresAt: 12345 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toContain("/shared-canvases/room-1/guest-session");
-    expect(JSON.parse(init.body)).toEqual({ inviteToken: "inv_token", displayName: "たろう" });
+    expect(JSON.parse(init.body)).toEqual({ inviteToken: "inv_token" });
   });
 
   it("claimGuestInviteは失敗時にサーバーのエラーメッセージで例外を投げる", async () => {
@@ -86,8 +86,6 @@ describe("guestSession（招待リンク経由のゲスト参加、issue #79）"
       })
     );
 
-    await expect(claimGuestInvite("room-1", "inv_bad", "たろう")).rejects.toThrow(
-      "招待リンクが無効か期限切れです"
-    );
+    await expect(claimGuestInvite("room-1", "inv_bad")).rejects.toThrow("招待リンクが無効か期限切れです");
   });
 });

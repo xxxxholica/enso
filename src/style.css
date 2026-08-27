@@ -1411,16 +1411,11 @@ body[data-view="shared"] #duration-slot {
 }
 
 /* --- 汎用の1行テキスト入力の見た目。旧・招待リンク表示欄のスタイルだったが、
-   その入力欄自体は廃止した（ユーザー指示：ボタン1つに統合）——ゲスト参加時の
-   表示名入力(sharedRoomMenu.tsのguestNameInput)・テンプレート作成時の
+   その入力欄自体は廃止した（ユーザー指示：ボタン1つに統合）——テンプレート作成時の
    見出し入力(templatePicker.ts)がクラス名を流用し続けているため、
-   ルールはここに残す。 --- */
-.shared-invite-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+   ルールはここに残す。ゲスト参加時の表示名入力(旧guestNameInput)は表示名の
+   収集自体をやめたため削除した(issue #128のリアクション実名表示機能が
+   revertされ、表示名がどこにも使われなくなっていたため)。 --- */
 .shared-invite-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -1934,6 +1929,15 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* --- "results"(投票確定後の結果ロック、issue #114/#119対応)中の案内文。
+   .export-status(1845-1853行目)と同じトーンの控えめな地の文にする。 --- */
+.session-results-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-70);
+  line-height: 1.5;
 }
 
 /* フェーズの長さ・参加人数上限を選ぶスライダー1項目分。ラベルと現在値を

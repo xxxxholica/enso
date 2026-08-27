@@ -1,12 +1,18 @@
 import { createFadeVisibility } from "./fadeVisibility";
 import { opacityAtTime } from "./fade";
 import { FrameGeometry } from "./frameGeometry";
-import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
+import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET, getFrameShape } from "./frameShape";
 import type { FrameShape, FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
-import { buildOwnLensClamp, lensAbsoluteCenter, lensIndexToPairSlot } from "./lensSplit";
+import {
+  buildAnyLensClamp,
+  buildOwnLensClamp,
+  lensAbsoluteCenter,
+  lensIndexToPairSlot,
+  nearestLensIndexForPosition,
+} from "./lensSplit";
 import { drawRadialGlow, renderMemoAt } from "./memoRenderer";
 import type { MemoStore } from "./memoStore";
 import { drawRuledPaper } from "./paper";
@@ -24,6 +30,7 @@ import {
   wrapTextAtReferenceScale,
 } from "./textLayout";
 import { REFERENCE_RADIUS } from "./toolStyle";
+import { DEFAULT_INK } from "./toolbar";
 import type { ToolbarTool } from "./toolbar";
 import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
@@ -161,11 +168,17 @@ interface PinchState {
  *  lensIndexForMemoは既存メモをどのレンズに属するとみなすかの判定関数
  *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）、pairCountは
  *  実際に描画する組数(session.maxParticipantsから計算、ユーザー指摘:
- *  参加人数以上の眼鏡が用意される問題への対応)。 */
+ *  参加人数以上の眼鏡が用意される問題への対応)。occupiedLensIndexesは
+ *  現在誰かに割り当て済みのレンズ番号一覧(session.occupiedLensIndexesをそのまま
+ *  流用、issue #119)——参加者のいない空きレンズをグレーアウト表示するのに使う。
+ *  null(バックエンドが未対応/未デプロイでフィールド自体が無い等、判定できない
+ *  状態)の間は、空配列と混同して全レンズを誤って未占有扱いしないよう、
+ *  グレーアウト自体を行わない。 */
 export interface LensSplitState {
   myLensIndex: number;
   lensIndexForMemo: (memo: Memo) => number | null;
   pairCount: number;
+  occupiedLensIndexes: number[] | null;
 }
 
 export interface ToolState {
@@ -439,7 +452,7 @@ export class CircularCanvas {
    *  moving突入）だけは通す。 */
   private voteOnly = false;
   /** 投票フェーズの相対密度（人気度）を、メモの色の濃さへ滑らかに反映させる
-   *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/maxHeatや
+   *  ためのイージング用の現在値（メモID→0..1）。目標値(heat/totalHeatや
    *  frozenDensity)が変わっても瞬時に飛ばず、render()のたびに少しずつ
    *  追いつかせることで、投票が増える・確定するたびの見た目の変化を
    *  なめらかにする（issue #79、熱グローに代わる表現）。 */
@@ -447,6 +460,15 @@ export class CircularCanvas {
   private lastDensityFrameAt: number | null = null;
   /** レンズ分割表示(issue #79)の状態。null=通常の単一クリップ表示。 */
   private lensSplitState: LensSplitState | null = null;
+  /** レンズ分割が有効な間、ポインタ入力自体を自分のレンズ内だけに制限するか。
+   *  ideation(発散)はtrue(=1人1レンズの書き込み範囲として機能させる、従来動作)。
+   *  discussion(議論、書けるのはマスターのみ)・voting(投票)はfalse——見た目の
+   *  レンズ分割は維持しつつ(issue #114/#119対応のユーザー指示)、マスターの
+   *  書き込み・投票の回転ジェスチャーは他の参加者のレンズにも及ぶ必要があるため
+   *  （このクランプはonPointerDownでpointerdown自体の可否ゲートにも使われており
+   *  (inputClamp参照)、falseにしないと該当レンズ外へのpointerdownがそもそも
+   *  届かず、ツールバーは有効に見えるのに書き込めない状態になる）。 */
+  private lensSplitConfinesInput = true;
 
   constructor(
     container: HTMLElement,
@@ -609,18 +631,42 @@ export class CircularCanvas {
     this.syncEmptyStatePosition();
   }
 
-  /** 現在の書き込みクランプ関数。レンズ分割表示が有効な間は自分の担当レンズだけに
-   *  制限する（buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
-   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。組ごとに形状が
-   *  ローテーションする(issue #113③)ため、frame.frameShapeId(共有の設定値)
-   *  ではなく自分の担当組(myPairIndex)の形状を使う——でないと、丸眼鏡以外に
-   *  ローテーションされた組の参加者は、見た目の枠と実際の書き込み可能範囲が
-   *  一致しなくなってしまう。それ以外は従来通り現在のフレーム形状のclampを
-   *  そのまま使う。 */
+  /** レンズ分割が有効な間、ポインタ入力(inputClamp参照)自体を自分のレンズ内だけに
+   *  制限するかどうか。ideation(発散)はtrue(=1人1レンズの書き込み範囲、従来動作)。
+   *  discussion(議論、書けるのはマスターのみ)・voting(投票)はfalseにする——見た目の
+   *  レンズ分割は維持しつつ(issue #114/#119対応のユーザー指示)、discussionの
+   *  マスターの書き込み・votingの回転投票ジェスチャーは他の参加者のレンズにも
+   *  及ぶ必要があるため。 */
+  setLensSplitConfinesInput(confines: boolean): void {
+    this.lensSplitConfinesInput = confines;
+  }
+
+  /** 現在の書き込みクランプ関数。レンズ分割表示が無効なら、従来通り現在の
+   *  フレーム形状のclamp（原点中心・単一形状。組が複数並ぶレイアウトは考慮しない）
+   *  をそのまま使う。
+   *  レンズ分割が有効な間は2通り:
+   *  - lensSplitConfinesInputがtrue(ideation)は自分の担当レンズだけに制限する
+   *    （buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
+   *    clampToGlassesのような「近い方を選ぶ」探索は不要）。
+   *  - falseの(discussionのマスターの書き込み・votingの投票・results、issue
+   *    #114/#119対応)場合は、いずれかのレンズの範囲内なら許可するbuildAnyLensClamp
+   *    を使う——ここを単純に「レンズ分割無効時と同じ単一形状のclamp」に戻すと、
+   *    複数組が横に並ぶ実際のレイアウトに対して原点中心の1レンズぶんの範囲しか
+   *    妥当と判定されず、その範囲の外(=ほとんどの組)へのpointerdown・ペンの座標が
+   *    ことごとく弾かれてしまう(discussionでこの不具合を実際に踏んだ)。
+   *  組ごとに形状がローテーションする(issue #113③)ため、いずれもframe.frameShapeId
+   *  (共有の設定値)ではなく組ごと(frameShapeIdForPair)の形状を使う——でないと、
+   *  丸眼鏡以外にローテーションされた組の参加者は、見た目の枠と実際の書き込み
+   *  可能範囲が一致しなくなってしまう。
+   *  このクランプはonPointerDownでpointerdown自体の可否ゲートとしても使われている
+   *  (inputClamp参照)。 */
   private inputClamp(): (p: Point) => Point {
     const state = this.lensSplitState;
     const pairCenters = state ? this.frame.lensSplitPairCenters : null;
     if (!state || !pairCenters) return this.frame.currentShape().clamp;
+    if (!this.lensSplitConfinesInput) {
+      return buildAnyLensClamp((pairIndex) => this.frame.frameShapeIdForPair(pairIndex), pairCenters);
+    }
     const { pairIndex: myPairIndex } = lensIndexToPairSlot(state.myLensIndex);
     return buildOwnLensClamp(this.frame.frameShapeIdForPair(myPairIndex), pairCenters, state.myLensIndex);
   }
@@ -927,6 +973,22 @@ export class CircularCanvas {
 
     // ペン・マーカー：既存メモの上に重なっても常に新規描画のみを行う
     // （なぞって復活はしない——なぞる操作は専用の「なぞる」道具に分離した）。
+    // レンズ分割中(issue #114/#119対応でdiscussion/votingでも維持するようにした)は、
+    // アイドルタイマーが切れる前でも「別のレンズに移ったら別メモとして始める」
+    // ——さもないと、あるレンズで書いた直後に別のレンズで書き始めた時、
+    // activeMemoIdがそのまま使われて新しいストロークが直前のレンズのメモに
+    // 追記されてしまい、メモの位置(lensIndexForMemoWithFallbackのグルーピング基準)
+    // は最初のレンズのままなので、後から描いた方のレンズには何も見えなくなる
+    // (=そちらのレンズには書き込めないように見える)不具合になっていた。
+    if (this.lensSplitState && this.state.activeMemoId) {
+      const activeMemo = this.store.getAll().find((m) => m.id === this.state.activeMemoId);
+      const pairCenters = this.frame.lensSplitPairCenters;
+      if (activeMemo && pairCenters) {
+        const activeLens = nearestLensIndexForPosition(pairCenters, { x: activeMemo.x, y: activeMemo.y });
+        const newLens = nearestLensIndexForPosition(pairCenters, p);
+        if (activeLens !== newLens) this.closeWritingSession();
+      }
+    }
     this.state.mode = "drawing";
     this.ensureUndoSnapshot();
     if (this.state.activeMemoId) {
@@ -1817,10 +1879,29 @@ export class CircularCanvas {
   /** render()の可視性判定(rewindAt時点の不透明度・レンズ分割中の未帰属メモ
    *  除外)を、書き出し以外からも再利用できるよう切り出したもの。 */
   private isMemoCurrentlyVisible(memo: Memo, rewindAt: number | null, now: number): boolean {
-    if (this.lensSplitState && this.lensSplitState.lensIndexForMemo(memo) === null) return false;
+    if (this.lensSplitState && this.lensIndexForMemoWithFallback(memo) === null) return false;
     if (memo.fadeExempt) return true;
     const opacity = rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
     return opacity !== null && opacity > 0;
+  }
+
+  /** LensSplitState.lensIndexForMemo(色から参加者レンズを逆引き)がnullを返す
+   *  メモの救済フォールバック。discussion中のマスターの書き込みはforcedColor()に
+   *  よりDEFAULT_INK(参加者色ではない)を強制されるため、そのままだと「未帰属メモ
+   *  (セッション開始前の無関係な色の書き込み等)はレンズ分割中は非表示にする」
+   *  という既存仕様(issue #79)に巻き込まれ、書いたはずのマスターの議論メモが
+   *  丸ごと非表示になってしまっていた(issue #114/#119でdiscussion/votingにも
+   *  レンズ分割を維持するようにしたことで新たに顕在化した不具合)。
+   *  DEFAULT_INKのメモに限り、位置から一番近いレンズへ位置ベースで帰属させて
+   *  救済する——それ以外の未帰属(無関係な色)は従来通り非表示のまま。 */
+  private lensIndexForMemoWithFallback(memo: Memo): number | null {
+    if (!this.lensSplitState) return null;
+    const byColor = this.lensSplitState.lensIndexForMemo(memo);
+    if (byColor !== null) return byColor;
+    if (memo.color !== DEFAULT_INK) return null;
+    const pairCenters = this.frame.lensSplitPairCenters;
+    if (!pairCenters) return null;
+    return nearestLensIndexForPosition(pairCenters, { x: memo.x, y: memo.y });
   }
 
   render(now: number): void {
@@ -1874,10 +1955,18 @@ export class CircularCanvas {
     // renderPreviewAtと同じロジック。fade.tsのopacityAtTime参照）。
     const rewindAt = this.rewindAt;
     const memosToRender = rewindAt !== null ? this.store.getAll() : activeMemos;
-    // 投票フェーズ中に積み上がった熱量を相対密度に変換するための基準値。
-    // fadeExempt済み(既に確定済み)のメモは母集団から除く——バックエンドの
-    // endSession()と同じ考え方（多重セッションで確定済み密度を歪めないため）。
-    const maxHeat = Math.max(1, ...memosToRender.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
+    // 投票フェーズ中に積み上がった熱量を相対密度(支持率)に変換するための基準値。
+    // 「一番人気のものを100%とした相対値」(旧maxHeat基準)ではなく「全体の熱量の
+    // 何割か」(合計に対する割合、全メモの支持率を足すと100%になる)にする
+    // （ユーザー指摘：合計が100にならないのはおかしい）。fadeExempt済み(既に
+    // 確定済み)のメモは母集団から除く——バックエンドのfreezeAndLockResultsと
+    // 同じ考え方（多重セッションで確定済み密度を歪めないため）。
+    const totalHeat = Math.max(
+      1,
+      memosToRender
+        .filter((m) => !m.fadeExempt)
+        .reduce((sum, m) => sum + (m.heat ?? 0), 0)
+    );
     // 投票フェーズが今まさに進行中かどうか（rotationVoteHandlerはvotingの
     // 間だけ設定されるため、これをそのまま流用する）。
     const votingActive = this.rotationVoteHandler !== null;
@@ -1885,6 +1974,29 @@ export class CircularCanvas {
     this.lastDensityFrameAt = now;
     const densityEase = dtMs > 0 ? 1 - Math.pow(0.5, dtMs / DENSITY_EASE_HALF_LIFE_MS) : 1;
     const seenMemoIds = new Set<string>();
+
+    // 投票フェーズ中、今まさに掴んで回している最中のメモID(掴んでいなければnull)。
+    // 実際の位置(memo.x/y)・データは一切変えず、見た目の回転だけをrenderMemoAtの
+    // 前後にctx.rotateで重ねる——回転量はサーバーに送らず描画のたびに使い捨てる
+    // ローカルな値(state.rotateAccumRad)なので、指を離せば(endSinglePointerGesture
+    // がstate.rotateAccumRadを0に戻す)自然に元の向きへ戻る（ユーザー指示：
+    // 「実際に掴んで回せる感覚」がほしい、ただし実際の位置には影響させない）。
+    const rotatingMemoId =
+      this.state.mode === "moving" && this.rotationVoteHandler ? this.state.movingMemoId : null;
+    const drawMemo = (memo: Memo, opacity: number): void => {
+      if (memo.id !== rotatingMemoId) {
+        renderMemoAt(ctx, memo, r, opacity, this.minRenderedTextFontPx);
+        return;
+      }
+      const cx = memo.x * r;
+      const cy = memo.y * r;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(this.state.rotateAccumRad);
+      ctx.translate(-cx, -cy);
+      renderMemoAt(ctx, memo, r, opacity, this.minRenderedTextFontPx);
+      ctx.restore();
+    };
 
     /** 1組(眼鏡1つ)ぶんの枠・紙・メモを描く。pairCentersが非nullの間は3組ぶん
      *  これを繰り返し呼ぶ。枠・紙はこの組のローカル原点(0,0)基準のPath2D
@@ -1904,7 +2016,10 @@ export class CircularCanvas {
       patternStyle: CanvasPattern | CanvasGradient | string,
       pairShape: FrameShape = shape,
       pairFramePath: Path2D = this.frame.framePath,
-      pairStrokePath: Path2D = this.frame.strokePath
+      pairStrokePath: Path2D = this.frame.strokePath,
+      // 参加者のいない空きレンズをグレーアウトするための占有状況(issue #119)。
+      // レンズ分割無効時(単一表示)はnull=対象外——空きレンズという概念自体が無い。
+      lensOccupancy: { right: boolean; left: boolean } | null = null
     ): void => {
       // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
       // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
@@ -1938,6 +2053,28 @@ export class CircularCanvas {
         drawRuledPaper(ctx, r, r * pairShape.maxReach);
       }
 
+      // 参加者のいないレンズを半透明グレーで塗り、空いていることが一目で
+      // 分かるようにする(issue #119)。単一レンズ形状(getFrameShape、round/oval/
+      // squareの円・楕円・角丸長方形そのもの——glasses用の左右2レンズぶんの
+      // 輪郭ではない)を、このペアのローカル座標でレンズ中心(±GLASSES_CENTER_OFFSET)
+      // へ平行移動してクリップに使う。既に外側でpairFramePathへクリップ済みなので、
+      // レンズの外へはみ出して塗っても問題ない。
+      if (lensOccupancy) {
+        const singleLensPath = getFrameShape(pairShape.id).buildPath(r);
+        const half = r * pairShape.maxReach;
+        const dimLens = (occupied: boolean, dx: number) => {
+          if (occupied) return;
+          ctx.save();
+          ctx.translate(dx, 0);
+          ctx.clip(singleLensPath);
+          ctx.fillStyle = "rgba(20, 20, 20, 0.35)";
+          ctx.fillRect(-half, -half, half * 2, half * 2);
+          ctx.restore();
+        };
+        dimLens(lensOccupancy.right, GLASSES_CENTER_OFFSET * r);
+        dimLens(lensOccupancy.left, -GLASSES_CENTER_OFFSET * r);
+      }
+
       // 以降はグローバル座標（メモの実際のnormalized座標）で描く。
       ctx.translate(-offset.x, -offset.y);
 
@@ -1946,7 +2083,7 @@ export class CircularCanvas {
         // 相対密度(人気度)の目標値: 確定済みは確定した濃さ、投票フェーズ進行中は
         // 現在の相対密度、それ以外(発散・議論フェーズや個人キャンバス)では
         // 密度による見た目の変化を適用しない(=1)。
-        const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / maxHeat : 1;
+        const densityTarget = memo.fadeExempt ? (memo.frozenDensity ?? 0) : votingActive ? (memo.heat ?? 0) / totalHeat : 1;
         const prevDensity = this.displayDensity.get(memo.id) ?? densityTarget;
         const displayDensity = prevDensity + (densityTarget - prevDensity) * densityEase;
         this.displayDensity.set(memo.id, displayDensity);
@@ -1955,7 +2092,7 @@ export class CircularCanvas {
           // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
           // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
           // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
-          renderMemoAt(ctx, memo, r, displayDensity, this.minRenderedTextFontPx);
+          drawMemo(memo, displayDensity);
           continue;
         }
         const baseOpacity =
@@ -1965,7 +2102,7 @@ export class CircularCanvas {
         // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
         // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
         const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor, this.minRenderedTextFontPx);
+        drawMemo(memo, baseOpacity * densityFactor);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
@@ -2029,13 +2166,19 @@ export class CircularCanvas {
     };
 
     if (pairCenters && this.lensSplitState) {
-      const { myLensIndex, lensIndexForMemo } = this.lensSplitState;
+      const { myLensIndex, occupiedLensIndexes } = this.lensSplitState;
       const { pairIndex: myPairIndex } = lensIndexToPairSlot(myLensIndex);
+      // occupiedLensIndexesがnullの間(バックエンド未対応/未デプロイ等で判定不能)は
+      // occupiedSetもnullのままにする——空配列(new Set([]))と混同すると「全員未割当」
+      // 扱いになり、全レンズが誤ってグレーアウトされてしまうため。
+      const occupiedSet = occupiedLensIndexes ? new Set(occupiedLensIndexes) : null;
       const groups: Memo[][] = pairCenters.map(() => []);
       for (const memo of memosToRender) {
-        const lensIndex = lensIndexForMemo(memo);
+        const lensIndex = this.lensIndexForMemoWithFallback(memo);
         // 未帰属メモ(参加者色と一致しない、セッション開始前に自由に書かれたもの等)は
         // レンズ分割表示中は非表示にする（issue #79、ユーザー確認済みの製品判断）。
+        // discussion中のマスターのDEFAULT_INK書き込みはlensIndexForMemoWithFallback
+        // 側で位置ベースに救済済みなので、ここでnullになるのは本当に無関係な色だけ。
         if (lensIndex === null) continue;
         const { pairIndex } = lensIndexToPairSlot(lensIndex);
         (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
@@ -2048,7 +2191,10 @@ export class CircularCanvas {
           this.frame.frameStyleForPair(i),
           this.frame.frameShapeForPair(i),
           this.frame.framePathForPair(i),
-          this.frame.strokePathForPair(i)
+          this.frame.strokePathForPair(i),
+          // 参加者のいない空きレンズをグレーアウトするための占有状況(issue #119)。
+          // occupiedSetがnullなら判定不能としてグレーアウト自体を行わない。
+          occupiedSet ? { right: occupiedSet.has(i * 2), left: occupiedSet.has(i * 2 + 1) } : null
         );
       });
     } else {

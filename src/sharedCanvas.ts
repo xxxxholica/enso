@@ -27,9 +27,12 @@ export interface SharedCanvasSummary {
   ownerId: string;
 }
 
-/** 進行中の「共同アイデア出し」セッションの状態（未開始の間はnull）。 */
+/** 進行中の「共同アイデア出し」セッションの状態（未開始の間はnull）。
+ *  "results"は投票終了後の結果ロック(issue #114/#119の流れを受けたユーザー指示):
+ *  メモの濃さは確定済みだが、オーナーが明示的にresumeSessionを呼ぶまで全員が
+ *  読み取り専用のまま留まる。 */
 export interface SessionState {
-  phase: "ideation" | "discussion" | "voting";
+  phase: "ideation" | "discussion" | "voting" | "results";
   /** このフェーズが自動的に次へ進む予定時刻(ms epoch)。ルームマスターの延長操作で伸びる。 */
   phaseEndsAt: number;
   phase1Ms: number;
@@ -38,6 +41,10 @@ export interface SessionState {
   maxParticipants: number;
   /** フェーズ①用に自分に払い出された色インデックス。未割当(色プール枯渇時)はnull。 */
   myColorIndex: number | null;
+  /** 現在誰かに割り当て済みのレンズ番号一覧(issue #119: 参加者のいない空きレンズを
+   *  グレーアウト表示するため)。0..LENS_COUNT-1の範囲外の値は含まれない想定だが、
+   *  フロント側でも念のためlensSplit.ts側でLENS_COUNT未満だけを見る。 */
+  occupiedLensIndexes: number[];
 }
 
 export interface SharedCanvasDetail {
@@ -238,11 +245,20 @@ export async function extendSession(id: string, addMs: number): Promise<SessionS
   return parseSession(data);
 }
 
-/** セッションを終了する。votingフェーズ中ならメモの濃さを確定させ、それ以外は
- *  何も確定させずに中断する。 */
-export async function endSession(id: string): Promise<void> {
+/** セッションを終了する。votingフェーズ中ならメモの濃さを確定させ「結果」フェーズへ
+ *  ロックする(戻り値のphaseが"results"になる)。ideation/discussion中は何も確定させずに
+ *  中断する(戻り値はnull)。既に"results"中に呼ぶと409で失敗する(resumeSessionを使う)。 */
+export async function endSession(id: string): Promise<SessionState | null> {
   const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/session/end`, { method: "POST" });
   if (!res.ok) throw new Error(`セッションの終了に失敗しました (status: ${res.status})`);
+  const data: unknown = await res.json();
+  return parseSession(data);
+}
+
+/** 結果ロック("results"フェーズ)から明示的に編集を再開する。ルームマスターのみ。 */
+export async function resumeSession(id: string): Promise<void> {
+  const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/session/resume`, { method: "POST" });
+  if (!res.ok) throw new Error(`編集の再開に失敗しました (status: ${res.status})`);
 }
 
 /** 投票フェーズ専用: メモを1回転させた時に呼ぶ。熱量+1後の値をサーバーから受け取る
