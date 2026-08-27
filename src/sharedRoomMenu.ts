@@ -22,7 +22,6 @@ const INVITE_PARAM = "invite";
 const ROOM_PARAM = "room";
 const CREATE_LABEL = "新しいルームを作成";
 const COPY_LABEL = "共有URLをコピー";
-const GUEST_JOIN_LABEL = "ゲストとして参加";
 
 /**
  * 眼鏡キャンバスの下（smuiView.getRoomMenuSlot()）に置く、共有キャンバス
@@ -60,9 +59,6 @@ export class SharedRoomMenu {
   private popoverFade!: (show: boolean) => void;
   private signedOutEl!: HTMLElement;
   private guestPromptEl!: HTMLElement;
-  private guestFormEl!: HTMLElement;
-  private guestNameInput!: HTMLInputElement;
-  private guestJoinBtn!: HTMLButtonElement;
   private guestStatusEl!: HTMLElement;
   private guestInfoEl!: HTMLElement;
   private mainEl!: HTMLElement;
@@ -157,34 +153,16 @@ export class SharedRoomMenu {
     this.signedOutEl.textContent = "共有キャンバスを使うには、右上からログインしてください。";
     this.popover.appendChild(this.signedOutEl);
 
-    // 招待リンク(?invite=&room=)経由でログイン無しに参加する人向けの、
-    // 表示名だけを尋ねる最小限のフォーム(issue #79)。招待トークンが無効/
-    // 期限切れの場合はguestFormEl自体を隠し、guestStatusElに理由だけ出す。
+    // 招待リンク(?invite=&room=)経由でログイン無しに参加する人向けの状態表示
+    // (issue #79)。以前は表示名を尋ねるフォームがあったが、その表示名は
+    // どこにも表示されない書き込み専用の値になっていた(issue #128のリアクション
+    // 実名表示機能がrevertされたため)ので廃止し、招待リンクを開いた時点で
+    // 自動的に参加する(ユーザー指摘：入力させる意味が無いなら省いてすぐ開けるように)。
+    // ここはその間の「参加しています…」表示、または招待が無効/期限切れの場合の
+    // エラー表示専用になる。
     this.guestPromptEl = document.createElement("div");
     this.guestPromptEl.className = "shared-guest-prompt";
     this.guestPromptEl.hidden = true;
-    const guestLabel = document.createElement("p");
-    guestLabel.className = "shared-signedout";
-    guestLabel.textContent = "招待リンクからの参加です。表示名を入力してください。";
-    this.guestPromptEl.appendChild(guestLabel);
-    this.guestFormEl = document.createElement("div");
-    this.guestFormEl.className = "shared-invite-input-row";
-    this.guestNameInput = document.createElement("input");
-    this.guestNameInput.type = "text";
-    this.guestNameInput.className = "shared-invite-input";
-    this.guestNameInput.placeholder = "表示名(例: たろう)";
-    this.guestNameInput.maxLength = 50;
-    this.guestNameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") void this.submitGuestJoin();
-    });
-    this.guestFormEl.appendChild(this.guestNameInput);
-    this.guestJoinBtn = document.createElement("button");
-    this.guestJoinBtn.type = "button";
-    this.guestJoinBtn.className = "pill-btn pill-btn--primary";
-    this.guestJoinBtn.textContent = GUEST_JOIN_LABEL;
-    this.guestJoinBtn.addEventListener("click", () => void this.submitGuestJoin());
-    this.guestFormEl.appendChild(this.guestJoinBtn);
-    this.guestPromptEl.appendChild(this.guestFormEl);
     this.guestStatusEl = document.createElement("p");
     this.guestStatusEl.className = "shared-status";
     this.guestPromptEl.appendChild(this.guestStatusEl);
@@ -318,9 +296,11 @@ export class SharedRoomMenu {
   }
 
   /** ページ読み込み時、URLに?room=があれば呼ばれる(issue #79: 招待リンク経由の
-   *  ゲスト参加)。既に有効なゲストセッションが保存済みならそれで無言で再開し、
-   *  無ければ表示名を入力してもらうフォームを出す(招待トークンが無効/期限切れ
-   *  ならフォーム自体を隠し、理由だけ表示する)。 */
+   *  ゲスト参加)。既に有効なゲストセッションが保存済みならそれで無言で再開する。
+   *  そうでなければ表示名等は尋ねず、招待トークンをそのままclaimして自動的に
+   *  参加する(ユーザー指摘：表示名はどこにも表示されず入力させる意味が無いので、
+   *  フローを省いてすぐ開けるようにする)。招待トークンが無効/期限切れの場合は
+   *  guestStatusElに理由だけ表示する。 */
   private async handlePendingInvite(): Promise<void> {
     const room = this.pendingInviteRoom;
     if (!room) return;
@@ -334,36 +314,28 @@ export class SharedRoomMenu {
       this.activateGuestMode(stored);
       return;
     }
-    this.guestFormEl.hidden = !this.pendingInviteToken;
-    this.guestStatusEl.textContent = this.pendingInviteToken ? "" : "この招待リンクは期限切れです";
+    const token = this.pendingInviteToken;
+    if (!token) {
+      this.guestStatusEl.textContent = "この招待リンクは期限切れです";
+      this.updateVisibility();
+      this.onAutoOpen();
+      this.openMenu();
+      return;
+    }
+    this.guestStatusEl.textContent = "参加しています…";
     this.updateVisibility();
     // このボタン・ポップオーバー自体がsmuiView.getRoomMenuSlot()経由で「共有」
     // タブの中にあり、キャンバスタブ表示中はhidden属性で隠れている
-    // (main.ts参照)。参加前の名前入力を見せるにはタブ自体の切り替えが必要
-    // ——参加成功後だけでなく、フォーム表示の時点でonAutoOpenを呼ぶ。
+    // (main.ts参照)。参加中の表示を見せるにはタブ自体の切り替えが必要
+    // ——参加成功後だけでなく、この時点でonAutoOpenを呼ぶ。
     this.onAutoOpen();
     this.openMenu();
-  }
-
-  private async submitGuestJoin(): Promise<void> {
-    const room = this.pendingInviteRoom;
-    const token = this.pendingInviteToken;
-    if (!room || !token) return;
-    const name = this.guestNameInput.value.trim();
-    if (!name) {
-      this.guestStatusEl.textContent = "表示名を入力してください";
-      return;
-    }
-    this.guestJoinBtn.disabled = true;
-    this.guestStatusEl.textContent = "参加しています…";
     try {
-      const session = await claimGuestInvite(room, token, name);
+      const session = await claimGuestInvite(room, token);
       saveGuestSession(session);
       this.activateGuestMode(session);
     } catch (e) {
       this.guestStatusEl.textContent = e instanceof Error ? e.message : "参加に失敗しました";
-    } finally {
-      this.guestJoinBtn.disabled = false;
     }
   }
 

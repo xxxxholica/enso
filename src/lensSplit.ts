@@ -1,4 +1,4 @@
-import { clampToOffsetLens } from "./geometry";
+import { clampToAnyOffsetLens, clampToOffsetLens, distance } from "./geometry";
 import { GLASSES_CENTER_OFFSET, GLASSES_HORIZONTAL_REACH_WITH_HINGE, GLASSES_VERTICAL_REACH, getFrameShape } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
 import type { Point } from "./types";
@@ -65,6 +65,24 @@ export function lensAbsoluteCenter(pairCenters: Point[], lensIndex: number): Poi
   return { x: pairCenter.x + dx, y: pairCenter.y };
 }
 
+/** 位置から一番近いレンズ番号を求める(距離だけで判定、レンズの範囲内かどうかは
+ *  問わない)。discussion中のマスターの書き込み(forcedColor()によりDEFAULT_INKを
+ *  強制される、参加者色ではない)のように、色からレンズを逆引きできないメモを
+ *  どのレンズに属するとみなすかのフォールバックに使う(issue #114/#119、
+ *  canvasView.ts参照)。 */
+export function nearestLensIndexForPosition(pairCenters: Point[], p: Point): number {
+  let best = 0;
+  let bestDist = Infinity;
+  for (let lensIndex = 0; lensIndex < pairCenters.length * 2; lensIndex++) {
+    const d = distance(p, lensAbsoluteCenter(pairCenters, lensIndex));
+    if (d < bestDist) {
+      bestDist = d;
+      best = lensIndex;
+    }
+  }
+  return best;
+}
+
 /** 自分の担当レンズだけに書き込みを制限するクランプ。担当レンズは
  *  session.myColorIndexから一意に決まっているため、clampToGlassesのような
  *  「近い方を選ぶ」探索は不要——lensAbsoluteCenterへ平行移動した単一レンズの
@@ -77,4 +95,23 @@ export function buildOwnLensClamp(
   const center = lensAbsoluteCenter(pairCenters, lensIndex);
   const lensClamp = getFrameShape(frameShapeId).clamp;
   return (p) => clampToOffsetLens(p, lensClamp, center);
+}
+
+/** 自分のレンズに限定せず、いずれかのレンズの範囲内なら書き込み・操作を許可する
+ *  クランプ。discussion中のマスターの書き込み・voting中の投票・resultsの表示のように、
+ *  レンズ分割の見た目は維持しつつ操作(またはクランプ対象の座標計算)は全レンズに
+ *  及ぶ必要がある場合に使う(issue #114/#119対応のユーザー指示)。組ごとに形状が
+ *  ローテーションする(issue #113③)ため、frameShapeIdForPairで組ごとの形状を都度引く。 */
+export function buildAnyLensClamp(
+  frameShapeIdForPair: (pairIndex: number) => FrameShapeId,
+  pairCenters: Point[]
+): (p: Point) => Point {
+  const lenses = pairCenters.flatMap((_, pairIndex) => {
+    const lensClamp = getFrameShape(frameShapeIdForPair(pairIndex)).clamp;
+    return [pairIndex * 2, pairIndex * 2 + 1].map((lensIndex) => ({
+      center: lensAbsoluteCenter(pairCenters, lensIndex),
+      clamp: lensClamp,
+    }));
+  });
+  return (p) => clampToAnyOffsetLens(p, lenses);
 }

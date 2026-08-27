@@ -147,6 +147,31 @@ export function clampToOffsetLens(p: Point, lensClamp: (local: Point) => Point, 
 }
 
 /**
+ * clampToGlassesの「近い方を選ぶ」判定を、左右2箇所限定から任意個のレンズへ
+ * 一般化したもの。レンズ分割(issue #79)で複数組(眼鏡ペア)が横に並ぶ間、
+ * 「自分のレンズに限定せず、いずれかのレンズの範囲内なら許可する」用途に使う
+ * （discussion中のマスターの書き込み・voting/resultsの投票・表示、issue
+ * #114/#119対応）。lensesは各レンズの中心(center、正規化単位のグローバル座標)と
+ * その組の形状に対応するclamp(原点中心のローカル座標前提)の組。
+ */
+export function clampToAnyOffsetLens(p: Point, lenses: { center: Point; clamp: (local: Point) => Point }[]): Point {
+  let nearest: Point | null = null;
+  let nearestDist = Infinity;
+  for (const { center, clamp } of lenses) {
+    const local: Point = { x: p.x - center.x, y: p.y - center.y };
+    const clampedLocal = clamp(local);
+    if (clampedLocal.x === local.x && clampedLocal.y === local.y) return p;
+    const candidate: Point = { x: clampedLocal.x + center.x, y: clampedLocal.y + center.y };
+    const d = distance(p, candidate);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = candidate;
+    }
+  }
+  return nearest ?? p;
+}
+
+/**
  * 点群（ストロークを構成する全ての点）を (dx, dy) だけ剛体移動しようとしたとき、
  * 移動後に境界の外へ出る点が1つでもあれば、全ての点が境界内に収まる範囲まで
  * 移動量を比例的に縮める（2分探索）。個々の点を境界へ独立にスナップする
