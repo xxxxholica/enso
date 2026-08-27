@@ -913,6 +913,46 @@ body[data-view="shared"] #duration-slot {
   }
 }
 
+/* --- 横持ちスマホ向けの圧縮。上のmax-width:480pxは幅が乏しい縦持ち端末向けで
+   3ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
+   十分ある一方で高さが乏しい（100dvh基準の円がヘッダー・フッターの固定高さに
+   圧迫される）。3ブロックの横並び自体は幅的に成立するため再配置はせず、
+   ヘッダー・フッターそれぞれの縦方向のpadding／.control-blockの固定height／
+   道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
+   flex:1で残り高さを取る）に還元する。max-height:500pxはiPad横持ち(768px)や
+   デスクトップより十分低く、横持ちスマホ（実機はおよそ375〜430px）だけに
+   絞り込むための閾値。 --- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-header {
+    padding: var(--space-1) var(--space-3);
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  }
+
+  .view-nav-btn {
+    padding: 0.1875rem 0.625rem;
+  }
+
+  .control-block {
+    height: 3.5rem;
+    padding: 0.25rem var(--space-3);
+  }
+
+  .toolbar-btn {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .toolbar-btn svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .app-footer {
+    padding: 0.25rem var(--space-3)
+      calc(0.25rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* --- キャンバス⇔振り返り⇔共有の画面切り替え時、下部バーの中身（道具バー／
    時間選択ブロック／振り返りのシークバー）とキャンバス本体（#canvas-panel等）を
    即座に切り替えるのではなく、ふわっとフェードイン・フェードアウトさせて丸ごと
