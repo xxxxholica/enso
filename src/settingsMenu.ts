@@ -30,6 +30,13 @@ const THEME_LABEL: Record<ThemePreference, string> = {
   sky: "水色",
   custom: "好きな色を選ぶ",
 };
+/** カラーパレット（好きな色を選ぶ）のプレビュースワッチに使う色。他の固定
+ *  テーマスワッチ（THEME_SWATCH_BACKGROUND）と揃え、バー上の鮮やかな色では
+ *  なく、実際に適用されるパステルな--paper-1相当の色を見せる——theme.tsの
+ *  buildPastelThemeVarsの--paper-1と同じ式(oklch(97% 0.015 hue))。 */
+function customSwatchBackground(hue: number): string {
+  return `oklch(97% 0.015 ${hue})`;
+}
 
 /**
  * ヘッダーの「設定」ボタン（ユーザー指示：設定ボタンを追加してテーマ変更
@@ -66,6 +73,10 @@ export class SettingsMenu {
    *  横1本の色相グラデーションバー（ユーザー指示）——虹色の帯を左右にドラッグ
    *  するだけで選べる。値は0〜360度のOKLCH色相のみ（RGBは一切経由しない）。 */
   private hueSlider!: HTMLInputElement;
+  /** バーで選んだ色を映す円形スワッチ（他のテーマスワッチと同じ.toolbar-swatch）。
+   *  バーを動かすたびcustomSwatchBackground()で背景色を更新する
+   *  （ユーザー指摘：バーで色を変えてもスワッチの見た目が追従していなかった）。 */
+  private customSwatchBtn!: HTMLButtonElement;
   private accountSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
@@ -128,9 +139,23 @@ export class SettingsMenu {
       themeRow.appendChild(btn);
     }
 
+    // カラーパレットのプレビュースワッチ（好きな色を選ぶ、issue #138）。
+    // 他の固定テーマと同じ.toolbar-swatchの円で、下のバーで選んだ色を
+    // その場で反映する（ユーザー指摘：バーを動かしてもスワッチの見た目が
+    // 追従していなかった）。クリックでも"custom"テーマを選べる——バーで
+    // 既に選んだ色相のまま戻したい場合の入口として。
+    this.customSwatchBtn = document.createElement("button");
+    this.customSwatchBtn.type = "button";
+    this.customSwatchBtn.className = "toolbar-swatch";
+    this.customSwatchBtn.style.background = customSwatchBackground(initialCustomHue);
+    this.customSwatchBtn.setAttribute("aria-label", THEME_LABEL.custom);
+    this.customSwatchBtn.addEventListener("click", () => this.selectTheme("custom"));
+    this.themeButtons.set("custom", this.customSwatchBtn);
+    themeRow.appendChild(this.customSwatchBtn);
+
     themeSection.appendChild(themeRow);
 
-    // カラーパレット（好きな色を選ぶ、issue #138）。ネイティブの<input
+    // カラーパレット本体（好きな色を選ぶ、issue #138）。ネイティブの<input
     // type="color">（RGB数値・16進入力等が出てくる）ではなく、Chromeの
     // テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——
     // <input type="range">に虹色のグラデーションを描くだけで、ドラッグ・
@@ -147,6 +172,7 @@ export class SettingsMenu {
     this.hueSlider.setAttribute("aria-label", THEME_LABEL.custom);
     this.hueSlider.addEventListener("input", () => {
       const hue = Number(this.hueSlider.value);
+      this.customSwatchBtn.style.background = customSwatchBackground(hue);
       this.onCustomHueChange(hue);
       if (this.theme !== "custom") {
         this.theme = "custom";
