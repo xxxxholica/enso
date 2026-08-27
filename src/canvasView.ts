@@ -27,7 +27,6 @@ import { REFERENCE_RADIUS } from "./toolStyle";
 import type { ToolbarTool } from "./toolbar";
 import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
-const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
 /** 空のキャンバスの案内（.canvas-empty-state、DOM側）を、円の中心からどれだけ
@@ -200,13 +199,12 @@ export interface CircularCanvasOptions {
    *  見えてしまう（ユーザー報告）。省略時は本物と同じMIN_CANVAS_SIZE。 */
   minCanvasSizePx?: number;
   frameShapeId?: FrameShapeId;
-  /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
-   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。太さは、
+  /** 外枠線の太さ。既定は通常キャンバスの薄い1px線のまま
+   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。
    *  キャンバスの実サイズ（px）を受け取ってウィンドウサイズに比例した値を
    *  返す関数でも渡せる——固定pxだと、ウィンドウが小さくなってもフレームの
    *  太さだけ変わらず、レンズに対して相対的に太すぎ/細すぎに見えてしまう
    *  （SMUIの共有キャンバス、ユーザー指摘）。 */
-  frameStrokeColor?: string;
   frameStrokeWidth?: number | ((canvasSizePx: number) => number);
   /** falseの場合、ポインタ操作を一切受け付けない。SMUIの右レンズが共有キャンバスに
    *  まだ接続されていない間、白い罫線の紙だけを表示するプレースホルダー表現に使う
@@ -217,9 +215,8 @@ export interface CircularCanvasOptions {
    *  ブリッジを1つの連続領域として描く——frameShapeIdは「眼鏡のレンズスタイル」として
    *  解釈される（frameShape.tsのgetGlassesFrameShape参照）。 */
   frameKind?: "single" | "glasses";
-  /** frameKind==="glasses"の時だけ意味を持つ、フレームの柄・質感（マット/べっ甲/
-   *  クリア/木目）。省略時はDEFAULT_FRAME_PATTERN_ID。"single"（通常キャンバス
-   *  タブ）は常にframeStrokeColorの単色のままで、この値は無視される。 */
+  /** フレームの柄・質感（マット/べっ甲/クリア/木目）。frameKindに関わらず
+   *  反映される。省略時はDEFAULT_FRAME_PATTERN_ID。 */
   framePatternId?: FramePatternId;
   /** メモが1つも無い空のキャンバスに出す「＋テンプレートを使用」ボタンが押されたときに
    *  呼ばれる（全画面のテンプレート選択を開く。templatePicker.ts、配線はmain.ts）。
@@ -419,7 +416,6 @@ export class CircularCanvas {
 
     this.frame = new FrameGeometry(this.canvas, this.ctx, this.container, this.dpr, {
       frameShapeId: options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID,
-      frameStrokeColor: options.frameStrokeColor ?? CIRCLE_BORDER,
       frameStrokeWidth: options.frameStrokeWidth ?? 1,
       frameKind: options.frameKind ?? "single",
       framePatternId: options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID,
@@ -483,7 +479,7 @@ export class CircularCanvas {
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
-   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+   *  frameKindに関わらず反映される（個人キャンバス/共有キャンバス共通）。 */
   setFramePattern(id: FramePatternId): void {
     this.frame.setFramePattern(id);
   }

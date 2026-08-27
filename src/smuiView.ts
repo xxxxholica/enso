@@ -27,11 +27,10 @@ import { loadFramePattern, loadFrameShape } from "./storage";
 import { DEFAULT_INK, type Toolbar } from "./toolbar";
 import { getCurrentUser } from "./authState";
 
-/** 眼鏡フレームの縁取りの色・太さ。通常キャンバスの薄い1px線より太いウェリントン
- *  風の見た目にする。太さはキャンバスの実サイズ（px）に対する比率で持たせる
+/** 眼鏡フレームの縁取りの太さ。通常キャンバスの薄い1px線より太いウェリントン
+ *  風の見た目にする。キャンバスの実サイズ（px）に対する比率で持たせる
  *  ——固定pxだと、ウィンドウが小さくなってもフレームの太さだけ変わらず、
  *  レンズに対して相対的に太すぎ/細すぎに見えてしまう（ユーザー指摘）。 */
-export const SMUI_FRAME_COLOR = "oklch(30% 0.02 55)";
 export const SMUI_FRAME_WEIGHT_RATIO = 0.04;
 
 /** 案内メッセージ（statusEl）の水平位置: キャンバスの実際の横幅に対する割合
@@ -77,6 +76,7 @@ export class SmuiView {
 
   private roomMenuSlotEl!: HTMLElement;
   private appearanceSlotEl!: HTMLElement;
+  private settingsSlotEl!: HTMLElement;
   private canvasWrapEl!: HTMLElement;
   private canvasContainerEl!: HTMLElement;
   private statusEl!: HTMLElement;
@@ -143,6 +143,13 @@ export class SmuiView {
    *  置く（ユーザー指示）。main.tsがここにAppearanceSelectorをマウントする。 */
   getAppearanceSlot(): HTMLElement {
     return this.appearanceSlotEl;
+  }
+
+  /** 設定ボタン（SettingsMenu）の器。「セッションを開始」の右に置く
+   *  （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
+   *  main.tsがタブ切り替えのたびSettingsMenu.moveTo(ここ)で移設する。 */
+  getSettingsSlot(): HTMLElement {
+    return this.settingsSlotEl;
   }
 
   /** 共同アイデア出しセッションのフェーズ①②の間、実際に使われる色を上書きする
@@ -281,7 +288,6 @@ export class SmuiView {
       frameShapeId: this.frameShapeId,
       frameKind: "glasses",
       framePatternId: this.framePatternId,
-      frameStrokeColor: SMUI_FRAME_COLOR,
       frameStrokeWidth: (canvasSizePx) => canvasSizePx * SMUI_FRAME_WEIGHT_RATIO,
       ...overrides,
     };
@@ -309,6 +315,8 @@ export class SmuiView {
     // 置き場所を提供するだけ。「残り時間」ピルはそれらの横に並べる
     // （ユーザー指示）——このクラス自身がlensの状態を持っているため、
     // 他の2つと違い自分でReviveInfoPillを持ち、render()のたびに更新する。
+    // 設定ボタン（SettingsMenu）は「セッションを開始」の右、行の一番最後に置く
+    // （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
     const roomMenuRow = document.createElement("div");
     roomMenuRow.className = "info-row";
     this.roomMenuSlotEl = document.createElement("div");
@@ -322,6 +330,8 @@ export class SmuiView {
       onExtend: (addMs) => this.extendSessionForCurrentRoom(addMs),
       onEnd: () => this.endSessionForCurrentRoom(),
     });
+    this.settingsSlotEl = document.createElement("div");
+    roomMenuRow.appendChild(this.settingsSlotEl);
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);

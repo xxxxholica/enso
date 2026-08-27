@@ -146,9 +146,8 @@ export class SharedRoomMenu {
 
     this.popover = document.createElement("div");
     // ボタンが眼鏡キャンバスの下（画面下寄り）に置かれるようになったため、
-    // 下向き(icon-popover--below)ではなく既定の上向き（道具バーのテンプレート
-    // メニューと同じ）に開く——下向きのままだと画面外にはみ出してしまう
-    // （ユーザー指摘）。
+    // 下向きではなく既定の上向き（道具バーのテンプレートメニューと同じ）に
+    // 開く——下向きのままだと画面外にはみ出してしまう（ユーザー指摘）。
     this.popover.className = "shared-room-popover icon-popover";
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);

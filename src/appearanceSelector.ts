@@ -2,7 +2,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { FRAME_SHAPE_ORDER, getFrameShape } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
-import { FRAME_PATTERN_ORDER, getFramePattern } from "./framePattern";
+import { buildFramePatternPicker } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { ICONS } from "./icons";
 
@@ -10,13 +10,6 @@ const SHAPE_ICON: Record<FrameShapeId, string> = {
   round: ICONS.shapeRound,
   oval: ICONS.shapeOval,
   square: ICONS.shapeSquare,
-};
-
-const PATTERN_ICON: Record<FramePatternId, string> = {
-  matte: ICONS.patternMatte,
-  tortoiseshell: ICONS.patternTortoiseshell,
-  clear: ICONS.patternClear,
-  wood: ICONS.patternWood,
 };
 
 /**
@@ -44,11 +37,9 @@ export class AppearanceSelector {
   private readonly closeRef = () => this.close();
 
   private shapeId: FrameShapeId;
-  private patternId: FramePatternId;
   private onShapeChange: (id: FrameShapeId) => void;
-  private onPatternChange: (id: FramePatternId) => void;
   private shapeButtons = new Map<FrameShapeId, HTMLButtonElement>();
-  private patternButtons = new Map<FramePatternId, HTMLButtonElement>();
+  private patternPicker!: ReturnType<typeof buildFramePatternPicker>;
 
   constructor(
     container: HTMLElement,
@@ -58,9 +49,7 @@ export class AppearanceSelector {
     onPatternChange: (id: FramePatternId) => void
   ) {
     this.shapeId = initialShapeId;
-    this.patternId = initialPatternId;
     this.onShapeChange = onShapeChange;
-    this.onPatternChange = onPatternChange;
 
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
@@ -102,32 +91,13 @@ export class AppearanceSelector {
     shapeSection.appendChild(shapeRow);
     this.popover.appendChild(shapeSection);
 
-    const patternSection = document.createElement("div");
-    patternSection.className = "shared-menu-section";
-    const patternLabel = document.createElement("div");
-    patternLabel.className = "shared-section-label";
-    patternLabel.textContent = "フレームの色";
-    patternSection.appendChild(patternLabel);
-    const patternRow = document.createElement("div");
-    patternRow.className = "toolbar-pill";
-    for (const id of FRAME_PATTERN_ORDER) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "toolbar-btn";
-      btn.setAttribute("aria-label", getFramePattern(id).label);
-      btn.innerHTML = PATTERN_ICON[id];
-      btn.addEventListener("click", () => this.selectPattern(id));
-      this.patternButtons.set(id, btn);
-      patternRow.appendChild(btn);
-    }
-    patternSection.appendChild(patternRow);
-    this.popover.appendChild(patternSection);
+    this.patternPicker = buildFramePatternPicker(initialPatternId, (id) => onPatternChange(id));
+    this.popover.appendChild(this.patternPicker.element);
 
     this.anchor.appendChild(this.popover);
     container.appendChild(this.anchor);
 
     this.syncShape();
-    this.syncPattern();
   }
 
   private toggle(): void {
@@ -158,24 +128,9 @@ export class AppearanceSelector {
     this.onShapeChange(id);
   }
 
-  private selectPattern(id: FramePatternId): void {
-    if (id === this.patternId) return;
-    this.patternId = id;
-    this.syncPattern();
-    this.onPatternChange(id);
-  }
-
   private syncShape(): void {
     for (const [id, btn] of this.shapeButtons) {
       const active = id === this.shapeId;
-      btn.setAttribute("aria-pressed", String(active));
-      btn.dataset.active = String(active);
-    }
-  }
-
-  private syncPattern(): void {
-    for (const [id, btn] of this.patternButtons) {
-      const active = id === this.patternId;
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
@@ -187,7 +142,7 @@ export class AppearanceSelector {
    *  反映されないことはボタン自体のdisabled表示で伝える。 */
   setLocked(locked: boolean): void {
     for (const [, btn] of this.shapeButtons) btn.disabled = locked;
-    for (const [, btn] of this.patternButtons) btn.disabled = locked;
+    this.patternPicker.setDisabled(locked);
   }
 
   /** ルーム側の見た目（サーバーに保存された値）を反映する。ユーザー操作を
@@ -198,9 +153,6 @@ export class AppearanceSelector {
       this.shapeId = shapeId;
       this.syncShape();
     }
-    if (patternId !== this.patternId) {
-      this.patternId = patternId;
-      this.syncPattern();
-    }
+    this.patternPicker.setValue(patternId);
   }
 }

@@ -1,14 +1,22 @@
+import { ICONS } from "./icons";
+
 /**
- * 共有キャンバス（眼鏡形状、frameKind:"glasses"）専用のフレーム柄・質感。
- * frameShape.tsが枠の輪郭（形）を決めるのに対し、こちらは枠の塗り
- * （ctx.strokeStyle/fillStyleに使える値）を決める——役割を分けている。
- * 通常のキャンバスタブ（frameKind:"single"）はこの仕組みを使わず、従来通り
- * frameStrokeColorの単色のまま。
+ * フレームの柄・質感。frameShape.tsが枠の輪郭（形）を決めるのに対し、
+ * こちらは枠の塗り（ctx.strokeStyle/fillStyleに使える値）を決める
+ * ——役割を分けている。共有キャンバス（frameKind:"glasses"）・個人キャンバス
+ * （frameKind:"single"）のどちらでも使う（frameGeometry.ts参照）。
  */
 
-export type FramePatternId = "matte" | "tortoiseshell" | "clear" | "wood";
+export type FramePatternId = "none" | "matte" | "tortoiseshell" | "clear" | "wood";
+/** 共有キャンバス（眼鏡フレーム、常に何らかの柄が必要）の既定。 */
 export const DEFAULT_FRAME_PATTERN_ID: FramePatternId = "matte";
 export const FRAME_PATTERN_ORDER: FramePatternId[] = ["matte", "tortoiseshell", "clear", "wood"];
+
+/** 個人キャンバスの既定は「フレームなし」——このフレーム色機能を追加する前の
+ *  見た目（枠を意識させない、紙だけの単色一枚円）をそのまま初期状態として
+ *  保つ（ユーザー指示）。5択の並び順もこれを先頭にする。 */
+export const DEFAULT_PERSONAL_FRAME_PATTERN_ID: FramePatternId = "none";
+export const PERSONAL_FRAME_PATTERN_ORDER: FramePatternId[] = ["none", ...FRAME_PATTERN_ORDER];
 
 export interface FramePattern {
   id: FramePatternId;
@@ -19,6 +27,18 @@ export interface FramePattern {
    *  はreachPxに依存しない（原寸のタイルを繰り返すだけ）。 */
   buildStyle(ctx: CanvasRenderingContext2D, reachPx: number): CanvasPattern | CanvasGradient | string;
 }
+
+/** 「フレームなし」（個人キャンバスの既定）。枠の塗り（strokePathとframePathの
+ *  差分のリング、canvasView.tsのrenderPair参照）を紙と同じ白にすることで、
+ *  幾何形状・太さの計算自体は他の柄と変えずに、見た目だけ枠が無いのと
+ *  区別が付かないようにする——paper.tsのPAPER_WHITEと同じ値。 */
+const none: FramePattern = {
+  id: "none",
+  label: "フレームなし",
+  buildStyle() {
+    return "#ffffff";
+  },
+};
 
 const matte: FramePattern = {
   id: "matte",
@@ -138,8 +158,78 @@ const wood: FramePattern = {
   },
 };
 
-const FRAME_PATTERNS: Record<FramePatternId, FramePattern> = { matte, tortoiseshell, clear, wood };
+const FRAME_PATTERNS: Record<FramePatternId, FramePattern> = { none, matte, tortoiseshell, clear, wood };
 
 export function getFramePattern(id: FramePatternId): FramePattern {
   return FRAME_PATTERNS[id];
+}
+
+const PATTERN_ICON: Record<FramePatternId, string> = {
+  none: ICONS.patternNone,
+  matte: ICONS.patternMatte,
+  tortoiseshell: ICONS.patternTortoiseshell,
+  clear: ICONS.patternClear,
+  wood: ICONS.patternWood,
+};
+
+/**
+ * 「フレームの色」区画（ボタン列+選択状態の同期）を組み立てる共通ヘルパー。
+ * AppearanceSelector（共有キャンバス、ロック・リモート同期あり）とFrameColorSelector
+ * （個人キャンバス、ロック・同期なし）の両方が、それぞれのポップオーバーに
+ * 埋め込んで使う——ボタン生成・選択状態の同期ロジックの重複を避けるため。
+ */
+export function buildFramePatternPicker(
+  initialId: FramePatternId,
+  onSelect: (id: FramePatternId) => void,
+  order: FramePatternId[] = FRAME_PATTERN_ORDER
+): { element: HTMLElement; setValue: (id: FramePatternId) => void; setDisabled: (disabled: boolean) => void } {
+  let currentId = initialId;
+  const buttons = new Map<FramePatternId, HTMLButtonElement>();
+
+  const section = document.createElement("div");
+  section.className = "shared-menu-section";
+  const label = document.createElement("div");
+  label.className = "shared-section-label";
+  label.textContent = "フレームの色";
+  section.appendChild(label);
+
+  const row = document.createElement("div");
+  row.className = "toolbar-pill";
+  for (const id of order) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toolbar-btn";
+    btn.setAttribute("aria-label", getFramePattern(id).label);
+    btn.innerHTML = PATTERN_ICON[id];
+    btn.addEventListener("click", () => {
+      if (id === currentId) return;
+      currentId = id;
+      sync();
+      onSelect(id);
+    });
+    buttons.set(id, btn);
+    row.appendChild(btn);
+  }
+  section.appendChild(row);
+
+  function sync(): void {
+    for (const [id, btn] of buttons) {
+      const active = id === currentId;
+      btn.setAttribute("aria-pressed", String(active));
+      btn.dataset.active = String(active);
+    }
+  }
+  sync();
+
+  return {
+    element: section,
+    setValue(id: FramePatternId) {
+      if (id === currentId) return;
+      currentId = id;
+      sync();
+    },
+    setDisabled(disabled: boolean) {
+      for (const [, btn] of buttons) btn.disabled = disabled;
+    },
+  };
 }

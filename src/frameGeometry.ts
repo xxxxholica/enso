@@ -24,7 +24,6 @@ import type { Point } from "./types";
 
 export interface FrameGeometryOptions {
   frameShapeId: FrameShapeId;
-  frameStrokeColor: string;
   frameStrokeWidth: number | ((canvasSizePx: number) => number);
   frameKind: "single" | "glasses";
   framePatternId: FramePatternId;
@@ -52,7 +51,6 @@ export class FrameGeometry {
   private centerPxValue: Point = { x: 0, y: 0 };
   private contentScaleFactor: number | ((size: number) => number) | undefined;
   private frameShapeIdValue: FrameShapeId;
-  private frameStrokeColor: string;
   private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
   /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
    *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
@@ -65,9 +63,8 @@ export class FrameGeometry {
    *  では使い回す——Path2Dの構築自体は軽くないため。 */
   private framePathValue: Path2D = new Path2D();
   private strokePathValue: Path2D = new Path2D();
-  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKind==="glasses"の時だけ
-   *  framePatternIdから組み立てる（"single"はframeStrokeColorそのまま）。
-   *  rebuildFramePaths()と同じタイミングで組み立て直す。 */
+  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKindに関わらずframePatternId
+   *  から組み立てる。rebuildFramePaths()と同じタイミングで組み立て直す。 */
   private frameStyleValue: CanvasPattern | CanvasGradient | string = "";
   /** ブリッジ（接合部）の半分の高さ（scale基準、正規化単位）。frameKind==="glasses"
    *  の時だけ意味を持つ——「接合部をフレームと同じ太さにする」（ユーザー指示）ため、
@@ -106,7 +103,6 @@ export class FrameGeometry {
     this.container = container;
     this.dpr = dpr;
     this.frameShapeIdValue = options.frameShapeId;
-    this.frameStrokeColor = options.frameStrokeColor;
     this.frameStrokeWidthOption = options.frameStrokeWidth;
     this.frameKindValue = options.frameKind;
     this.framePatternId = options.framePatternId;
@@ -319,10 +315,10 @@ export class FrameGeometry {
       this.framePathValue = shape.buildPath(this.scaleValue);
       this.strokePathValue = shape.buildPath(this.scaleValue, undefined, offset);
     }
-    this.frameStyleValue =
-      this.frameKindValue === "glasses"
-        ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scaleValue * shape.horizontalReach)
-        : this.frameStrokeColor;
+    this.frameStyleValue = getFramePattern(this.framePatternId).buildStyle(
+      this.ctx,
+      this.scaleValue * shape.horizontalReach
+    );
     // レンズ分割時は、設定された柄を起点にFRAME_PATTERN_ORDERを組の数ぶん順送り
     // した柄一覧を組別に用意する——同じ柄が並び続けると見分けが付かず単調に
     // 見える(issue #79、ユーザー指摘)ため。単一表示(pairCount===null)では
@@ -352,7 +348,7 @@ export class FrameGeometry {
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
-   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+   *  frameKindに関わらず反映される（個人キャンバス/共有キャンバス共通）。 */
   setFramePattern(id: FramePatternId): void {
     this.framePatternId = id;
     this.resize();
