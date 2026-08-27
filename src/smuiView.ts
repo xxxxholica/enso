@@ -80,7 +80,6 @@ export class SmuiView {
   private framePatternId2: FramePatternId | null = null;
 
   private roomMenuSlotEl!: HTMLElement;
-  private settingsSlotEl!: HTMLElement;
   private canvasWrapEl!: HTMLElement;
   private canvasContainerEl!: HTMLElement;
   private statusEl!: HTMLElement;
@@ -141,13 +140,6 @@ export class SmuiView {
    *  （このクラス自身はルーム作成・選択のUIを持たず、置き場所を提供するだけ）。 */
   getRoomMenuSlot(): HTMLElement {
     return this.roomMenuSlotEl;
-  }
-
-  /** 設定ボタン（SettingsMenu）の器。「セッションを開始」の右に置く
-   *  （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
-   *  main.tsがタブ切り替えのたびSettingsMenu.moveTo(ここ)で移設する。 */
-  getSettingsSlot(): HTMLElement {
-    return this.settingsSlotEl;
   }
 
   /** 共同アイデア出しセッションのフェーズ①②の間、実際に使われる色を上書きする
@@ -323,11 +315,11 @@ export class SmuiView {
     // （ユーザー指示）。main.tsがgetRoomMenuSlot()経由で中身をマウントする
     // ——このクラス自身はルーム作成のUIを持たず、置き場所を提供するだけ。
     // 「見た目の設定」（AppearanceSelector）はここには置かず、設定メニュー
-    // (SettingsMenu)の区画へ統合した(issue #154)。「残り時間」ピルはこの行に
-    // 並べる（ユーザー指示）——このクラス自身がlensの状態を持っているため、
-    // 他の2つと違い自分でReviveInfoPillを持ち、render()のたびに更新する。
-    // 設定ボタン（SettingsMenu）は「セッションを開始」の右、行の一番最後に置く
-    // （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
+    // (SettingsMenu)の区画へ統合した(issue #154)。設定ボタン自体も画面左上
+    // （ヘッダー）へ固定表示するようにしたため、このタブ内には置かない
+    // (issue #161)。「残り時間」ピルはこの行に並べる（ユーザー指示）——
+    // このクラス自身がlensの状態を持っているため、他の2つと違い自分で
+    // ReviveInfoPillを持ち、render()のたびに更新する。
     const roomMenuRow = document.createElement("div");
     roomMenuRow.className = "info-row";
     this.roomMenuSlotEl = document.createElement("div");
@@ -339,8 +331,6 @@ export class SmuiView {
       onExtend: (addMs) => this.extendSessionForCurrentRoom(addMs),
       onEnd: () => this.endSessionForCurrentRoom(),
     });
-    this.settingsSlotEl = document.createElement("div");
-    roomMenuRow.appendChild(this.settingsSlotEl);
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);

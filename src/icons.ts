@@ -21,7 +21,7 @@ export const ICONS: Record<
   | "shapeOval"
   | "shapeSquare"
   | "sharedRooms"
-  | "settings"
+  | "menu"
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
@@ -148,16 +148,13 @@ export const ICONS: Record<
       <circle cx="9" cy="12" r="5.5" />
       <circle cx="15" cy="12" r="5.5" />
     </svg>`,
-  // 「設定」トリガー用の歯車。外周のリングと太めの短い8本のスポークで、
-  // sun（放射状の細い線のみ）と見分けが付くようにしている。
-  settings: `
+  // アプリのメインメニュー(旧「設定」)トリガー用の三本線(ハンバーガー)
+  // (issue #161)。中身がテーマだけでなくアプリ全体の機能へのアクセスを
+  // 含むため、設定を意味する歯車ではなく、メニュー全般を意味するこちらに
+  // 差し替えた(Claude風、ユーザー指示)。
+  menu: `
     <svg viewBox="0 0 24 24" ${common}>
-      <circle cx="12" cy="12" r="7.2" />
-      <circle cx="12" cy="12" r="3" />
-      <path
-        stroke-width="2.2"
-        d="M12 3.3v1.6M12 19.1v1.6M3.3 12h1.6M19.1 12h1.6M6.3 6.3l1.1 1.1M16.6 16.6l1.1 1.1M17.7 6.3l-1.1 1.1M7.4 16.6l-1.1 1.1"
-      />
+      <path d="M4 7h16M4 12h16M4 17h16" />
     </svg>`,
   // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
   // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。
