@@ -205,14 +205,13 @@ export class SettingsMenu {
   /** 「見た目の設定」区画(issue #154)。中身(柄・形のピッカー)は個人・共有
    *  タブで異なる(FrameColorSelector相当/AppearanceSelector)ため、このクラス
    *  自身は持たず、main.tsがgetAppearanceSlot()経由で差し込む——テンプレート
-   *  区画と同じ、置き場所だけを提供するパターン。 */
+   *  区画と同じ、置き場所だけを提供するパターン。区画自体の見出し(「見た目の
+   *  設定」)は付けない——差し込まれる中身自身が「フレームの形」「フレームの
+   *  色」という自分の見出しを既に持っており、二重に見えて冗長だったため
+   *  （ユーザー指摘）。 */
   private buildAppearanceSection(): HTMLElement {
     const section = document.createElement("div");
     section.className = "shared-menu-section";
-    const label = document.createElement("div");
-    label.className = "shared-section-label";
-    label.textContent = "見た目の設定";
-    section.appendChild(label);
 
     this.appearanceSlot = document.createElement("div");
     section.appendChild(this.appearanceSlot);
