@@ -16,11 +16,17 @@ const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
 /** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
- *  "sepia"/"indigo"/"matcha"はOSに存在しない追加テーマ(issue #138)のため、
- *  "system"では選ばれず、明示的に選んだ時だけ固定される。 */
-export type ThemePreference = "system" | "light" | "dark" | "sepia" | "indigo" | "matcha";
+ *  "sky"（水色プリセット）・"custom"（好きな色を選ぶ、issue #138）はOSに存在
+ *  しないパステルテーマのため、"system"では選ばれず、明示的に選んだ時だけ
+ *  固定される——色トークンの計算はtheme.ts参照。"custom"の実際の色は
+ *  themePreference自体ではなくCUSTOM_THEME_COLOR_KEY（下記）に別途持つ。 */
+export type ThemePreference = "system" | "light" | "dark" | "sky" | "custom";
 const DEFAULT_THEME: ThemePreference = "system";
-const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "sepia", "indigo", "matcha"]);
+const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "sky", "custom"]);
+const CUSTOM_THEME_COLOR_KEY = "customThemeColor";
+/** カラーパレットを一度も開いていない状態での初期選択色（水色寄り）。 */
+const DEFAULT_CUSTOM_THEME_COLOR = "#7dd3fc";
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -190,4 +196,20 @@ export function loadThemePreference(): ThemePreference {
 
 export function saveThemePreference(pref: ThemePreference): void {
   localStorage.setItem(THEME_KEY, pref);
+}
+
+/** テーマ「好きな色を選ぶ」（settingsMenu.tsのカラーパレット、issue #138）で
+ *  最後に選んだ色。#rrggbb形式の文字列のみ受け付ける——不正な値・未設定の間は
+ *  DEFAULT_CUSTOM_THEME_COLORへフォールバックする。 */
+export function loadCustomThemeColor(): string {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEME_COLOR_KEY);
+    return raw !== null && HEX_COLOR_PATTERN.test(raw) ? raw : DEFAULT_CUSTOM_THEME_COLOR;
+  } catch {
+    return DEFAULT_CUSTOM_THEME_COLOR;
+  }
+}
+
+export function saveCustomThemeColor(hex: string): void {
+  localStorage.setItem(CUSTOM_THEME_COLOR_KEY, hex);
 }

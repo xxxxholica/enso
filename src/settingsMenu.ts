@@ -5,32 +5,30 @@ import { ICONS } from "./icons";
 import type { ThemePreference } from "./storage";
 import { openUsageGuide } from "./usageGuide";
 
-// sepia/indigo/matchaはOSのprefers-color-schemeに存在しない追加テーマ
-// (issue #138)のため、system/light/darkの3つと区別できるよう並びの後ろに置く。
-const THEME_ORDER: ThemePreference[] = ["system", "light", "dark", "sepia", "indigo", "matcha"];
+// "custom"（好きな色を選ぶ）は固定の1色を持たないため、ここには含めず
+// カラーパレット用のスワッチとして別に扱う（constructor参照）。
+const THEME_ORDER: ("system" | "light" | "dark" | "sky")[] = ["system", "light", "dark", "sky"];
 // テーマ選択は雫・葉のような形のアイコンではなく、道具バーのインク色スワッチ
 // （.toolbar-swatch、円形に色を塗りつぶすだけの見た目）と同じ形式にする
 // （ユーザー指摘：形で意味を持たせるのではなく、実際にそのテーマがどんな色味かを
 // そのまま見せてほしい）。値はそのテーマの--paper-1（カード等の背景）と同じ
 // oklchをそのまま使う——CSS変数は今のテーマでしか参照できないため、他のテーマの
-// 色を見せるスワッチにはstyle.css側の値をここに直接コピーする必要がある。
+// 色を見せるスワッチにはstyle.css/theme.ts側の値をここに直接コピーする必要がある。
 // "system"だけは単色を持たないため、ライト/ダークの--paper-1を斜めに割った
-// グラデーションで表す。
-const THEME_SWATCH_BACKGROUND: Record<ThemePreference, string> = {
+// グラデーションで表す。"sky"はtheme.tsのSKY_HUE(=220度)をパステルの
+// レシピ(buildPastelThemeVars)に通した時のpaper-1と同じ値。
+const THEME_SWATCH_BACKGROUND: Record<"system" | "light" | "dark" | "sky", string> = {
   system: "linear-gradient(135deg, oklch(98% 0.005 75) 50%, oklch(35% 0.007 75) 50%)",
   light: "oklch(98% 0.005 75)",
   dark: "oklch(35% 0.007 75)",
-  sepia: "oklch(95% 0.022 70)",
-  indigo: "oklch(30% 0.04 262)",
-  matcha: "oklch(96% 0.022 128)",
+  sky: "oklch(97% 0.015 220)",
 };
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: "自動（端末の設定に従う）",
   light: "ライト",
   dark: "ダーク",
-  sepia: "セピア",
-  indigo: "藍",
-  matcha: "抹茶",
+  sky: "水色",
+  custom: "好きな色を選ぶ",
 };
 
 /**
@@ -61,7 +59,13 @@ export class SettingsMenu {
 
   private theme: ThemePreference;
   private onThemeChange: (pref: ThemePreference) => void;
+  private onCustomColorChange: (hex: string) => void;
   private themeButtons = new Map<ThemePreference, HTMLButtonElement>();
+  /** カラーパレット（好きな色を選ぶ、issue #138）。道具バーのカスタムインク
+   *  スワッチ（toolbar.ts）と同じ、円形ボタンの中に透明な<input type="color">
+   *  を重ねて置く形——ボタンをクリックするとネイティブのカラーピッカーが開く。 */
+  private customColorInput!: HTMLInputElement;
+  private customSwatchBtn!: HTMLButtonElement;
   private accountSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
@@ -75,12 +79,15 @@ export class SettingsMenu {
   constructor(
     container: HTMLElement,
     initialTheme: ThemePreference,
+    initialCustomColor: string,
     onThemeChange: (pref: ThemePreference) => void,
+    onCustomColorChange: (hex: string) => void,
     getExportSource: () => ExportSource | null,
     onOpenTemplatePicker: () => void
   ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
+    this.onCustomColorChange = onCustomColorChange;
     this.onOpenTemplatePicker = onOpenTemplatePicker;
 
     this.anchor = document.createElement("div");
@@ -120,6 +127,41 @@ export class SettingsMenu {
       this.themeButtons.set(pref, btn);
       themeRow.appendChild(btn);
     }
+
+    // カラーパレット（好きな色を選ぶ、issue #138）。道具バーの「好きな色」
+    // スワッチ（toolbar.ts）と全く同じ仕組み——透明な<input type="color">を
+    // ボタンの上に重ね、ボタンのクリックをそのままネイティブのカラー
+    // ピッカーへ橋渡しする。選ぶたびにtheme.tsが色相だけを取り出し、
+    // パステルな配色一式(sky/customと同じレシピ)を組み立てて適用する。
+    this.customColorInput = document.createElement("input");
+    this.customColorInput.type = "color";
+    this.customColorInput.value = initialCustomColor;
+    this.customColorInput.className = "toolbar-color-input";
+    this.customColorInput.setAttribute("aria-label", THEME_LABEL.custom);
+    this.customColorInput.addEventListener("input", () => {
+      const hex = this.customColorInput.value;
+      this.customSwatchBtn.style.background = hex;
+      this.onCustomColorChange(hex);
+      if (this.theme !== "custom") {
+        this.theme = "custom";
+        this.syncTheme();
+        this.onThemeChange("custom");
+      }
+    });
+
+    this.customSwatchBtn = document.createElement("button");
+    this.customSwatchBtn.type = "button";
+    this.customSwatchBtn.className = "toolbar-swatch";
+    this.customSwatchBtn.style.background = initialCustomColor;
+    this.customSwatchBtn.setAttribute("aria-label", THEME_LABEL.custom);
+    this.customSwatchBtn.appendChild(this.customColorInput);
+    this.customSwatchBtn.addEventListener("click", (ev) => {
+      if (ev.target === this.customColorInput) return;
+      this.customColorInput.click();
+    });
+    this.themeButtons.set("custom", this.customSwatchBtn);
+    themeRow.appendChild(this.customSwatchBtn);
+
     themeSection.appendChild(themeRow);
     this.popover.appendChild(themeSection);
 
