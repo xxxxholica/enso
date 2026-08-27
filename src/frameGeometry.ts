@@ -56,7 +56,7 @@ export class FrameGeometry {
   private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
   /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
    *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
-  private frameStrokeWidth = 1;
+  private frameStrokeWidthValue = 1;
   private frameKindValue: "single" | "glasses";
   private framePatternId: FramePatternId;
   private minCanvasSizePx: number | undefined;
@@ -117,6 +117,10 @@ export class FrameGeometry {
 
   get scale(): number {
     return this.scaleValue;
+  }
+
+  get frameStrokeWidthPx(): number {
+    return this.frameStrokeWidthValue;
   }
 
   get centerPx(): Point {
@@ -228,11 +232,21 @@ export class FrameGeometry {
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
       // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
       // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
-      // 「確定済みの実寸」を基準にする。
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceHeight);
+      // 「確定済みの実寸」を基準にする。ただしreferenceHeightそのものは、
+      // レンズ分割(issue #79)で複数組を縦に並べた全体の高さ——参加人数が
+      // 増えて組数が増えるほど大きくなってしまい、それを基準にすると
+      // 参加人数が増えるだけで個々のフレームの縁取りが太く＝大きく見える
+      // 不具合があった（issue #113②、ユーザー報告）。縁取りの太さは常に
+      // 「組数1（通常時）としての基準サイズ」で決め、複数組を並べる分の
+      // 拡張はscale側（下のcomputeAutoScale、実際のouterX/outerYを使う）
+      // だけに反映させることで、個々のフレームの大きさを参加人数に依らず
+      // 一定に保つ。
+      const singlePairAspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
+      const { height: singlePairReferenceHeight } = computeRectSize(this.container, singlePairAspectRatio);
+      this.frameStrokeWidthValue = this.resolveFrameStrokeWidth(singlePairReferenceHeight);
       const scale = Math.min(
-        computeAutoScale(referenceWidth, outerX, this.frameStrokeWidth),
-        computeAutoScale(referenceHeight, outerY, this.frameStrokeWidth)
+        computeAutoScale(referenceWidth, outerX, this.frameStrokeWidthValue),
+        computeAutoScale(referenceHeight, outerY, this.frameStrokeWidthValue)
       );
       this.canvas.style.width = `${containerSize.width}px`;
       this.canvas.style.height = `${containerSize.height}px`;
@@ -250,7 +264,7 @@ export class FrameGeometry {
           ? computeSquareSize(this.container, this.minCanvasSizePx)
           : computeSquareSize(this.container);
       const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
-      this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceSize);
+      this.frameStrokeWidthValue = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(
         this.canvas,
         this.container,
@@ -292,13 +306,13 @@ export class FrameGeometry {
     // することで両側にframeStrokeWidth/2ずつ広がっていたため、offsetは半分で
     // 良かった——fill方式に変えた際にこの半分だけ残ってしまっており、縁取りが
     // 本来の半分の太さしかなくなっていた。ユーザー指摘）。
-    const offset = this.frameStrokeWidth;
+    const offset = this.frameStrokeWidthValue;
     if (this.frameKindValue === "glasses") {
       // 「接合部をフレームと同じ太さに」（ユーザー指示）: ブリッジの半分の高さを
       // frameStrokeWidth（px）から今のscaleで正規化単位に逆算し、buildPathに
       // 渡す——buildPath自体は固定のデフォルト値ではなく、この値でブリッジの
       // 切り欠き位置を決める。
-      this.glassesBridgeHalfHeight = this.frameStrokeWidth / 2 / this.scaleValue;
+      this.glassesBridgeHalfHeight = this.frameStrokeWidthValue / 2 / this.scaleValue;
       this.framePathValue = shape.buildPath(this.scaleValue, this.glassesBridgeHalfHeight, 0);
       this.strokePathValue = shape.buildPath(this.scaleValue, this.glassesBridgeHalfHeight, offset);
     } else {
@@ -357,7 +371,7 @@ export class FrameGeometry {
    *  流用していたが、fillベースの新方式では値が合わずヒンジが縁から離れて
    *  見えてしまっていた（ユーザー指摘）。
    *
-   *  タブの大きさはthis.frameStrokeWidth（ウィンドウサイズに応じて動的に
+   *  タブの大きさはthis.frameStrokeWidthValue（ウィンドウサイズに応じて動的に
    *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
    *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
    *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
@@ -366,7 +380,7 @@ export class FrameGeometry {
     shape: FrameShape,
     style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
   ): void {
-    const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidth;
+    const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
     const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
     const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
     const tabRadius = this.scaleValue * GLASSES_HINGE_TAB_RADIUS;
@@ -400,7 +414,7 @@ export class FrameGeometry {
     style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
   ): void {
     const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeIdValue, this.glassesBridgeHalfHeight);
-    const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
+    const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidthValue;
     ctx.fillStyle = style;
     ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
   }

@@ -48,14 +48,24 @@ export class SettingsMenu {
   private themeButtons = new Map<ThemePreference, HTMLButtonElement>();
   private accountSlot!: HTMLElement;
 
+  private onOpenTemplatePicker: () => void;
+  /** 「テンプレート」区画本体。共有タブでは出さない（issue #79ユーザー指示：
+   *  テンプレート挿入は個人キャンバス専用で、選ぶ画面自体もタブ切り替え不可の
+   *  全画面の幕のため、開いた時点のタブが「今表示中の画面」として固定される）
+   *  ため、main.ts側のsetView()からsetTemplateSectionVisible()経由で
+   *  画面切り替えのたび出し分ける。 */
+  private templateSection!: HTMLElement;
+
   constructor(
     container: HTMLElement,
     initialTheme: ThemePreference,
     onThemeChange: (pref: ThemePreference) => void,
-    getExportSource: () => ExportSource | null
+    getExportSource: () => ExportSource | null,
+    onOpenTemplatePicker: () => void
   ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
+    this.onOpenTemplatePicker = onOpenTemplatePicker;
 
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
@@ -94,6 +104,7 @@ export class SettingsMenu {
     themeSection.appendChild(themeRow);
     this.popover.appendChild(themeSection);
 
+    this.popover.appendChild(this.buildTemplateSection());
     this.popover.appendChild(this.buildUsageSection());
     this.popover.appendChild(new ExportSection(getExportSource, () => this.close()).element);
     this.popover.appendChild(this.buildAccountSection());
@@ -102,6 +113,32 @@ export class SettingsMenu {
     container.appendChild(this.anchor);
 
     this.syncTheme();
+  }
+
+  /** 「＋テンプレートを使用」（全画面のテンプレート選択、templatePicker.ts）を開く。
+   *  空キャンバス中央の案内・道具バーと、目立たせる位置をいくつか試した末に、
+   *  常設の操作というより頻度の低い呼び出しとして設定メニューへ落ち着けた
+   *  （ユーザー指示）。テーマ行・使い方と同じ.shared-menu-section/
+   *  .shared-section-labelパターンで区切る。 */
+  private buildTemplateSection(): HTMLElement {
+    const section = document.createElement("div");
+    section.className = "shared-menu-section";
+    const label = document.createElement("div");
+    label.className = "shared-section-label";
+    label.textContent = "テンプレート";
+    section.appendChild(label);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pill-btn settings-template-btn";
+    btn.textContent = "テンプレートを使用";
+    btn.addEventListener("click", () => {
+      this.close();
+      this.onOpenTemplatePicker();
+    });
+    section.appendChild(btn);
+    this.templateSection = section;
+    return section;
   }
 
   /** ヘッダーに独立してあった「使い方」ボタン（main.ts）をここに統合。
@@ -151,6 +188,13 @@ export class SettingsMenu {
   /** mountAccountWidget()の描画先。main.ts側で、このインスタンスの生成後に呼ぶ。 */
   getAccountSlot(): HTMLElement {
     return this.accountSlot;
+  }
+
+  /** 共有タブでは「テンプレート」区画を出さない（issue #79ユーザー指示）。
+   *  設定メニュー自体はキャンバス・共有どちらのタブからも開けるため、
+   *  main.tsのsetView()から画面切り替えのたび呼んで出し分ける。 */
+  setTemplateSectionVisible(visible: boolean): void {
+    this.templateSection.hidden = !visible;
   }
 
   private toggle(): void {
