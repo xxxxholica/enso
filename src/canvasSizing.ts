@@ -50,10 +50,13 @@ export function computeSquareSize(
  * サイズ（computeSquareSize）とは別の値で、両者はfitCanvasToContainerで
  * 組み合わせる。
  */
-export function computeContainerSize(container: HTMLElement): { width: number; height: number } {
+export function computeContainerSize(
+  container: HTMLElement,
+  minSize: number = MIN_CANVAS_SIZE
+): { width: number; height: number } {
   const rect = container.getBoundingClientRect();
-  const width = Math.max(MIN_CANVAS_SIZE, rect.width);
-  const height = Math.max(MIN_CANVAS_SIZE, rect.height || rect.width);
+  const width = Math.max(minSize, rect.width);
+  const height = Math.max(minSize, rect.height || rect.width);
   return { width, height };
 }
 
@@ -138,7 +141,10 @@ export function computeRectSize(container: HTMLElement, aspectRatio: number): { 
  * ——見えている帯の間（ヘッダー下端〜フッター上端）のちょうど中央に円が
  * 来るようにするための量。ヘッダー/フッターが存在しない文脈（使い方ガイドの
  * 練習用サンドボックス等）では0を返す。 */
-export function computeChromeCenterOffsetY(): number {
+export function computeChromeCenterOffsetY(container?: HTMLElement): number {
+  // 使い方ガイド内の練習キャンバスはアプリ本体のヘッダー・フッターに挟まれた
+  // レイアウトではないため、本体向けの上方向補正を適用しない。
+  if (container?.closest(".usage-guide")) return 0;
   const header = document.querySelector<HTMLElement>(".app-header");
   const footer = document.querySelector<HTMLElement>(".app-footer");
   if (!header || !footer) return 0;

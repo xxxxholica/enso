@@ -2364,7 +2364,7 @@ body[data-view="shared"] #duration-slot {
   margin-top: var(--space-4);
 }
 
-/* min-heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
+/* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
    出た後の「振り返る」「done」手順）の実測ぶんの高さに、フォントの描画差
    ぶんの余裕を足した値。これを全ページ・全手順共通の下限に揃え、それより
    低い序・結・練の他の手順ではjustify-content:centerで余った縦のすき間に
@@ -2374,7 +2374,8 @@ body[data-view="shared"] #duration-slot {
    への刷新でページ内の要素構成が変わったため、この下限も実測し直してある
    ——以前は「みる」手順（スライダーが出る前）だけを基準に600px、その後
    スライダー追加で700pxまで引き上げていたが、今の練習パートはより
-   コンパクトな構成のため520pxに収まる。
+   円の拡大後も含めて620pxに収まる。高さを固定することで、手順ごとの文章量や
+   スライダーの有無によってモーダル全体が微妙に伸び縮みするのを防ぐ。
    min()の右側（calc(100dvh - 200px)）は、床面自体がヘッダー等を含めた
    モーダル全体をmax-height（.usage-guide-sheet、100dvh-48px）より高くして
    しまい、結果としてスクロールが必要になる（ユーザー報告：ウィンドウの
@@ -2390,9 +2391,18 @@ body[data-view="shared"] #duration-slot {
   justify-content: center;
   gap: var(--space-4);
   text-align: center;
-  min-height: min(520px, calc(100dvh - 200px));
+  height: min(620px, calc(100dvh - 200px));
+  min-height: 0;
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
+}
+
+/* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の
+   高さが変わるたび、見出しと円まで上下に動いてしまう。練習だけ上端を基準に置き、
+   状態変化は円より下の領域で吸収する。 */
+.usage-guide-page--practice {
+  justify-content: flex-start;
+  padding-top: 0;
 }
 
 .usage-guide-page-content {

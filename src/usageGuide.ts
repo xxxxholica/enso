@@ -164,7 +164,7 @@ class UsageGuide {
 
   private buildPracticePage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page";
+    el.className = "usage-guide-page usage-guide-page--practice";
 
     const sandboxRoot = document.createElement("div");
     // 見出しのタイトルは固定文言ではなく、今の手順の内容に合わせて

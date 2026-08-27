@@ -224,7 +224,7 @@ export class FrameGeometry {
       const outerY = Math.max(...pairCenters.map((c) => Math.abs(c.y))) + GLASSES_VERTICAL_REACH;
       const aspectRatio = outerX / outerY;
       const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
-      const containerSize = computeContainerSize(this.container);
+      const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
       // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
       // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
@@ -241,7 +241,7 @@ export class FrameGeometry {
       this.scaleValue = scale;
       this.centerPxValue = {
         x: containerSize.width / 2,
-        y: containerSize.height / 2 - computeChromeCenterOffsetY(),
+        y: containerSize.height / 2 - computeChromeCenterOffsetY(this.container),
       };
       this.lensSplitPairCentersValue = this.lensSplitPairCountValue !== null ? pairCenters : null;
     } else {
@@ -249,7 +249,7 @@ export class FrameGeometry {
         this.minCanvasSizePx !== undefined
           ? computeSquareSize(this.container, this.minCanvasSizePx)
           : computeSquareSize(this.container);
-      const containerSize = computeContainerSize(this.container);
+      const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
       this.frameStrokeWidth = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(
         this.canvas,
@@ -260,7 +260,7 @@ export class FrameGeometry {
         containerSize
       );
       this.scaleValue = scale;
-      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY() };
+      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY(this.container) };
       this.lensSplitPairCentersValue = null;
     }
     this.rebuildFramePaths();
