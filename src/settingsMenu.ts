@@ -7,27 +7,24 @@ import { openUsageGuide } from "./usageGuide";
 
 // "custom"（好きな色を選ぶ）は固定の1色を持たないため、ここには含めず
 // カラーパレット用のスワッチとして別に扱う（constructor参照）。
-const THEME_ORDER: ("system" | "light" | "dark" | "sky")[] = ["system", "light", "dark", "sky"];
+const THEME_ORDER: ("system" | "light" | "dark")[] = ["system", "light", "dark"];
 // テーマ選択は雫・葉のような形のアイコンではなく、道具バーのインク色スワッチ
 // （.toolbar-swatch、円形に色を塗りつぶすだけの見た目）と同じ形式にする
 // （ユーザー指摘：形で意味を持たせるのではなく、実際にそのテーマがどんな色味かを
 // そのまま見せてほしい）。値はそのテーマの--paper-1（カード等の背景）と同じ
 // oklchをそのまま使う——CSS変数は今のテーマでしか参照できないため、他のテーマの
-// 色を見せるスワッチにはstyle.css/theme.ts側の値をここに直接コピーする必要がある。
+// 色を見せるスワッチにはstyle.css側の値をここに直接コピーする必要がある。
 // "system"だけは単色を持たないため、ライト/ダークの--paper-1を斜めに割った
-// グラデーションで表す。"sky"はtheme.tsのSKY_HUE(=220度)をパステルの
-// レシピ(buildPastelThemeVars)に通した時のpaper-1と同じ値。
-const THEME_SWATCH_BACKGROUND: Record<"system" | "light" | "dark" | "sky", string> = {
+// グラデーションで表す。
+const THEME_SWATCH_BACKGROUND: Record<"system" | "light" | "dark", string> = {
   system: "linear-gradient(135deg, oklch(98% 0.005 75) 50%, oklch(35% 0.007 75) 50%)",
   light: "oklch(98% 0.005 75)",
   dark: "oklch(35% 0.007 75)",
-  sky: "oklch(97% 0.015 220)",
 };
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: "自動（端末の設定に従う）",
   light: "ライト",
   dark: "ダーク",
-  sky: "水色",
   custom: "好きな色を選ぶ",
 };
 /** カラーパレット（好きな色を選ぶ）のプレビュースワッチに使う色。実際に
@@ -164,7 +161,7 @@ export class SettingsMenu {
     // <input type="range">に虹色のグラデーションを描くだけで、ドラッグ・
     // タップ・キーボード操作（矢印キー）が素のまま使える。値は0〜360度の
     // OKLCH色相のみで、選ぶたびにtheme.tsのbuildPastelThemeVarsがパステルな
-    // 配色一式(sky/customと同じレシピ)を組み立てて適用する。
+    // 配色一式を組み立てて適用する。
     this.hueSlider = document.createElement("input");
     this.hueSlider.type = "range";
     this.hueSlider.min = "0";

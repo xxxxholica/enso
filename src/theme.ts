@@ -7,20 +7,18 @@ import type { ThemePreference } from "./storage";
  * 更新するだけで、色の値そのものは持たない）。"system"はdata-theme属性を外す
  * ——style.css側の@media(prefers-color-scheme)がOSの設定に従って自動で切り替わる。
  *
- * "sky"（水色プリセット）・"custom"（好きな色を選ぶ、issue #138）はこれとは別で、
- * 色相からパステルな配色一式を導き出す必要があるため、CSSの固定値では表現
- * できない——buildPastelThemeVars()でink-* や paper-*等をその場で計算し、
- * :rootへinline styleとして直接設定する。customHueはpref==="custom"の時だけ
- * 使う（他のprefでは無視してよい）。settingsMenu.tsのカラーパレットはRGB値を
+ * "custom"（好きな色を選ぶ、issue #138）はこれとは別で、色相からパステルな
+ * 配色一式を導き出す必要があるため、CSSの固定値では表現できない——
+ * buildPastelThemeVars()でink-* や paper-*等をその場で計算し、:rootへ
+ * inline styleとして直接設定する。settingsMenu.tsのカラーパレットはRGB値を
  * 直接扱わない横1本の色相スライダー（Chromeのテーマ設定と同じ見た目、ユーザー
  * 指示）のため、ここで受け取るのも0〜360度の数値のみで、色そのもの（#rrggbb等）
  * は一切経由しない。
  */
 export function applyTheme(pref: ThemePreference, customHue?: number): void {
   const root = document.documentElement;
-  if (pref === "sky" || pref === "custom") {
-    const hue = pref === "custom" ? (customHue ?? SKY_HUE) : SKY_HUE;
-    applyPastelThemeVars(hue);
+  if (pref === "custom") {
+    applyPastelThemeVars(customHue ?? CUSTOM_HUE_FALLBACK);
     root.dataset.theme = pref;
     return;
   }
@@ -32,11 +30,11 @@ export function applyTheme(pref: ThemePreference, customHue?: number): void {
   }
 }
 
-/** 「水色」プリセットの色相（OKLCH、度）。カラーパレットの初期値
- *  （storage.tsのDEFAULT_CUSTOM_THEME_HUE）とも揃えてある。 */
-const SKY_HUE = 220;
+/** customHueが未指定の場合の色相フォールバック（OKLCH、度）。storage.tsの
+ *  DEFAULT_CUSTOM_THEME_HUEと揃えてある（水色寄り）。 */
+const CUSTOM_HUE_FALLBACK = 220;
 
-/** パステルテーマ(sky/custom)で使うink-* / paper-* / rule-lineのCSSカスタム
+/** パステルテーマ(custom)で使うink-* / paper-* / rule-lineのCSSカスタム
  *  プロパティ名一覧。適用時はここに値を設定し、他のテーマへ切り替える時は
  *  ここを:root上から取り除く（inline styleはスタイルシートの値より常に優先
  *  されてしまうため、消し忘れると他のテーマにまで色が残ってしまう）。 */

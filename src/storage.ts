@@ -16,19 +16,19 @@ const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
 /** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
- *  "sky"（水色プリセット）・"custom"（好きな色を選ぶ、issue #138）はOSに存在
- *  しないパステルテーマのため、"system"では選ばれず、明示的に選んだ時だけ
- *  固定される——色トークンの計算はtheme.ts参照。"custom"の実際の色相は
- *  themePreference自体ではなくCUSTOM_THEME_HUE_KEY（下記）に別途持つ。 */
-export type ThemePreference = "system" | "light" | "dark" | "sky" | "custom";
+ *  "custom"（好きな色を選ぶ、issue #138）はOSに存在しないパステルテーマの
+ *  ため、"system"では選ばれず、明示的に選んだ時だけ固定される——色トークンの
+ *  計算はtheme.ts参照。実際の色相はthemePreference自体ではなく
+ *  CUSTOM_THEME_HUE_KEY（下記）に別途持つ。 */
+export type ThemePreference = "system" | "light" | "dark" | "custom";
 const DEFAULT_THEME: ThemePreference = "system";
-const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "sky", "custom"]);
+const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "custom"]);
 const CUSTOM_THEME_HUE_KEY = "customThemeHue";
 /** カラーパレット（Chromeのテーマ設定のような横バー1本の色相スライダー、
- *  issue #138）をまだ一度も操作していない状態での初期値（水色寄り、theme.ts
- *  のSKY_HUEと同じ）。RGB値を直接扱わず、OKLCHの色相(0〜360度)だけを保持する
- *  ——このアプリのパステル配色は色相だけから機械的に導き出すため(theme.ts
- *  のbuildPastelThemeVars参照)、明度・彩度まで保持する必要が無い。 */
+ *  issue #138）をまだ一度も操作していない状態での初期値（水色寄り）。RGB値を
+ *  直接扱わず、OKLCHの色相(0〜360度)だけを保持する——このアプリのパステル
+ *  配色は色相だけから機械的に導き出すため(theme.tsのbuildPastelThemeVars
+ *  参照)、明度・彩度まで保持する必要が無い。 */
 const DEFAULT_CUSTOM_THEME_HUE = 220;
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {

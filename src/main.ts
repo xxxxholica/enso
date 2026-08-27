@@ -27,7 +27,7 @@ import {
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
 
-// テーマ（自動/ライト/ダーク/水色/好きな色）は、他の何よりも先に適用する——
+// テーマ（自動/ライト/ダーク/好きな色）は、他の何よりも先に適用する——
 // 後回しにすると一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」
 // が見えるため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
 applyTheme(loadThemePreference(), loadCustomThemeHue());
