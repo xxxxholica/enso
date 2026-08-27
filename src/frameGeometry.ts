@@ -23,11 +23,22 @@ import type { FramePatternId } from "./framePattern";
 import { chooseLensSplitDirection, computeLensPairCenters } from "./lensSplit";
 import type { Point } from "./types";
 
+/** 片眼鏡（frameKind==="monocle"、実験中）のチェーンの見た目。ヒンジタブ
+ *  （drawHingeTabs、frameShape.tsのGLASSES_HINGE_TAB_*）の下端から垂らす
+ *  ——タブ自体は残したまま、そこからチェーンを伸ばすイメージ（ユーザー指示）。
+ *  真下へ直線に9輪連ねる（ユーザー指示：3輪→9輪、左右に揺らさず垂直に）。
+ *  scale基準（正規化単位）の値——drawMonocleChain参照。 */
+const MONOCLE_CHAIN_LINK_COUNT = 9;
+const MONOCLE_CHAIN_LINK_RADIUS = 0.045;
+const MONOCLE_CHAIN_LINK_SPACING = 0.09;
+const MONOCLE_CHAIN_LINE_WIDTH = 0.018;
+/** フレームの柄・質感（"フレームなし"だと紙と同じ白）から独立した固定色。 */
+const MONOCLE_CHAIN_COLOR = "oklch(35% 0.02 55)";
+
 export interface FrameGeometryOptions {
   frameShapeId: FrameShapeId;
-  frameStrokeColor: string;
   frameStrokeWidth: number | ((canvasSizePx: number) => number);
-  frameKind: "single" | "glasses";
+  frameKind: "single" | "glasses" | "monocle";
   framePatternId: FramePatternId;
   contentScaleFactor?: number | ((size: number) => number);
   /** computeSquareSizeの下限をMIN_CANVAS_SIZE(200px)から差し替える。
@@ -53,12 +64,11 @@ export class FrameGeometry {
   private centerPxValue: Point = { x: 0, y: 0 };
   private contentScaleFactor: number | ((size: number) => number) | undefined;
   private frameShapeIdValue: FrameShapeId;
-  private frameStrokeColor: string;
   private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
   /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
    *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
   private frameStrokeWidthValue = 1;
-  private frameKindValue: "single" | "glasses";
+  private frameKindValue: "single" | "glasses" | "monocle";
   private framePatternId: FramePatternId;
   private minCanvasSizePx: number | undefined;
   /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
@@ -66,9 +76,8 @@ export class FrameGeometry {
    *  では使い回す——Path2Dの構築自体は軽くないため。 */
   private framePathValue: Path2D = new Path2D();
   private strokePathValue: Path2D = new Path2D();
-  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKind==="glasses"の時だけ
-   *  framePatternIdから組み立てる（"single"はframeStrokeColorそのまま）。
-   *  rebuildFramePaths()と同じタイミングで組み立て直す。 */
+  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKindに関わらずframePatternId
+   *  から組み立てる。rebuildFramePaths()と同じタイミングで組み立て直す。 */
   private frameStyleValue: CanvasPattern | CanvasGradient | string = "";
   /** ブリッジ（接合部）の半分の高さ（scale基準、正規化単位）。frameKind==="glasses"
    *  の時だけ意味を持つ——「接合部をフレームと同じ太さにする」（ユーザー指示）ため、
@@ -129,7 +138,6 @@ export class FrameGeometry {
     this.container = container;
     this.dpr = dpr;
     this.frameShapeIdValue = options.frameShapeId;
-    this.frameStrokeColor = options.frameStrokeColor;
     this.frameStrokeWidthOption = options.frameStrokeWidth;
     this.frameKindValue = options.frameKind;
     this.framePatternId = options.framePatternId;
@@ -203,7 +211,7 @@ export class FrameGeometry {
     return this.pairStrokePaths[pairIndex] ?? this.strokePathValue;
   }
 
-  get frameKind(): "single" | "glasses" {
+  get frameKind(): "single" | "glasses" | "monocle" {
     return this.frameKindValue;
   }
 
@@ -386,10 +394,10 @@ export class FrameGeometry {
       this.framePathValue = shape.buildPath(this.scaleValue);
       this.strokePathValue = shape.buildPath(this.scaleValue, undefined, offset);
     }
-    this.frameStyleValue =
-      this.frameKindValue === "glasses"
-        ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scaleValue * shape.horizontalReach)
-        : this.frameStrokeColor;
+    this.frameStyleValue = getFramePattern(this.framePatternId).buildStyle(
+      this.ctx,
+      this.scaleValue * shape.horizontalReach
+    );
     // レンズ分割時は、設定された柄を起点にFRAME_PATTERN_ORDERを組の数ぶん順送り
     // した柄一覧を組別に用意する——同じ柄が並び続けると見分けが付かず単調に
     // 見える(issue #79、ユーザー指摘)ため。単一表示(pairCount===null)では
@@ -454,7 +462,7 @@ export class FrameGeometry {
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
-   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+   *  frameKindに関わらず反映される（個人キャンバス/共有キャンバス共通）。 */
   setFramePattern(id: FramePatternId): void {
     this.framePatternId = id;
     this.resize();
@@ -476,18 +484,25 @@ export class FrameGeometry {
    *  タブの大きさはthis.frameStrokeWidthValue（ウィンドウサイズに応じて動的に
    *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
    *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
-   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
-  drawGlassesHinges(
+   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。
+   *
+   *  directions（既定は両側）は片眼鏡（frameKind==="monocle"、canvasView.ts参照）
+   *  向け——単一レンズの片側だけに、チェーン/つるの取り付け部を思わせるタブを
+   *  1つだけ出したいため、[1]や[-1]のように片方だけ渡せるようにしてある。
+   *  shape（FrameShape）はhorizontalReachさえ持っていればよく、"glasses"系・
+   *  "single"系のどちらの形状でも同じ計算式で成立する。 */
+  drawHingeTabs(
     ctx: CanvasRenderingContext2D,
     shape: FrameShape,
-    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue,
+    directions: readonly (1 | -1)[] = [1, -1]
   ): void {
     const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
     const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
     const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
     const tabRadius = this.scaleValue * GLASSES_HINGE_TAB_RADIUS;
 
-    for (const direction of [1, -1] as const) {
+    for (const direction of directions) {
       const innerX = direction * frameOuterEdge;
       const outerX = innerX + direction * tabLength;
       const left = Math.min(innerX, outerX);
@@ -496,6 +511,36 @@ export class FrameGeometry {
       ctx.roundRect(left, -tabHalfHeight, tabLength, tabHalfHeight * 2, tabRadius);
       ctx.fillStyle = style;
       ctx.fill();
+    }
+  }
+
+  /** 片眼鏡（frameKind==="monocle"、実験中）のチェーン。タブ（drawHingeTabs）
+   *  自体はそのまま残し、その下端から垂らす（ユーザー指示：出っ張りはそのまま
+   *  で、その下にチェーンを伸ばすイメージ）。フレームの柄・質感（frameStyle、
+   *  "フレームなし"だと紙と同じ白）とは独立した固定のインク色で描く——単色の
+   *  タブだけだと「フレームなし」の時に白い塊として見えづらくなってしまう
+   *  （ユーザー指摘）ため、フレームの見た目に関わらずチェーンだけは常に見える
+   *  ようにする。輪を9つ、左右に揺らさず真下へ直線に連ねる（ユーザー指示）
+   *  ——実物の鎖のような詳細な質感は持たせず、線画のインクの世界観に合わせた
+   *  単純な円の輪郭のみ（ユーザー指示：紙とインクの世界観、icons.ts参照）。 */
+  drawMonocleChain(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
+    const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
+    const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
+    const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
+    // タブ（drawHingeTabsが同じ位置に描く矩形）の水平中央・下端を鎖の起点にする。
+    const anchorX = frameOuterEdge + tabLength / 2;
+    const anchorY = tabHalfHeight;
+    const linkRadius = this.scaleValue * MONOCLE_CHAIN_LINK_RADIUS;
+    const linkSpacing = this.scaleValue * MONOCLE_CHAIN_LINK_SPACING;
+
+    ctx.strokeStyle = MONOCLE_CHAIN_COLOR;
+    ctx.lineWidth = Math.max(1, this.scaleValue * MONOCLE_CHAIN_LINE_WIDTH);
+    for (let i = 0; i < MONOCLE_CHAIN_LINK_COUNT; i++) {
+      const cx = anchorX;
+      const cy = anchorY + linkRadius + i * linkSpacing;
+      ctx.beginPath();
+      ctx.arc(cx, cy, linkRadius, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 

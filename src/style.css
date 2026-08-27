@@ -260,7 +260,13 @@ body {
      （ユーザー報告）、同じ値をここにも明示的に持たせる。 */
   touch-action: pan-x pan-y;
   display: flex;
-  align-items: center;
+  /* ワードマーク（.app-header-left）とview-nav（.app-header-right）は中身の
+     高さが違う（文字の一行 vs パディング付きボタン）ため、center（既定の
+     交差軸中央寄せ）のままだと互いの縦幅が揃わない（ユーザー指摘）。stretch
+     にして両方をこの行の高さいっぱいに広げ、それぞれの内側の
+     align-items:centerで中身を改めて中央寄せすることで、縦幅を揃えたまま
+     見た目は変えない。 */
+  align-items: stretch;
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
@@ -600,8 +606,7 @@ body[data-view="shared"] #duration-slot {
    以前は文字だけ＋不透明度差の簡素な見た目だったが、2択のトグルだと
    分かりやすい長方形のスイッチ（セグメントコントロール）に変えた
    （ユーザー指示）。外枠が背景を持ち、選択中の側だけさらに濃い背景で
-   浮き上がる——右の設定ボタン（.settings-trigger）も正円から正方形に
-   揃えて、この一角の見た目のトーンを合わせた（ユーザー指示）。 --- */
+   浮き上がる。 --- */
 
 .view-nav {
   display: flex;
@@ -933,22 +938,6 @@ body[data-view="shared"] #duration-slot {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
   pointer-events: auto;
-}
-
-/* --- ヘッダー（画面上部）に置くアイコンボタン用の向き違い。既定の.icon-popover
-   は下部バーのボタン上に開く前提で上向き(bottom:100%)になっているが、
-   ヘッダーでそのまま使うと画面外に開いてしまうため、下向きに変える
-   （共有ルームメニュー、sharedRoomMenu.ts）。 --- */
-.icon-popover--below {
-  top: 100%;
-  bottom: auto;
-  margin-top: 10px;
-  margin-bottom: 0;
-  transform: translateX(-50%) translateY(-6px);
-}
-
-.icon-popover--below.is-visible {
-  transform: translateX(-50%) translateY(0);
 }
 
 .toolbar-btn {
@@ -1681,9 +1670,11 @@ body[data-view="shared"] #duration-slot {
    縦に並べる——.shared-menu-section/.shared-section-labelを共有ルームメニュー
    と同じ区切りの見た目のまま流用するが、仕切り線(border-top)自体は
    .settings-popoverと同じ理由で打ち消す（ユーザー指示：区切り線をなくしたい）
-   ——余白(padding-top)は区画の区別として残す。 --- */
+   ——余白(padding-top)は区画の区別として残す。min-widthは他のメニュー
+   （.shared-room-popover/.session-panel-popover/.settings-popover）と同じ
+   260pxに揃える（ユーザー指摘：各メニューのサイズがまばら）。 --- */
 .appearance-popover {
-  min-width: 220px;
+  min-width: 260px;
   padding: 14px 16px;
 }
 
@@ -1711,14 +1702,14 @@ body[data-view="shared"] #duration-slot {
   font-weight: 600;
 }
 
-/* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
-   背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
-   他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。
-   文字を持たない（ユーザー指示）ため、他のpill-btnと違いwidth/heightを
-   固定してアイコンボタンにする。左のview-nav（画面切り替え）を正円/pillの
-   見た目から長方形のスイッチに変えたのに合わせ、こちらも正円から正方形へ
-   （border-radiusをview-navと同じ--radius-smに）変えてトーンを揃える
-   （ユーザー指示）。 --- */
+/* --- 設定（settingsMenu.ts）のトリガーボタン。各タブの.info-row最後尾に置く
+   （SettingsMenu.moveTo参照）——他のトリガー(.appearance-trigger等)と同じ
+   理由でトーンを個別に上書きする。文字を持たない（ユーザー指示）ため、
+   他のpill-btnと違いwidth/heightを固定してアイコンボタンにする。正円
+   （border-radius: var(--radius-full)、width/heightが等しいのでちょうど円に
+   なる）にして、同じ行に並ぶ.shared-room-trigger/.appearance-trigger/
+   .session-panel-trigger（いずれもpill形状）とトーンを揃える
+   （ユーザー指示：メニューのサイズがまばらでUXが悪い）。 --- */
 .settings-trigger {
   display: flex;
   align-items: center;
@@ -1726,7 +1717,7 @@ body[data-view="shared"] #duration-slot {
   width: 32px;
   height: 32px;
   padding: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   background: var(--paper-1);
 }
 
@@ -1742,6 +1733,19 @@ body[data-view="shared"] #duration-slot {
 
 .settings-trigger[data-active="true"] {
   background: var(--paper-3);
+}
+
+/* --- 共有タブの.info-row（ルーム作成・見た目の設定・セッション開始・設定）に
+   並ぶ4つのトリガーの高さを揃える（ユーザー指摘：メニューのサイズがまばらで
+   UXが悪い）。設定（アイコンのみ、正円）が32pxの固定サイズなので、文字を
+   持つ3つ（いずれも.pill-btn基準でパディングとフォントの高さぶんの27px
+   だった）をそこへ合わせる。個人キャンバス側にも同じ設定トリガーとフレーム
+   色トリガー（frameColorSelector.ts、.settings-triggerを流用）が並ぶため、
+   まとめてここで揃える。 --- */
+.shared-room-trigger,
+.appearance-trigger,
+.session-panel-trigger {
+  height: 32px;
 }
 
 /* --- 設定メニュー内の「PNG」「TXT」書き出しボタンを1行に並べる（ユーザー
@@ -1770,15 +1774,17 @@ body[data-view="shared"] #duration-slot {
   display: none;
 }
 
-/* --- アカウント区画の統合でヘッダー最右端の要素になったため、他の
+/* --- 設定ボタンは常に各.info-rowの最後尾（最右端）に置かれるため、他の
    .icon-popover（トリガーを中心に開く既定）と違い、右端をトリガーの右端に
    揃えて開く——中央寄せのままだと画面幅によらずポップオーバーの右側が
    常に画面外へはみ出してしまう（実測で確認済み）。
    区画数が増えて.shared-menu-sectionの仕切り線(border-top)が煩雑になった
    （ユーザー指示：区切り線をなくしたい）ため、このポップオーバー内に限り
-   線だけを打ち消す——余白(padding-top)は区画の区別として残す。 --- */
+   線だけを打ち消す——余白(padding-top)は区画の区別として残す。min-widthは
+   他のメニューと同じ260pxに揃える（ユーザー指摘：各メニューのサイズが
+   まばら）。 --- */
 .settings-popover {
-  min-width: 180px;
+  min-width: 260px;
   padding: 14px 16px;
   left: auto;
   right: 0;

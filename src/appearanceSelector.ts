@@ -2,7 +2,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { FRAME_SHAPE_ORDER, getFrameShape } from "./frameShape";
 import type { FrameShapeId } from "./frameShape";
-import { FRAME_PATTERN_ORDER, getFramePattern } from "./framePattern";
+import { buildFramePatternPicker } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { ICONS } from "./icons";
 
@@ -10,13 +10,6 @@ const SHAPE_ICON: Record<FrameShapeId, string> = {
   round: ICONS.shapeRound,
   oval: ICONS.shapeOval,
   square: ICONS.shapeSquare,
-};
-
-const PATTERN_ICON: Record<FramePatternId, string> = {
-  matte: ICONS.patternMatte,
-  tortoiseshell: ICONS.patternTortoiseshell,
-  clear: ICONS.patternClear,
-  wood: ICONS.patternWood,
 };
 
 /**
@@ -46,9 +39,8 @@ export class AppearanceSelector {
   private shapeId: FrameShapeId;
   private patternId: FramePatternId;
   private onShapeChange: (id: FrameShapeId) => void;
-  private onPatternChange: (id: FramePatternId) => void;
   private shapeButtons = new Map<FrameShapeId, HTMLButtonElement>();
-  private patternButtons = new Map<FramePatternId, HTMLButtonElement>();
+  private patternPicker!: ReturnType<typeof buildFramePatternPicker>;
 
   /** 「メガネ2」(レンズ分割の2組目)専用の値・コールバック(issue #113④)。
    *  「メガネ1」(shapeId/patternId)とは別に個別調整できる——タブ(pairTabRow)で
@@ -57,7 +49,6 @@ export class AppearanceSelector {
   private pair2ShapeId: FrameShapeId;
   private pair2PatternId: FramePatternId;
   private onPair2ShapeChange: (id: FrameShapeId) => void;
-  private onPair2PatternChange: (id: FramePatternId) => void;
   private activePair: 0 | 1 = 0;
   private pairTabRow: HTMLElement;
   private pairTabButtons = new Map<0 | 1, HTMLButtonElement>();
@@ -74,11 +65,9 @@ export class AppearanceSelector {
     this.shapeId = initialShapeId;
     this.patternId = initialPatternId;
     this.onShapeChange = onShapeChange;
-    this.onPatternChange = onPatternChange;
     this.pair2ShapeId = initialShapeId;
     this.pair2PatternId = initialPatternId;
     this.onPair2ShapeChange = onPair2ShapeChange;
-    this.onPair2PatternChange = onPair2PatternChange;
 
     this.anchor = document.createElement("div");
     this.anchor.className = "icon-anchor";
@@ -144,32 +133,25 @@ export class AppearanceSelector {
     shapeSection.appendChild(shapeRow);
     this.popover.appendChild(shapeSection);
 
-    const patternSection = document.createElement("div");
-    patternSection.className = "shared-menu-section";
-    const patternLabel = document.createElement("div");
-    patternLabel.className = "shared-section-label";
-    patternLabel.textContent = "フレームの色";
-    patternSection.appendChild(patternLabel);
-    const patternRow = document.createElement("div");
-    patternRow.className = "toolbar-pill";
-    for (const id of FRAME_PATTERN_ORDER) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "toolbar-btn";
-      btn.setAttribute("aria-label", getFramePattern(id).label);
-      btn.innerHTML = PATTERN_ICON[id];
-      btn.addEventListener("click", () => this.selectPattern(id));
-      this.patternButtons.set(id, btn);
-      patternRow.appendChild(btn);
-    }
-    patternSection.appendChild(patternRow);
-    this.popover.appendChild(patternSection);
+    // 「メガネ2」も同じピッカー(1個)を使い回す——タブ切り替え(selectPair)の
+    // たびにsetValue()で表示中の組の値に差し替える(syncShapeと同じやり方)。
+    // onSelectのコールバック自体はここで固定するが、中でthis.activePairを見て
+    // メガネ1/2どちらの値・コールバックを使うか毎回判定する。
+    this.patternPicker = buildFramePatternPicker(initialPatternId, (id) => {
+      if (this.activePair === 1) {
+        this.pair2PatternId = id;
+        onPair2PatternChange(id);
+        return;
+      }
+      this.patternId = id;
+      onPatternChange(id);
+    });
+    this.popover.appendChild(this.patternPicker.element);
 
     this.anchor.appendChild(this.popover);
     container.appendChild(this.anchor);
 
     this.syncShape();
-    this.syncPattern();
     this.syncPairTabs();
   }
 
@@ -201,7 +183,7 @@ export class AppearanceSelector {
     if (pairIndex === this.activePair) return;
     this.activePair = pairIndex;
     this.syncShape();
-    this.syncPattern();
+    this.patternPicker.setValue(pairIndex === 1 ? this.pair2PatternId : this.patternId);
     this.syncPairTabs();
   }
 
@@ -219,33 +201,10 @@ export class AppearanceSelector {
     this.onShapeChange(id);
   }
 
-  private selectPattern(id: FramePatternId): void {
-    if (this.activePair === 1) {
-      if (id === this.pair2PatternId) return;
-      this.pair2PatternId = id;
-      this.syncPattern();
-      this.onPair2PatternChange(id);
-      return;
-    }
-    if (id === this.patternId) return;
-    this.patternId = id;
-    this.syncPattern();
-    this.onPatternChange(id);
-  }
-
   private syncShape(): void {
     const currentShapeId = this.activePair === 1 ? this.pair2ShapeId : this.shapeId;
     for (const [id, btn] of this.shapeButtons) {
       const active = id === currentShapeId;
-      btn.setAttribute("aria-pressed", String(active));
-      btn.dataset.active = String(active);
-    }
-  }
-
-  private syncPattern(): void {
-    const currentPatternId = this.activePair === 1 ? this.pair2PatternId : this.patternId;
-    for (const [id, btn] of this.patternButtons) {
-      const active = id === currentPatternId;
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
@@ -267,7 +226,7 @@ export class AppearanceSelector {
    *  タブ切り替え自体はロック中も可能にする(他の組の設定を見られるように)。 */
   setLocked(locked: boolean): void {
     for (const [, btn] of this.shapeButtons) btn.disabled = locked;
-    for (const [, btn] of this.patternButtons) btn.disabled = locked;
+    this.patternPicker.setDisabled(locked);
   }
 
   /** 「メガネ2」タブ自体の表示/非表示(issue #113④)。共同アイデア出しフェーズ①で
@@ -291,7 +250,7 @@ export class AppearanceSelector {
     }
     if (patternId !== this.patternId) {
       this.patternId = patternId;
-      if (this.activePair === 0) this.syncPattern();
+      if (this.activePair === 0) this.patternPicker.setValue(patternId);
     }
   }
 
@@ -303,7 +262,7 @@ export class AppearanceSelector {
     }
     if (patternId !== this.pair2PatternId) {
       this.pair2PatternId = patternId;
-      if (this.activePair === 1) this.syncPattern();
+      if (this.activePair === 1) this.patternPicker.setValue(patternId);
     }
   }
 }
