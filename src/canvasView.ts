@@ -1051,6 +1051,8 @@ export class CircularCanvas {
     } else {
       this.store.redo(); // 3本以上はredo扱い（実機での余分な指の巻き込みに寛容にする）
     }
+    // undo()と同じ理由（そちらのコメント参照）で、書き込みセッションを打ち切る。
+    this.closeWritingSession();
   };
 
   /** 2本目の指が乗った瞬間に呼ぶ。進行中の1本指ジェスチャー（描画・消しゴム・
@@ -1423,9 +1425,16 @@ export class CircularCanvas {
 
   /** 道具バーの「戻る」ボタン（issue #90）用。モバイルの2本指タップと違い
    *  道具を問わず使える——ペン等の道具で1本目の指が触れた瞬間の暫定書き換えと
-   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。 */
+   *  絡み合う問題が無いため（onGlobalPointerUpのコメント参照）。
+   *  undoはstore.memosをまるごと差し替えるため、直前まで書き込み継続中だった
+   *  メモ（activeMemoId）がstore側から消えている・別内容に置き換わっている
+   *  ことがある。closeWritingSessionを呼ばずに残すと、WRITING_SESSION_IDLE_MS
+   *  以内に描き始めたとき「継続」のつもりで消えたactiveMemoIdへstartStrokeし
+   *  失敗し、何も描かれなくなる不具合があったため、undo直後は必ず書き込み
+   *  セッションを打ち切り、次のストロークを新規メモとして始めさせる。 */
   undo(): void {
     this.store.undo();
+    this.closeWritingSession();
   }
 
   /**
@@ -1652,6 +1661,8 @@ export class CircularCanvas {
       ev.preventDefault();
       if (ev.shiftKey) this.store.redo();
       else this.store.undo();
+      // undo()と同じ理由（そちらのコメント参照）で、書き込みセッションを打ち切る。
+      this.closeWritingSession();
       return;
     }
 
