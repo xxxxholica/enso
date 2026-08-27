@@ -1,9 +1,10 @@
+import { ICONS } from "./icons";
+
 /**
- * 共有キャンバス（眼鏡形状、frameKind:"glasses"）専用のフレーム柄・質感。
- * frameShape.tsが枠の輪郭（形）を決めるのに対し、こちらは枠の塗り
- * （ctx.strokeStyle/fillStyleに使える値）を決める——役割を分けている。
- * 通常のキャンバスタブ（frameKind:"single"）はこの仕組みを使わず、従来通り
- * frameStrokeColorの単色のまま。
+ * フレームの柄・質感。frameShape.tsが枠の輪郭（形）を決めるのに対し、
+ * こちらは枠の塗り（ctx.strokeStyle/fillStyleに使える値）を決める
+ * ——役割を分けている。共有キャンバス（frameKind:"glasses"）・個人キャンバス
+ * （frameKind:"single"）のどちらでも使う（frameGeometry.ts参照）。
  */
 
 export type FramePatternId = "matte" | "tortoiseshell" | "clear" | "wood";
@@ -142,4 +143,72 @@ const FRAME_PATTERNS: Record<FramePatternId, FramePattern> = { matte, tortoisesh
 
 export function getFramePattern(id: FramePatternId): FramePattern {
   return FRAME_PATTERNS[id];
+}
+
+const PATTERN_ICON: Record<FramePatternId, string> = {
+  matte: ICONS.patternMatte,
+  tortoiseshell: ICONS.patternTortoiseshell,
+  clear: ICONS.patternClear,
+  wood: ICONS.patternWood,
+};
+
+/**
+ * 「フレームの色」区画（ボタン列+選択状態の同期）を組み立てる共通ヘルパー。
+ * AppearanceSelector（共有キャンバス、ロック・リモート同期あり）とFrameColorSelector
+ * （個人キャンバス、ロック・同期なし）の両方が、それぞれのポップオーバーに
+ * 埋め込んで使う——ボタン生成・選択状態の同期ロジックの重複を避けるため。
+ */
+export function buildFramePatternPicker(
+  initialId: FramePatternId,
+  onSelect: (id: FramePatternId) => void
+): { element: HTMLElement; setValue: (id: FramePatternId) => void; setDisabled: (disabled: boolean) => void } {
+  let currentId = initialId;
+  const buttons = new Map<FramePatternId, HTMLButtonElement>();
+
+  const section = document.createElement("div");
+  section.className = "shared-menu-section";
+  const label = document.createElement("div");
+  label.className = "shared-section-label";
+  label.textContent = "フレームの色";
+  section.appendChild(label);
+
+  const row = document.createElement("div");
+  row.className = "toolbar-pill";
+  for (const id of FRAME_PATTERN_ORDER) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toolbar-btn";
+    btn.setAttribute("aria-label", getFramePattern(id).label);
+    btn.innerHTML = PATTERN_ICON[id];
+    btn.addEventListener("click", () => {
+      if (id === currentId) return;
+      currentId = id;
+      sync();
+      onSelect(id);
+    });
+    buttons.set(id, btn);
+    row.appendChild(btn);
+  }
+  section.appendChild(row);
+
+  function sync(): void {
+    for (const [id, btn] of buttons) {
+      const active = id === currentId;
+      btn.setAttribute("aria-pressed", String(active));
+      btn.dataset.active = String(active);
+    }
+  }
+  sync();
+
+  return {
+    element: section,
+    setValue(id: FramePatternId) {
+      if (id === currentId) return;
+      currentId = id;
+      sync();
+    },
+    setDisabled(disabled: boolean) {
+      for (const [, btn] of buttons) btn.disabled = disabled;
+    },
+  };
 }

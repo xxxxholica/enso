@@ -164,7 +164,7 @@ class UsageGuide {
 
   private buildPracticePage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page";
+    el.className = "usage-guide-page usage-guide-page--practice";
 
     const sandboxRoot = document.createElement("div");
     // 見出しのタイトルは固定文言ではなく、今の手順の内容に合わせて
@@ -317,7 +317,9 @@ function fitCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return ctx;
 }
 
-const INK = "oklch(22% 0.012 55)";
+function guideInkColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue("--ink-solid").trim() || "oklch(22% 0.012 55)";
+}
 
 /** 一筆書きの円相を、生成的な筆致（太さのむら・わずかな歪み）で描く
  *  （tutorial/tutorialCanvas.tsで使っていたのと同じ数式）。 */
@@ -363,12 +365,13 @@ function drawStageAnim(ctx: CanvasRenderingContext2D, kind: Stage["anim"], t: nu
   const cx = w / 2;
   const cy = h / 2;
   const r = Math.min(w, h) * 0.34;
+  const ink = guideInkColor();
 
   if (kind === "intro") {
     const p = reduceMotion ? 1 : Math.min(1, t / 2200);
     const eased = 1 - (1 - p) ** 3;
-    strokeEnso(ctx, cx, cy, r, -100, 328 * eased, 1, INK, 1);
+    strokeEnso(ctx, cx, cy, r, -100, 328 * eased, 1, ink, 1);
   } else if (kind === "close") {
-    strokeEnso(ctx, cx, cy, r, -95, 342, 1, INK, 7);
+    strokeEnso(ctx, cx, cy, r, -95, 342, 1, ink, 7);
   }
 }
