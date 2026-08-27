@@ -1691,6 +1691,26 @@ body[data-view="shared"] #duration-slot {
   border-top: none;
 }
 
+/* --- 「メガネ1」「メガネ2」切り替えタブ(issue #113④)。.toolbar-btnは38px角の
+   アイコン専用サイズなので、文字ラベルを持つこのタブには使わず、view-nav-btn
+   と同じ「幅は中身なり・角丸長方形」の見た目に個別で揃える。 --- */
+.appearance-pair-tab-btn {
+  width: auto;
+  height: auto;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink-55);
+  opacity: 1;
+}
+
+.appearance-pair-tab-btn[data-active="true"] {
+  background: var(--paper-3);
+  color: var(--ink-95);
+  font-weight: 600;
+}
+
 /* --- 設定（settingsMenu.ts、ヘッダー右）のトリガーボタン。.app-header自体が
    背景を持たない透明な帯（下のキャンバスの地色がそのまま透ける）ため、
    他のトリガー(.appearance-trigger等)と同じ理由でトーンを個別に上書きする。

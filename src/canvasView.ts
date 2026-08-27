@@ -488,6 +488,23 @@ export class CircularCanvas {
     this.frame.setFramePattern(id);
   }
 
+  /** 「メガネ2」組(レンズ分割の2組目)専用の見た目の手動上書き(issue #113④)。
+   *  両方nullに戻すと自動ローテーション(issue #113③)に戻る。 */
+  setPair2Appearance(shapeId: FrameShapeId | null, patternId: FramePatternId | null): void {
+    this.frame.setPair2Appearance(shapeId, patternId);
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に実際に表示されている形状/柄のID。
+   *  SmuiViewのAppearanceSelector連携(issue #113④、メガネ1/メガネ2の個別調整
+   *  UI)が、今どの値をボタンのアクティブ表示にすべきか知るために使う。 */
+  frameShapeIdForPair(pairIndex: number): FrameShapeId {
+    return this.frame.frameShapeIdForPair(pairIndex);
+  }
+
+  framePatternIdForPair(pairIndex: number): FramePatternId {
+    return this.frame.framePatternIdForPair(pairIndex);
+  }
+
   /** 振り返りスライダー（main.ts）から呼ぶ。t=nullで「たった今」＝通常のライブ
    *  表示に戻り、それ以外は過去の絶対時刻tにおける状態を再現表示する。遡り中に
    *  切り替えた場合は、進行中の操作（ドラッグ中の描画・なぞり・移動など）を

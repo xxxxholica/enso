@@ -21,6 +21,9 @@ vi.mock("../src/canvasView", () => {
     destroy = vi.fn();
     setFrameShape = vi.fn();
     setFramePattern = vi.fn();
+    setPair2Appearance = vi.fn();
+    frameShapeIdForPair = vi.fn().mockReturnValue("round");
+    framePatternIdForPair = vi.fn().mockReturnValue("matte");
     closeWritingSession = vi.fn();
     finishTextEditingIfOpen = vi.fn();
     undo = vi.fn();
@@ -107,6 +110,13 @@ describe("SmuiView.selectRoom()のGET待ち中に届く変更通知 (issue #113)
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(view.getAppearanceSync()).toEqual({ locked: true, shapeId: "oval", patternId: "tortoiseshell" });
+    expect(view.getAppearanceSync()).toEqual({
+      locked: false,
+      shapeId: "oval",
+      patternId: "tortoiseshell",
+      pair2Available: false,
+      pair2ShapeId: "round",
+      pair2PatternId: "matte",
+    });
   });
 });
