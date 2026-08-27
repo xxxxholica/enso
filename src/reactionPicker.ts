@@ -10,14 +10,18 @@ import type { Point, Reaction } from "./types";
  *
  * ホバー・タップいずれでも同じ内容が開く(smuiView.ts)。ボタンはタップ後の
  * 確認ステップを挟まず、押した瞬間に送信する。1人1メモにつき1スタンプまで・
- * 変更不可（バックエンド仕様）なので、押した後はボタンを押せなくする。
+ * 変更不可（バックエンド仕様）なので、押した後は全ボタンを無効化しつつ、
+ * 実際に押した絵文字(selectedEmoji、smuiView.ts側でクライアントがローカルに
+ * 覚えている値——押した瞬間に自分で分かるためサーバーのuserId解決は不要)を
+ * .is-selectedで常時ハイライトし続ける（ユーザー指示：何を選択したか分かる
+ * ようにしたい）。
+ *
+ * 閉じるボタン・実名の集計(誰が押したか)は既定では隠し、パネル自体にマウスが
+ * 乗っている間だけCSS(:hover)で表示する（ユーザー指示：ホバーが無ければ消す
+ * 形にしたい）——選んだ絵文字のハイライトだけは常時見える。
+ *
  * 「誰が押したかは実名で表示する」(issue決定事項)ため、emojiごとに押した人の
- * 表示名をボタンの下に並べる(db.jsのJOINでサーバーがdisplayNameを解決して返す)。
- * ただし「自分が既にどれを押したか(=送信済みのうちどれが自分の選択か)」は
- * サーバー側のuserIdでしか判定できずゲストの自分のuserIdをフロントが持って
- * いないため、この画面内では「押した/押していない」の二値までしか出さない
- * （正確な自分の選択の可視化には、ゲスト自身のuserIdをフロントに持たせる
- * 別途対応が必要——最終サマリ参照）。
+ * 表示名を並べる(db.jsのJOINでサーバーがdisplayNameを解決して返す)。
  */
 
 export interface ReactionPickerCallbacks {
@@ -67,13 +71,14 @@ export class ReactionPicker {
 
   /** メモがタップ/ホバーされた時に呼ぶ。allowedEmojiは今のフェーズで押せる
    *  スタンプの種類（sharedCanvas.REACTION_EMOJI/VOTING_EMOJI参照）、
-   *  alreadyReactedはこのクライアントが今セッション中に既にこのメモへ送信済み
-   *  かどうか、anchorはcanvasView.getMemoScreenPosition()が返す画面座標。 */
+   *  selectedEmojiはこのクライアントが今セッション中に既にこのメモへ送信した
+   *  絵文字(未送信ならnull)、anchorはcanvasView.getMemoScreenPosition()が
+   *  返す画面座標。 */
   open(
     memoId: string,
     allowedEmoji: readonly string[],
     reactions: Reaction[],
-    alreadyReacted: boolean,
+    selectedEmoji: string | null,
     anchor: Point
   ): void {
     this.currentMemoId = memoId;
@@ -84,8 +89,9 @@ export class ReactionPicker {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "reaction-float-btn";
+      btn.classList.toggle("is-selected", emoji === selectedEmoji);
       btn.textContent = emoji;
-      btn.disabled = alreadyReacted;
+      btn.disabled = selectedEmoji !== null;
       btn.addEventListener("click", () => {
         if (!this.currentMemoId) return;
         this.callbacks.onPick(this.currentMemoId, emoji);
@@ -93,7 +99,7 @@ export class ReactionPicker {
       this.buttonsEl.appendChild(btn);
     }
 
-    renderReactionSummary(this.summaryEl, reactions, alreadyReacted);
+    renderReactionSummary(this.summaryEl, reactions, selectedEmoji !== null);
 
     this.isOpen = true;
     this.el.hidden = false;
@@ -116,11 +122,13 @@ export class ReactionPicker {
 
   /** 送信結果を受け取って表示を更新する（送信中に閉じられていなければ）。
    *  成功・409(既に送信済み)いずれでも、以後はこのメモへ再送信できないよう
-   *  ボタンを無効化する。 */
-  markReacted(memoId: string, reactions: Reaction[]): void {
+   *  全ボタンを無効化し、実際に押したselectedEmojiだけをハイライトし続ける。 */
+  markReacted(memoId: string, reactions: Reaction[], selectedEmoji: string): void {
     if (!this.isOpen || this.currentMemoId !== memoId) return;
     for (const btn of Array.from(this.buttonsEl.children)) {
-      (btn as HTMLButtonElement).disabled = true;
+      const button = btn as HTMLButtonElement;
+      button.disabled = true;
+      button.classList.toggle("is-selected", button.textContent === selectedEmoji);
     }
     renderReactionSummary(this.summaryEl, reactions, true);
   }
@@ -142,7 +150,9 @@ export class ReactionPicker {
 /** 「誰が押したかは実名で表示する」(issue #128の決定事項)。emojiごとに
  *  押した人の表示名を並べる（例: 「👍 太郎さん、花子さん」）。displayNameが
  *  未解決(null)のリアクションは、この機能導入前から参加済みだったClerkメンバー
- *  由来の可能性がある(joinAsMemberのコメント参照)ため「名前未設定」で表示する。 */
+ *  由来の可能性がある(joinAsMemberのコメント参照)ため「名前未設定」で表示する。
+ *  このセクション自体、パネルをホバーしていない間はCSS側で隠れる
+ *  (.reaction-float-summary、ユーザー指示)。 */
 function renderReactionSummary(container: HTMLElement, reactions: Reaction[], alreadyReacted: boolean): void {
   container.innerHTML = "";
   if (reactions.length === 0) {

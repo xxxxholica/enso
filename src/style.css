@@ -2651,6 +2651,22 @@ body[data-view="shared"] #duration-slot {
   box-shadow: var(--shadow-popover);
 }
 
+/* 閉じるボタン・実名の集計(誰が押したか)は、パネル自体をホバーしていない間は
+   隠す（ユーザー指示：ホバーが無ければ消す形にしたい）。選んだ絵文字の
+   ハイライト(.is-selected)は対象外——常時見えるようにする。 */
+.reaction-float-close,
+.reaction-float-summary {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.reaction-float:hover .reaction-float-close,
+.reaction-float:hover .reaction-float-summary {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .reaction-float-close {
   position: absolute;
   top: 2px;
@@ -2697,6 +2713,15 @@ body[data-view="shared"] #duration-slot {
 .reaction-float-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* 自分が実際に押した絵文字（ユーザー指示：何を選んだか常に分かるようにしたい）。
+   :disabledによる薄まり(opacity: 0.4)を打ち消し、枠で強調する——ホバーの
+   有無に関わらず常時見える(上のhover限定ルールの対象外)。 */
+.reaction-float-btn.is-selected {
+  opacity: 1;
+  border: 2px solid var(--ink-solid);
+  background: var(--paper-1);
 }
 
 .reaction-float-summary {

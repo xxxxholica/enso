@@ -96,12 +96,13 @@ export class SmuiView {
   private sessionPanel!: SessionPanel;
   private reactionPicker!: ReactionPicker;
   /** issue #128: このクライアントが今セッション中に既にリアクションを送った
-   *  memoIdの記録。1人1メモ1スタンプ・変更不可(サーバー仕様)なので、再送信を
-   *  防ぐためのローカルな二重送信ガード——「自分がどれを押したか」の厳密な
-   *  判定にはゲスト自身のuserIdが必要でフロントに持たせていないため、ここでは
-   *  「押した/押していない」の二値のみ管理する(最終サマリ参照)。ルーム切り替え
-   *  ごとにリセットする。 */
-  private reactedMemoIds = new Set<string>();
+   *  memoIdと、その時に押した絵文字の記録(memoId -> emoji)。1人1メモ1スタンプ・
+   *  変更不可(サーバー仕様)なので、再送信を防ぐローカルな二重送信ガードを兼ねる。
+   *  押した瞬間に自分でどの絵文字か分かっている(クリックハンドラの引数)ため、
+   *  サーバー側のuserIdでの解決は不要——ReactionPickerの選択ハイライト
+   *  (ユーザー指示：何を選んだか分かるようにしたい)にそのまま使う。ルーム
+   *  切り替えごとにリセットする。 */
+  private reactedEmojiByMemoId = new Map<string, string>();
   /** updateReactionHover参照。マウスホバーで最後にReactionPickerを開いた
    *  memoId(無ければnull)。 */
   private lastHoveredReactionMemoId: string | null = null;
@@ -297,23 +298,23 @@ export class SmuiView {
     const anchor = this.lens.getMemoScreenPosition(memoId);
     if (!anchor) return;
     const allowedEmoji = session.phase === "voting" ? [VOTING_EMOJI] : REACTION_EMOJI;
-    this.reactionPicker.open(memoId, allowedEmoji, memo.reactions ?? [], this.reactedMemoIds.has(memoId), anchor);
+    this.reactionPicker.open(memoId, allowedEmoji, memo.reactions ?? [], this.reactedEmojiByMemoId.get(memoId) ?? null, anchor);
   }
 
   /** ReactionPickerでスタンプが選ばれた時に呼ばれる。1人1メモ1スタンプ・
    *  変更不可(サーバー仕様)なので、送信開始と同時にローカルの二重送信ガード
-   *  (reactedMemoIds)を立てる——連打やレスポンス待ち中の再選択を防ぐ。 */
+   *  (reactedEmojiByMemoId)を立てる——連打やレスポンス待ち中の再選択を防ぐ。 */
   private pickReaction(memoId: string, emoji: string): void {
     const roomId = this.selectedRoomId;
     if (!roomId) return;
-    this.reactedMemoIds.add(memoId);
+    this.reactedEmojiByMemoId.set(memoId, emoji);
     void addMemoReaction(roomId, memoId, emoji)
       .then(({ reactions }) => {
         this.sharedStore?.setMemoReactions(memoId, reactions);
-        this.reactionPicker.markReacted(memoId, reactions);
+        this.reactionPicker.markReacted(memoId, reactions, emoji);
       })
       .catch((e) => {
-        // 失敗時（既に送信済みの409を含む）もreactedMemoIdsは戻さない——
+        // 失敗時（既に送信済みの409を含む）もreactedEmojiByMemoIdは戻さない——
         // サーバー側はINSERT ONLYで変更不可のため、リトライしても意味が無い。
         console.error("[smuiView] reaction post failed", e);
       });
@@ -427,7 +428,7 @@ export class SmuiView {
     this.sharedStore = null;
     this.sessionPanel.reset();
     this.reactionPicker.close();
-    this.reactedMemoIds.clear();
+    this.reactedEmojiByMemoId.clear();
     this.lastHoveredReactionMemoId = null;
     this.applySession(null, { silent: true });
     this.ownerId = null;
