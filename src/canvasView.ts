@@ -30,6 +30,10 @@ import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
+/** issue #128: リアクション専用状態(setReactionMode(true))で今タップ/ホバー
+ *  対象になっているメモを示すハイライト。TRACE_GLOW(薄いインク色)より
+ *  はっきり分かる色にする（ユーザー指摘: どれにホバーしているか分かりづらい）。 */
+const REACTION_HOVER_GLOW = "oklch(62% 0.16 250 / 0.4)";
 /** 空のキャンバスの案内（.canvas-empty-state、DOM側）を、円の中心からどれだけ
  *  下にずらして置くか（正規化単位）。以前canvasに直接fillTextしていたときと
  *  同じ位置。 */
@@ -107,6 +111,22 @@ function pointerMidpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+/** issue #128: レンズ分割表示中、色でレンズが分からないメモ(発散フェーズ以外で
+ *  書かれたもの)をどの組に描くか、組の中心からの距離が一番近いものを選んで
+ *  決める(LensSplitState.hideUnmatchedMemos参照)。 */
+function nearestPairCenterIndex(memo: Point, pairCenters: readonly Point[]): number {
+  let bestIndex = 0;
+  let bestDistance = Infinity;
+  pairCenters.forEach((center, i) => {
+    const d = pointerDistance(memo, center);
+    if (d < bestDistance) {
+      bestDistance = d;
+      bestIndex = i;
+    }
+  });
+  return bestIndex;
+}
+
 /** ソフトウェアキーボードが出るデバイス（openTextEditorのモバイル向け固定
  *  配置分岐、issue #87）かどうかの判定。画面幅ではなくポインタ精度で見るのは、
  *  iPad等の広い画面のタッチデバイスも対象に含めたいため。 */
@@ -129,11 +149,24 @@ interface PinchState {
  *  lensIndexForMemoは既存メモをどのレンズに属するとみなすかの判定関数
  *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）、pairCountは
  *  実際に描画する組数(session.maxParticipantsから計算、ユーザー指摘:
- *  参加人数以上の眼鏡が用意される問題への対応)。 */
+ *  参加人数以上の眼鏡が用意される問題への対応)。
+ *  restrictInputToOwnLensがtrueの間だけ、inputClamp()が自分の担当レンズの
+ *  外への書き込みを実際に制限する(発散フェーズ専用)。それ以外のフェーズは
+ *  見た目はレンズ分割のままでも、書き込み可否は別の仕組み(ロック/リアクション
+ *  モード)で決まるため、ここでは制限しない(issue #128: 議論フェーズの
+ *  ホストが自分の元のレンズ外に書けなくなっていた不具合の修正)。
+ *  hideUnmatchedMemosがtrueの間だけ、lensIndexForMemoがnullを返すメモ
+ *  (参加者色と一致しない)を非表示にする(発散フェーズ専用の既存仕様)。
+ *  それ以外のフェーズでは、色でレンズが分からないメモ(議論中にホストが
+ *  DEFAULT_INKで書いたメモ等)を非表示にせず、代わりに座標が最も近い組へ
+ *  振り分けて描画する(issue #128: ホストが書いたメモが即座に消えて見えて
+ *  いた不具合の修正)。 */
 export interface LensSplitState {
   myLensIndex: number;
   lensIndexForMemo: (memo: Memo) => number | null;
   pairCount: number;
+  restrictInputToOwnLens: boolean;
+  hideUnmatchedMemos: boolean;
 }
 
 export interface ToolState {
@@ -531,14 +564,16 @@ export class CircularCanvas {
     this.syncEmptyStatePosition();
   }
 
-  /** 現在の書き込みクランプ関数。レンズ分割表示が有効な間は自分の担当レンズだけに
-   *  制限する（buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
-   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。それ以外は従来通り
-   *  現在のフレーム形状のclampをそのまま使う。 */
+  /** 現在の書き込みクランプ関数。レンズ分割表示が有効かつrestrictInputToOwnLens
+   *  (発散フェーズ専用)の間だけ、自分の担当レンズだけに制限する
+   *  （buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
+   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。それ以外
+   *  （見た目はレンズ分割のままでも書き込み制限は別の仕組みに委ねるフェーズ、
+   *  issue #128）は従来通り現在のフレーム形状のclampをそのまま使う。 */
   private inputClamp(): (p: Point) => Point {
     const state = this.lensSplitState;
     const pairCenters = state ? this.frame.lensSplitPairCenters : null;
-    if (!state || !pairCenters) return this.frame.currentShape().clamp;
+    if (!state || !pairCenters || !state.restrictInputToOwnLens) return this.frame.currentShape().clamp;
     return buildOwnLensClamp(this.frame.frameShapeId, pairCenters, state.myLensIndex);
   }
 
@@ -1681,7 +1716,7 @@ export class CircularCanvas {
   /** render()の可視性判定(rewindAt時点の不透明度・レンズ分割中の未帰属メモ
    *  除外)を、書き出し以外からも再利用できるよう切り出したもの。 */
   private isMemoCurrentlyVisible(memo: Memo, rewindAt: number | null, now: number): boolean {
-    if (this.lensSplitState && this.lensSplitState.lensIndexForMemo(memo) === null) return false;
+    if (this.lensSplitState?.hideUnmatchedMemos && this.lensSplitState.lensIndexForMemo(memo) === null) return false;
     if (memo.fadeExempt) return true;
     const opacity = rewindAt !== null ? opacityAtTime(memo.traceHistory, memo.lifespanDays, rewindAt) : this.store.opacityOf(memo, now);
     return opacity !== null && opacity > 0;
@@ -1859,14 +1894,26 @@ export class CircularCanvas {
     };
 
     if (pairCenters && this.lensSplitState) {
-      const { myLensIndex, lensIndexForMemo } = this.lensSplitState;
+      const { myLensIndex, lensIndexForMemo, hideUnmatchedMemos } = this.lensSplitState;
       const { pairIndex: myPairIndex } = lensIndexToPairSlot(myLensIndex);
       const groups: Memo[][] = pairCenters.map(() => []);
       for (const memo of memosToRender) {
         const lensIndex = lensIndexForMemo(memo);
-        // 未帰属メモ(参加者色と一致しない、セッション開始前に自由に書かれたもの等)は
-        // レンズ分割表示中は非表示にする（issue #79、ユーザー確認済みの製品判断）。
-        if (lensIndex === null) continue;
+        if (lensIndex === null) {
+          if (hideUnmatchedMemos) {
+            // 未帰属メモ(参加者色と一致しない、セッション開始前に自由に書かれた
+            // もの等)は発散フェーズの間だけ非表示にする（issue #79、ユーザー
+            // 確認済みの製品判断）。
+            continue;
+          }
+          // それ以外のフェーズ(議論等)は色でレンズが分からないメモも隠さず、
+          // 座標が最も近い組へ振り分けて描画する(issue #128: ホストが議論中に
+          // 書いたメモ(色がDEFAULT_INKで参加者色と一致しない)が即座に消えて
+          // 見えていた不具合の修正)。
+          const nearestPairIndex = nearestPairCenterIndex(memo, pairCenters);
+          groups[nearestPairIndex]?.push(memo);
+          continue;
+        }
         const { pairIndex } = lensIndexToPairSlot(lensIndex);
         (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
       }
@@ -1902,6 +1949,32 @@ export class CircularCanvas {
       ctx.arc(dot.x * r, dot.y * r, 3, 0, Math.PI * 2);
       ctx.fillStyle = CENTER_DOT;
       ctx.fill();
+    }
+
+    // issue #128: 発散(ideation)フェーズ中、自分の担当レンズがどれか分かり
+    // づらいという指摘（ユーザー報告）への対応。書き込み済みか否かに関わらず
+    // 常に自分のレンズの中心へ、実際に使われているインク色(getToolState().color
+    // ——発散フェーズ中はsmuiView.forcedColorで参加者色に強制済み)のリングを
+    // 薄く描く——「このインク色の場所がここ」という手がかりにする。
+    if (this.interactive && rewindAt === null && pairCenters && this.lensSplitState?.restrictInputToOwnLens) {
+      const ownCenter = lensAbsoluteCenter(pairCenters, this.lensSplitState.myLensIndex);
+      ctx.beginPath();
+      ctx.arc(ownCenter.x * r, ownCenter.y * r, r * 0.06, 0, Math.PI * 2);
+      ctx.strokeStyle = this.getToolState().color;
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // issue #128: リアクション専用状態で今マウスがホバーしている(または直近で
+    // タップした)メモを、はっきり分かる色のグローで示す（ユーザー指摘:
+    // どれにホバーしているか分かりづらい）。レンズ分割の有無・どの組かに
+    // 関わらず、メモの絶対座標にそのまま描けば正しい位置に出る
+    // （onPointerDownのreactionModeActive分岐と同じ理由）。
+    if (this.reactionModeActive && this.reactionHoverMemoId) {
+      const hovered = memosToRender.find((m) => m.id === this.reactionHoverMemoId);
+      if (hovered) drawRadialGlow(ctx, hovered.x * r, hovered.y * r, r * 0.16, REACTION_HOVER_GLOW);
     }
 
     ctx.restore(); // translate + setTransform

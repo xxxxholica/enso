@@ -195,10 +195,18 @@ export class SmuiView {
     // 別経路なので従来通り自由に書けるままにする（回帰させない）。
     const myLensIndex = session.myColorIndex !== null && session.myColorIndex < LENS_COUNT ? session.myColorIndex : null;
     if (myLensIndex === null) return null;
+    // issue #128: 「自分の担当レンズだけに書き込みを制限する」「参加者色と
+    // 一致しないメモを隠す」のどちらも発散(ideation)フェーズ専用の仕様
+    // ——それ以外のフェーズにまで適用すると、議論フェーズのホストが自分の
+    // 元のレンズ外に書けなくなる・DEFAULT_INKで書いたメモが即座に消えて見える
+    // という不具合になっていた(ユーザー報告)。
+    const isIdeation = session.phase === "ideation";
     return {
       myLensIndex,
       lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
       pairCount: computeLensSplitPairCount(session.maxParticipants),
+      restrictInputToOwnLens: isIdeation,
+      hideUnmatchedMemos: isIdeation,
     };
   }
 

@@ -2654,14 +2654,15 @@ body[data-view="shared"] #duration-slot {
 /* 閉じるボタン・実名の集計(誰が押したか)は、パネル自体をホバーしていない間は
    隠す（ユーザー指示：ホバーが無ければ消す形にしたい）。選んだ絵文字の
    ハイライト(.is-selected)は対象外——常時見えるようにする。 */
-.reaction-float-close,
+/* 実名の集計(誰が押したか)だけホバー限定で隠す。閉じるボタンはタッチ端末では
+   ホバー状態そのものが発生せず、隠すと永久に押せなくなってしまうため
+   （ユーザー報告：バツボタンが押せない）、対象から外して常時押せるままにする。 */
 .reaction-float-summary {
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-.reaction-float:hover .reaction-float-close,
 .reaction-float:hover .reaction-float-summary {
   opacity: 1;
   pointer-events: auto;
@@ -2694,12 +2695,16 @@ body[data-view="shared"] #duration-slot {
   padding-right: 16px; /* 閉じるボタンと重ならないよう右側だけ空ける */
 }
 
+/* .toolbar-btn/.toolbar-swatchと同じ考え方（ユーザー指示：絵文字を箱で
+   囲わず、道具バー・カラースワッチと揃った色・形にしたい）——既定では
+   枠も背景も無く、丸い当たり判定だけを持つ。選択状態はボーダーの太さでは
+   なくbox-shadowのリング(.toolbar-swatch[data-active]と同じ手法)で表す。 */
 .reaction-float-btn {
   width: 36px;
   height: 36px;
-  border: 1px solid var(--ink-12);
+  border: none;
   border-radius: 50%;
-  background: var(--paper-2);
+  background: none;
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -2716,12 +2721,13 @@ body[data-view="shared"] #duration-slot {
 }
 
 /* 自分が実際に押した絵文字（ユーザー指示：何を選んだか常に分かるようにしたい）。
-   :disabledによる薄まり(opacity: 0.4)を打ち消し、枠で強調する——ホバーの
-   有無に関わらず常時見える(上のhover限定ルールの対象外)。 */
+   :disabledによる薄まり(opacity: 0.4)を打ち消し、.toolbar-swatch[data-active]
+   と同じ「外側にもう1本リングを足す」手法で強調する——ホバーの有無に関わらず
+   常時見える(上のhover限定ルールの対象外)。 */
 .reaction-float-btn.is-selected {
   opacity: 1;
-  border: 2px solid var(--ink-solid);
-  background: var(--paper-1);
+  background: var(--paper-2);
+  box-shadow: 0 0 0 1px var(--paper-1), 0 0 0 3px var(--ink-55);
 }
 
 .reaction-float-summary {
