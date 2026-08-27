@@ -221,7 +221,17 @@ body {
    もちろん左右の端まで見えるようにするため——ユーザー指示）。左右の余白・
    セーフエリアも.app-header/.app-footer自身のpaddingに移した。 --- */
 #app {
-  min-height: 100dvh;
+  /* min-heightだと、狭い画面高さでヘッダー・固定高さの操作パネル・キャンバス
+     最小サイズの合計が実際のビューポート高さを超えたとき#app自体がその分
+     はみ出してしまい（html/bodyはoverflow:hiddenでスクロールしないため
+     見えないだけで、レイアウト計算上は存在する）、position:fixedで真の
+     ビューポート下端に張り付く.app-footerに対して、通常フローで.smui-view
+     基準に位置決めしている.info-row（セッション開始ボタン等）がズレて潜り込み、
+     クリックがフッター側の要素（.toolbar-swatch等）に奪われる不具合があった。
+     100dvhをheightにして実際の高さをきっちり合わせることで、フローの下端を
+     常にビューポート下端と一致させる（.app-mainのflex:1;min-height:0が
+     不足分を正しく縮めて吸収する）。 */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
