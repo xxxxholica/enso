@@ -30,12 +30,15 @@ const THEME_LABEL: Record<ThemePreference, string> = {
   sky: "水色",
   custom: "好きな色を選ぶ",
 };
-/** カラーパレット（好きな色を選ぶ）のプレビュースワッチに使う色。他の固定
- *  テーマスワッチ（THEME_SWATCH_BACKGROUND）と揃え、バー上の鮮やかな色では
- *  なく、実際に適用されるパステルな--paper-1相当の色を見せる——theme.tsの
- *  buildPastelThemeVarsの--paper-1と同じ式(oklch(97% 0.015 hue))。 */
+/** カラーパレット（好きな色を選ぶ）のプレビュースワッチに使う色。実際に
+ *  適用されるパステルな--paper-1相当の色（oklch(97% 0.015 hue)、他の固定
+ *  テーマスワッチと同じ式）を使うと、custom テーマが有効な間はポップオーバー
+ *  自体の背景（--paper-1）とほぼ同じ色になり、スワッチが背景に溶けて見えなく
+ *  なっていた（ユーザー指摘）。バー(.theme-hue-slider)のトラックと同じ
+ *  鮮やかさ(oklch(75% 0.15 hue))にして、どのテーマが有効でもスワッチ自体が
+ *  周囲から独立して見えるようにする。 */
 function customSwatchBackground(hue: number): string {
-  return `oklch(97% 0.015 ${hue})`;
+  return `oklch(75% 0.15 ${hue})`;
 }
 
 /**
@@ -311,5 +314,10 @@ export class SettingsMenu {
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
+    // カラーパレットのバーは、他のテーマ選択中は不要な操作が常設で見えて
+    // しまう（ユーザー指摘）ため、"custom"を選んでいる間だけ出す——
+    // プレビュースワッチをクリックするだけでも"custom"に切り替わり、バーが
+    // 現れる（最後に選んだ色相のまま再開できる）。
+    this.hueSlider.hidden = this.theme !== "custom";
   }
 }
