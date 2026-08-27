@@ -296,14 +296,9 @@ export class TutorialSandbox {
 
     this.store = new MemoStore(undefined, false);
     this.canvasView = new CircularCanvas(this.canvasWrap, this.store, () => this.toolStateFor(), {
-      // 本物のキャンバスと同じ「1回転まるごと・掴んだ点から半径24px以上」を
-      // そのまま求めると、この操作を初めて知る人には難しすぎて手順で止まって
-      // しまうことがあった（ユーザー報告）。この練習用サンドボックスに限り、
-      // 半周・半径16pxまで緩める——道具バーを持たない小さな円の中で「回すと
-      // 時間が動く」という感覚を最初に掴んでもらうのが目的であり、本物と
-      // 完全に同じ厳しさを課す必要はない。
-      rotateStepRad: Math.PI,
-      rotateMinRadiusPx: 16,
+      // 回転ジェスチャーの判定（270度・半径16px）は本物のキャンバスの既定値
+      // （ROTATE_STEP_RAD/ROTATE_MIN_RADIUS_PX、canvasView.ts参照）と同じで
+      // よいため、ここでは個別に上書きしない。
       minCanvasSizePx: MIN_CANVAS_SIZE_PX,
       // 「書く」手順で開くtext-editor-overlayは、既定z-index(20)のままだと
       // 使い方ページのモーダル自身（z-index 41）の背後に隠れてしまう
