@@ -444,9 +444,13 @@ export class TutorialSandbox {
         this.advanceTo("watch");
       }
     } else if (this.step === "keep") {
-      if (this.anyMemoMoved(memos, "up")) this.advanceTo("release");
+      if (this.nextBtn.hidden && this.anyMemoMoved(memos, "up")) {
+        this.nextBtn.hidden = false;
+      }
     } else if (this.step === "release") {
-      if (this.anyMemoMoved(memos, "down")) this.advanceTo("rewind");
+      if (this.nextBtn.hidden && this.anyMemoMoved(memos, "down")) {
+        this.nextBtn.hidden = false;
+      }
     } else if (this.step === "rewind" && this.nextBtn.hidden && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
       // スライダーを動かした瞬間に手順そのものを終わらせる（即advanceTo）と、
       // 少し動かしただけで問答無用で"選びとる"へ切り替わり、過去を眺める間も
