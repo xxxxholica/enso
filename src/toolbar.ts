@@ -471,6 +471,19 @@ export class Toolbar {
       this.customSwatchBtn.style.background = this.customColor;
     }
     this.swatchRow.classList.toggle("toolbar-swatches-disabled", !enabled);
+    this.syncToolIcons();
+  }
+
+  /** ペン・マーカーそれぞれの道具ボタン自身のペン先（ICONS.pen/markerの
+   *  インクだまり部分、--pen-tip-color/--marker-tip-color）に、今選んで
+   *  いる色（drawColor/markerColor）を反映する。GoodNotesのように、
+   *  道具を切り替えなくてもボタンを見れば今どの色で描くかが分かるように
+   *  する（ユーザー指示）。 */
+  private syncToolIcons(): void {
+    const penBtn = this.toolButtons.get("pen");
+    penBtn?.style.setProperty("--pen-tip-color", this.drawColor);
+    const markerBtn = this.toolButtons.get("marker");
+    markerBtn?.style.setProperty("--marker-tip-color", this.markerColor);
   }
 
   private syncAll(): void {
