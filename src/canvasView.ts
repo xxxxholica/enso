@@ -288,6 +288,10 @@ export interface CircularCanvasOptions {
    *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
    *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
   textEditorMinWidthPx?: number;
+  /** 粗いポインター（主にスマホ）で入力欄をキーボード直上へ固定するか。
+   *  省略時はtrue。本体では画面のリサイズやパンに強い固定表示を使う一方、
+   *  練習用の小さな円ではタップ位置との対応を見せるためfalseにできる。 */
+  fixedBottomTextEditorOnCoarsePointer?: boolean;
   /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
   minRenderedTextFontPx?: number;
   /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
@@ -414,6 +418,7 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
+  private fixedBottomTextEditorOnCoarsePointer: boolean;
   private minRenderedTextFontPx: number | undefined;
   private nowProvider: () => number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
@@ -456,6 +461,7 @@ export class CircularCanvas {
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
+    this.fixedBottomTextEditorOnCoarsePointer = options.fixedBottomTextEditorOnCoarsePointer ?? true;
     this.minRenderedTextFontPx = options.minRenderedTextFontPx;
     this.nowProvider = options.nowProvider ?? Date.now;
     this.canvas = document.createElement("canvas");
@@ -1176,7 +1182,10 @@ export class CircularCanvas {
     // 直接書き込んでいるのではなくキャンバスから切り離されたUI部品であることが
     // 見た目からも伝わるよう、ツールバーの.control-blockと同じカード風の
     // スタイルに切り替える（--fixed-bottom、ユーザー指示）。
-    el.className = isCoarsePointerDevice() ? "text-editor-overlay text-editor-overlay--fixed-bottom" : "text-editor-overlay";
+    const useFixedBottomEditor = isCoarsePointerDevice() && this.fixedBottomTextEditorOnCoarsePointer;
+    el.className = useFixedBottomEditor
+      ? "text-editor-overlay text-editor-overlay--fixed-bottom"
+      : "text-editor-overlay";
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
@@ -1295,7 +1304,7 @@ export class CircularCanvas {
 
       let left: number;
       let top: number;
-      if (isCoarsePointerDevice()) {
+      if (useFixedBottomEditor) {
         // モバイル（ソフトキーボードが出るデバイス）では、タップ位置の上下パンに
         // 追従させるのではなく、常に画面（visualViewport）下部・キーボード直上の
         // 中央に固定表示する（issue #87：iOS標準のキーボード回避パンにタップ位置

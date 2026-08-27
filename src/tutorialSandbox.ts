@@ -130,7 +130,7 @@ const STEP_TITLES: Record<StepId, string> = {
   keep: "メモを残す",
   erase: "メモを消す",
   rewind: "振り返る",
-  done: "選びとる",
+  done: "円相",
 };
 
 /** 掴んで回す対象の追跡用。lastTracedAtは移動道具の振り回し操作
@@ -318,6 +318,9 @@ export class TutorialSandbox {
       // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
       textEditorZIndex: TEXT_EDITOR_Z_INDEX,
       textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
+      // 本体のスマホ表示は入力欄をキーボード直上へ固定するが、練習では
+      // タップした場所と書き込まれる位置の対応が分かるよう円内へ重ねる。
+      fixedBottomTextEditorOnCoarsePointer: false,
       minRenderedTextFontPx: 16,
       nowProvider: () => this.currentVirtualNow(),
     });
@@ -514,6 +517,7 @@ export class TutorialSandbox {
 
   private syncStep(): void {
     this.messageEl.textContent = MESSAGES[this.step];
+    this.nextBtn.textContent = this.step === "done" ? "はじめる" : "つぎへ";
     this.watchProgressWrap.hidden = this.step !== "watch";
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
