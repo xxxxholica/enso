@@ -2763,12 +2763,35 @@ body[data-view="shared"] #duration-slot {
 
   .usage-guide-page--practice {
     min-height: 0;
+    /* スマホでは縦に長い余白が上側へ偏りやすいため、練習内容を画面中央へ置く。
+       円だけを絶対配置すると説明文や操作との間隔が崩れるので、ひとまとまりの
+       レイアウトを保ったまま中央寄せする。 */
+    justify-content: center;
   }
 
   .tutorial-sandbox {
     gap: var(--space-2);
     min-height: 0;
     margin-top: 0;
+  }
+
+  /* 状態ごとに現れる進捗バーと振り返り欄も、非表示中は見えないまま同じ高さを
+     占めさせる。中央寄せした内容全体の高さが一定になり、タイトルと円の位置が
+     「メモは消える」「振り返る」への切り替えで上下しなくなる。 */
+  .tutorial-watch-progress[hidden] {
+    display: flex !important;
+    visibility: hidden;
+  }
+
+  .tutorial-sandbox-seek {
+    width: min(100%, 240px);
+    min-height: 72px;
+  }
+
+  .tutorial-sandbox-seek[hidden] {
+    display: block !important;
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .tutorial-sandbox-canvas-wrap {
@@ -2778,6 +2801,11 @@ body[data-view="shared"] #duration-slot {
   }
 
   .tutorial-sandbox-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 4.95em;
+    min-height: 4.95em;
     line-height: 1.65;
   }
 }
