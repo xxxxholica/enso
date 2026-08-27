@@ -39,10 +39,11 @@ export type FontSizeStep = keyof typeof FONT_SIZE_STEPS;
 export const DEFAULT_FONT_SIZE_STEP: FontSizeStep = "medium";
 
 /** テンプレートを置いた瞬間の文字サイズ（基準円でのpx）。道具バーの現在値は
- *  使わず、道具バーの最大ステップ（FONT_SIZE_STEPS.large）よりもさらに大きい
- *  この値で固定する（ユーザー指示：テンプレートを配置するときのみより大きい
- *  フォントサイズにしたい）。 */
-export const TEMPLATE_FONT_SIZE = 50;
+ *  使わず固定する。以前は道具バーの最大ステップ（FONT_SIZE_STEPS.large）
+ *  よりもさらに大きい値（50px）にしていたが、「テンプレートの文字が
+ *  大きすぎる」という指摘を受け、道具バーの既定「中」（FONT_SIZE_STEPS.medium）
+ *  と同じ大きさまで縮小した（ユーザー指示）。 */
+export const TEMPLATE_FONT_SIZE = FONT_SIZE_STEPS.medium;
 
 /** テンプレートを置いた瞬間だけ使う、通常のLINE_HEIGHT_MULTIPLIERより少し
  *  狭い行間（ユーザー指示：テンプレートのみ行間を少し狭くしたい）。 */
