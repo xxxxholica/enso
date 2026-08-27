@@ -46,10 +46,15 @@ export interface SharedCanvasDetail {
   ownerId: string;
   memos: Memo[];
   session: SessionState | null;
-  /** ルームマスターが設定した見た目(フレームの形・柄)。未設定(null)の間は
-   *  呼び出し元(smuiView.ts)がローカルの既定値を使う。 */
+  /** 「メガネ1」(レンズ分割無効時は共有キャンバス全体)の見た目(フレームの形・柄)。
+   *  未設定(null)の間は呼び出し元(smuiView.ts)がローカルの既定値を使う。 */
   frameShapeId: FrameShapeId | null;
   framePatternId: FramePatternId | null;
+  /** 「メガネ2」(レンズ分割の2組目)専用の見た目の手動上書き(issue #113④)。
+   *  未設定(null)の間は呼び出し元(frameGeometry.ts)が自動ローテーション
+   *  (issue #113③)にフォールバックする。 */
+  frameShapeId2: FrameShapeId | null;
+  framePatternId2: FramePatternId | null;
 }
 
 /** 新しい共有キャンバスを作る。作った本人がownerメンバーになる。ルームIDを返す。 */
@@ -118,18 +123,22 @@ export async function renameSharedCanvas(id: string, name: string): Promise<void
   if (!res.ok) throw new Error(`ルーム名の保存に失敗しました (status: ${res.status})`);
 }
 
-/** ルームの見た目(フレームの形・柄)を設定する。ルームマスター以外は403で失敗する
- *  ——名前変更と違い、メンバー全員の表示に強制的に反映されるための権限制限。
- *  保存後は既存のWebSocket通知（{type:"changed"}）経由で他のメンバーにも反映される。 */
+/** ルームの見た目(フレームの形・柄)を設定する。編集可能なメンバー(定員超過時の
+ *  観覧者は対象外、issue #113④)以外は403で失敗する——名前変更と違い、メンバー
+ *  全員の表示に強制的に反映されるための権限制限。保存後は既存のWebSocket通知
+ *  （{type:"changed"}）経由で他のメンバーにも反映される。
+ *  pairIndexは「メガネ1」(0、省略時の既定)/「メガネ2」(1、レンズ分割の2組目)
+ *  のどちらを変更するかの指定(issue #113④)。 */
 export async function updateSharedAppearance(
   id: string,
   frameShapeId: FrameShapeId,
-  framePatternId: FramePatternId
+  framePatternId: FramePatternId,
+  pairIndex: 0 | 1 = 0
 ): Promise<void> {
   const res = await authFetch(`/shared-canvases/${encodeURIComponent(id)}/appearance`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ frameShapeId, framePatternId }),
+    body: JSON.stringify({ frameShapeId, framePatternId, pairIndex }),
   });
   if (!res.ok) throw new Error(`見た目の保存に失敗しました (status: ${res.status})`);
 }
@@ -162,6 +171,8 @@ export async function getSharedCanvas(id: string): Promise<SharedCanvasDetail> {
     session: parseSession(data),
     frameShapeId: parseFrameShapeId((data as { frameShapeId?: unknown }).frameShapeId),
     framePatternId: parseFramePatternId((data as { framePatternId?: unknown }).framePatternId),
+    frameShapeId2: parseFrameShapeId((data as { frameShapeId2?: unknown }).frameShapeId2),
+    framePatternId2: parseFramePatternId((data as { framePatternId2?: unknown }).framePatternId2),
   };
 }
 

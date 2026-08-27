@@ -4,7 +4,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
-import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
+import { measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { LifespanDays, Memo, Point } from "./types";
 
@@ -48,6 +48,10 @@ const TEXT_EDITOR_MIN_WIDTH_PX = 120;
  *  説明文が重なってる」——真の原因はここで、text-editor-overlayの幅
  *  （TEXT_EDITOR_MIN_WIDTH_PX）だけでは直らなかった）。 */
 const MIN_CANVAS_SIZE_PX = 90;
+
+/** 練習用の円では、入力時のプレースホルダー（最小16px）と確定後のメモが
+ *  同じ大きさに見えるよう、通常のlargeより少し大きい基準値を使う。 */
+const TUTORIAL_FONT_SIZE = 36;
 
 /** 「眺める」手順専用: 盤面の3枚全部（添え物2枚＋「書く」手順でユーザーが
  *  書いた1枚）が、この手順の待ち時間のうちに薄れていく様子を見せる
@@ -102,8 +106,6 @@ const WATCH_NEXT_BTN_DELAY_MS = 9_000;
  *  なってしまうため、この一度きり位置・文面を保ったまま復活させる
  *  （ユーザー指示：「一度そこで復活させてほしい。位置は保持する
  *  前提で」）。 */
-const REVIVE_BACKDATE_MS = 5 * HOUR;
-
 type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
 const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
 
@@ -175,11 +177,13 @@ interface TrackedMemo {
 export class TutorialSandbox {
   private canvasWrap: HTMLElement;
   private messageEl: HTMLElement;
+  private watchProgressWrap: HTMLElement;
+  private watchProgressEl: HTMLProgressElement;
+  private watchProgressLabel: HTMLElement;
   private rewindWrap: HTMLElement;
   private setRewindVisible: (show: boolean) => void;
   private nextBtn: HTMLButtonElement;
   private skipBtn: HTMLButtonElement;
-  private doneNextBtn: HTMLButtonElement;
   /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
    *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
   private onComplete: (() => void) | null;
@@ -203,6 +207,9 @@ export class TutorialSandbox {
    *  lastTracedAt。checkProgressはこの中のどれか1枚でも増減していれば
    *  keep/releaseを達成扱いにする。 */
   private memoBaselines: TrackedMemo[] = [];
+  /** 「眺める」に入る直前の全メモ。復活時は寿命を含めてこの状態へ戻す。 */
+  private watchStartMemos: Memo[] = [];
+  private watchStartAt: number | null = null;
   /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
    *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
    *  （内容は問わない）。 */
@@ -235,6 +242,17 @@ export class TutorialSandbox {
     this.messageEl = document.createElement("p");
     this.messageEl.className = "tutorial-sandbox-message";
 
+    this.watchProgressWrap = document.createElement("div");
+    this.watchProgressWrap.className = "tutorial-watch-progress";
+    this.watchProgressWrap.hidden = true;
+    this.watchProgressLabel = document.createElement("span");
+    this.watchProgressLabel.className = "tutorial-watch-progress-label";
+    this.watchProgressEl = document.createElement("progress");
+    this.watchProgressEl.className = "tutorial-watch-progress-bar";
+    this.watchProgressEl.max = 24;
+    this.watchProgressEl.value = 0;
+    this.watchProgressWrap.append(this.watchProgressLabel, this.watchProgressEl);
+
     this.rewindWrap = document.createElement("div");
     this.rewindWrap.className = "tutorial-sandbox-seek fade-visible";
     this.rewindWrap.hidden = true;
@@ -250,6 +268,11 @@ export class TutorialSandbox {
     // （syncNextBtnVisibility/checkProgress参照）ため、決め打ちの遷移先では
     // なく「今の手順の次」へ進める。
     this.nextBtn.addEventListener("click", () => {
+      if (this.step === "done") {
+        this.onComplete?.();
+        return;
+      }
+      if (this.step === "watch") this.restoreAllMemos(this.currentVirtualNow());
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
     });
@@ -258,15 +281,9 @@ export class TutorialSandbox {
     this.skipBtn.className = "text-link tutorial-sandbox-skip";
     this.skipBtn.textContent = "この体験をスキップ";
     this.skipBtn.addEventListener("click", () => this.advanceTo("done"));
-    this.doneNextBtn = document.createElement("button");
-    this.doneNextBtn.type = "button";
-    this.doneNextBtn.className = "pill-btn";
-    this.doneNextBtn.textContent = "つぎへ";
-    this.doneNextBtn.hidden = true;
-    this.doneNextBtn.addEventListener("click", () => this.onComplete?.());
-    actions.append(this.nextBtn, this.skipBtn, this.doneNextBtn);
+    actions.append(this.nextBtn, this.skipBtn);
 
-    container.append(this.canvasWrap, this.messageEl, this.rewindWrap, actions);
+    container.append(this.canvasWrap, this.watchProgressWrap, this.messageEl, this.rewindWrap, actions);
   }
 
   /** 使い方ページを開いている間だけ呼ぶ。開き直すたびにまっさらな状態から
@@ -295,6 +312,8 @@ export class TutorialSandbox {
       // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
       textEditorZIndex: TEXT_EDITOR_Z_INDEX,
       textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
+      minRenderedTextFontPx: 16,
+      nowProvider: () => this.currentVirtualNow(),
     });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
@@ -316,6 +335,8 @@ export class TutorialSandbox {
     this.canvasView = null;
     this.store = null;
     this.memoBaselines = [];
+    this.watchStartMemos = [];
+    this.watchStartAt = null;
     this.knownMemoIds = new Set();
     this.ambientId = null;
     this.decoyId = null;
@@ -341,7 +362,7 @@ export class TutorialSandbox {
       // 「つぎへ」が押せるようになる瞬間freezeToRealPaceが本物の寿命へ
       // 切り替えるため、薄れきって掴めなくなる心配はない。
       lifespanDays: this.step === "write" ? WATCH_DEMO_LIFESPAN_DAYS : FIXED_LIFESPAN_DAYS,
-      fontSize: FONT_SIZE_STEPS.medium,
+      fontSize: TUTORIAL_FONT_SIZE,
       lineWidth: PEN_LINE_WIDTH,
       eraserRadius: 16,
     };
@@ -403,6 +424,7 @@ export class TutorialSandbox {
     // ライブ表示に上書きする」という形で確実性を持たせている。
     if (this.step === "done") this.canvasView.setRewindAt(null);
     this.canvasView.render(now);
+    this.syncWatchProgress(now);
     this.checkProgress();
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -422,9 +444,13 @@ export class TutorialSandbox {
         this.advanceTo("watch");
       }
     } else if (this.step === "keep") {
-      if (this.anyMemoMoved(memos, "up")) this.advanceTo("release");
+      if (this.nextBtn.hidden && this.anyMemoMoved(memos, "up")) {
+        this.nextBtn.hidden = false;
+      }
     } else if (this.step === "release") {
-      if (this.anyMemoMoved(memos, "down")) this.advanceTo("rewind");
+      if (this.nextBtn.hidden && this.anyMemoMoved(memos, "down")) {
+        this.nextBtn.hidden = false;
+      }
     } else if (this.step === "rewind" && this.nextBtn.hidden && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
       // スライダーを動かした瞬間に手順そのものを終わらせる（即advanceTo）と、
       // 少し動かしただけで問答無用で"選びとる"へ切り替わり、過去を眺める間も
@@ -457,7 +483,12 @@ export class TutorialSandbox {
   private advanceTo(step: StepId): void {
     if (STEP_ORDER.indexOf(step) <= STEP_ORDER.indexOf(this.step)) return;
     this.step = step;
-    if (step === "watch") this.reseedForWatchDemo(this.currentVirtualNow());
+    if (step === "watch") {
+      const now = this.currentVirtualNow();
+      this.watchStartMemos = [...structuredClone(this.store?.getAll() ?? [])];
+      this.watchStartAt = now;
+      this.reseedForWatchDemo(now);
+    }
     if (step === "rewind") this.mountRewind();
     if (step === "done") this.showPresentForDone();
     this.syncStep();
@@ -465,10 +496,19 @@ export class TutorialSandbox {
 
   private syncStep(): void {
     this.messageEl.textContent = MESSAGES[this.step];
+    this.watchProgressWrap.hidden = this.step !== "watch";
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
-    this.doneNextBtn.hidden = this.step !== "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
+  }
+
+  /** 短縮された「眺める」の経過を、通常の1日寿命における0〜24時間へ換算する。 */
+  private syncWatchProgress(now: number): void {
+    if (this.step !== "watch" || this.watchStartAt === null) return;
+    const ratio = Math.min(1, Math.max(0, (now - this.watchStartAt) / WATCH_DEMO_TOTAL_VIRTUAL_MS));
+    const hours = ratio * 24;
+    this.watchProgressEl.value = hours;
+    this.watchProgressLabel.textContent = `${Math.floor(hours)}時間経過`;
   }
 
   /** 「つぎへ」（"watch"手順専用）はこの手順に入って即座にではなく、
@@ -487,10 +527,13 @@ export class TutorialSandbox {
       this.nextBtnTimer = null;
     }
     this.nextBtn.hidden = true;
+    if (this.step === "done") {
+      this.nextBtn.hidden = false;
+      return;
+    }
     if (this.step !== "watch") return;
     this.nextBtnTimer = setTimeout(() => {
       this.nextBtnTimer = null;
-      this.freezeToRealPace(this.currentVirtualNow());
       this.nextBtn.hidden = false;
     }, WATCH_NEXT_BTN_DELAY_MS);
   }
@@ -538,7 +581,10 @@ export class TutorialSandbox {
     this.rewindWrap.style.pointerEvents = "none";
     this.rewindSelector?.reset();
     this.canvasView?.setRewindAt(null);
-    this.setRewindVisible(false);
+    // フェードアウト完了までスライダーをレイアウトに残すと、その180ms後に
+    // ボタン位置がもう一度動く。手順切り替え時は即座に外して位置を一度で確定する。
+    this.rewindWrap.classList.remove("is-visible");
+    this.rewindWrap.hidden = true;
   }
 
   /** idで指定した1枚を、位置・文面を引き継いだまま作り直す
@@ -613,42 +659,23 @@ export class TutorialSandbox {
    *  ようになる瞬間（syncNextBtnVisibility）に一度だけ呼ぶ——それ以降は
    *  実際に押すまで実時間をどれだけかけようと、本物の緩やかな寿命でしか
    *  薄れないため、対象を取り逃す心配がなくなる。 */
-  private freezeToRealPace(now: number): void {
+  /** 「眺める」で薄れたものを、「つぎへ」が押された瞬間にまとめて戻す。
+   *  内容と位置はそのまま保ち、全メモを本来の寿命・完全に見える状態へ揃える。 */
+  private restoreAllMemos(now: number): void {
     if (!this.store) return;
-    const rescale = (id: string): Memo | null => {
-      const existing = this.store!.getAll().find((m) => m.id === id);
-      if (!existing) return null;
-      if (existing.status === "active") {
-        const elapsedMs = Math.max(0, now - existing.lastTracedAt);
-        const scaledBackdateMs = elapsedMs * (FIXED_LIFESPAN_DAYS! / WATCH_DEMO_LIFESPAN_DAYS!);
-        // 比を保った換算の結果、本物の寿命（24h相当）ですら経過扱いになって
-        // しまう場合（tick()がこの時点のnowにまだ追いついておらず、statusが
-        // "active"のまま実質消えている場合）は、比を保つ意味が無い
-        // （不透明度0＝掴めるはずのstatusのまま実質見えない・消えているのと
-        // 同じ）ため、下の「既に消えきっていた」場合と同じ復活処理へ
-        // フォールバックする。
-        if (scaledBackdateMs < FIXED_LIFESPAN_DAYS! * MS_PER_DAY) {
-          return this.reseedOne(id, now, scaledBackdateMs, FIXED_LIFESPAN_DAYS);
-        }
-      }
-      return this.reseedOne(id, now, REVIVE_BACKDATE_MS, FIXED_LIFESPAN_DAYS);
-    };
-
-    this.memoBaselines = this.memoBaselines.map((baseline) => {
-      const fresh = rescale(baseline.id);
-      return fresh ? trackedMemoOf(fresh) : baseline;
-    });
-
-    if (this.decoyId) {
-      const fresh = rescale(this.decoyId);
-      if (fresh) {
-        this.decoyId = fresh.id;
-        if (!this.memoBaselines.some((b) => b.id === fresh.id)) {
-          this.memoBaselines.push(trackedMemoOf(fresh));
-        }
-      }
-    }
+    const elapsed = this.watchStartAt === null ? 0 : now - this.watchStartAt;
+    const source = this.watchStartMemos.length > 0 ? this.watchStartMemos : this.store.getAll();
+    const restored = source.map((memo) => ({
+      ...structuredClone(memo),
+      createdAt: memo.createdAt + elapsed,
+      lastTracedAt: memo.lastTracedAt + elapsed,
+      traceHistory: memo.traceHistory.map((timestamp) => timestamp + elapsed),
+      status: "active" as const,
+    }));
+    this.store.replaceAll(restored);
+    this.memoBaselines = restored.map(trackedMemoOf);
   }
+
 }
 
 /** 短い「思いつき」のテキストメモを、指定した仮想時刻に作られたことにして
@@ -666,7 +693,7 @@ function seedTextThought(
   now0: number,
   lifespanDays: LifespanDays = FIXED_LIFESPAN_DAYS
 ): Memo {
-  const fontSize = FONT_SIZE_STEPS.medium;
+  const fontSize = TUTORIAL_FONT_SIZE;
   const boxWidthPx = measureTextBoxWidthPx(measureCtx, text, fontSize);
   const textLines = wrapTextAtReferenceScale(measureCtx, text, fontSize, boxWidthPx);
   const { width, height } = normalizedBoxSize(fontSize, textLines.length, boxWidthPx);

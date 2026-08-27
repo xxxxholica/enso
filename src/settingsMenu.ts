@@ -51,10 +51,10 @@ function customSwatchBackground(hue: number): string {
  * トリガーはアイコンのみ（ユーザー指示）——「設定」の文字はaria-labelで
  * スクリーンリーダーにだけ伝える。
  *
- * appearanceSelector.tsやsharedRoomMenu.tsは眼鏡キャンバスの下（下部バー）
- * に置かれるため上向き(.icon-popover既定)で開くが、これはヘッダー（画面
- * 上部）に置くため、画面外にはみ出さないよう下向き(.icon-popover--below)
- * で開く。
+ * 個人キャンバス（#canvas-info-row）・共有キャンバス（smuiView.tsのroomMenuRow）
+ * どちらの下部バーにも置かれうる（moveTo参照、ユーザー指示：設定ボタンを
+ * ヘッダーから各タブの操作列へ移したい）ため、appearanceSelector.ts等と同じく
+ * 上向き(.icon-popover既定)で開く。
  */
 export class SettingsMenu {
   private anchor: HTMLElement;
@@ -113,7 +113,7 @@ export class SettingsMenu {
     this.anchor.appendChild(this.triggerBtn);
 
     this.popover = document.createElement("div");
-    this.popover.className = "settings-popover icon-popover icon-popover--below";
+    this.popover.className = "settings-popover icon-popover";
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);
 
@@ -275,6 +275,16 @@ export class SettingsMenu {
    *  main.tsのsetView()から画面切り替えのたび呼んで出し分ける。 */
   setTemplateSectionVisible(visible: boolean): void {
     this.templateSection.hidden = !visible;
+  }
+
+  /** タブ切り替え(main.tsのsetView())のたび、今表示中のタブの操作列へこの
+   *  ボタン自体(アカウント区画・Clerkウィジェットも含めて丸ごと)を移す。
+   *  インスタンスは1個のまま(アカウント区画のmountAccountWidgetはClerk
+   *  クライアントを新規生成する副作用があり、2個目を作ると二重初期化に
+   *  なるため——main.ts参照)、DOM上の置き場所だけをappendChildで動かす。 */
+  moveTo(container: HTMLElement): void {
+    this.close(); // 開いたまま移動すると新しい場所で唐突に開いて見える
+    container.appendChild(this.anchor);
   }
 
   private toggle(): void {

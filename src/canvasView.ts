@@ -2,7 +2,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { opacityAtTime } from "./fade";
 import { FrameGeometry } from "./frameGeometry";
 import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
-import type { FrameShapeId } from "./frameShape";
+import type { FrameShape, FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
@@ -27,7 +27,6 @@ import { REFERENCE_RADIUS } from "./toolStyle";
 import type { ToolbarTool } from "./toolbar";
 import type { LifespanDays, Memo, Point, TextMemo } from "./types";
 
-const CIRCLE_BORDER = "oklch(22% 0.012 55 / 0.08)";
 const CENTER_DOT = "oklch(22% 0.012 55 / 0.18)";
 const TRACE_GLOW = "oklch(22% 0.012 55 / 0.14)";
 /** 空のキャンバスの案内（.canvas-empty-state、DOM側）を、円の中心からどれだけ
@@ -200,13 +199,12 @@ export interface CircularCanvasOptions {
    *  見えてしまう（ユーザー報告）。省略時は本物と同じMIN_CANVAS_SIZE。 */
   minCanvasSizePx?: number;
   frameShapeId?: FrameShapeId;
-  /** 外枠線の色・太さ。既定は通常キャンバスの薄い1px線のまま
-   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。太さは、
+  /** 外枠線の太さ。既定は通常キャンバスの薄い1px線のまま
+   *  （SMUIの太いウェリントン風フレームだけがこれを上書きする）。
    *  キャンバスの実サイズ（px）を受け取ってウィンドウサイズに比例した値を
    *  返す関数でも渡せる——固定pxだと、ウィンドウが小さくなってもフレームの
    *  太さだけ変わらず、レンズに対して相対的に太すぎ/細すぎに見えてしまう
    *  （SMUIの共有キャンバス、ユーザー指摘）。 */
-  frameStrokeColor?: string;
   frameStrokeWidth?: number | ((canvasSizePx: number) => number);
   /** falseの場合、ポインタ操作を一切受け付けない。SMUIの右レンズが共有キャンバスに
    *  まだ接続されていない間、白い罫線の紙だけを表示するプレースホルダー表現に使う
@@ -216,10 +214,9 @@ export interface CircularCanvasOptions {
    *  長方形）を描く。"glasses": 共有キャンバス専用、横長の矩形コンテナに左右レンズ+
    *  ブリッジを1つの連続領域として描く——frameShapeIdは「眼鏡のレンズスタイル」として
    *  解釈される（frameShape.tsのgetGlassesFrameShape参照）。 */
-  frameKind?: "single" | "glasses";
-  /** frameKind==="glasses"の時だけ意味を持つ、フレームの柄・質感（マット/べっ甲/
-   *  クリア/木目）。省略時はDEFAULT_FRAME_PATTERN_ID。"single"（通常キャンバス
-   *  タブ）は常にframeStrokeColorの単色のままで、この値は無視される。 */
+  frameKind?: "single" | "glasses" | "monocle";
+  /** フレームの柄・質感（マット/べっ甲/クリア/木目）。frameKindに関わらず
+   *  反映される。省略時はDEFAULT_FRAME_PATTERN_ID。 */
   framePatternId?: FramePatternId;
   /** メモが1つも無い空のキャンバスに出す「＋テンプレートを使用」ボタンが押されたときに
    *  呼ばれる（全画面のテンプレート選択を開く。templatePicker.ts、配線はmain.ts）。
@@ -260,6 +257,10 @@ export interface CircularCanvasOptions {
    *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
    *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
   textEditorMinWidthPx?: number;
+  /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
+  minRenderedTextFontPx?: number;
+  /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
+  nowProvider?: () => number;
 }
 
 export class CircularCanvas {
@@ -370,6 +371,8 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
+  private minRenderedTextFontPx: number | undefined;
+  private nowProvider: () => number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -410,6 +413,8 @@ export class CircularCanvas {
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
+    this.minRenderedTextFontPx = options.minRenderedTextFontPx;
+    this.nowProvider = options.nowProvider ?? Date.now;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -419,7 +424,6 @@ export class CircularCanvas {
 
     this.frame = new FrameGeometry(this.canvas, this.ctx, this.container, this.dpr, {
       frameShapeId: options.frameShapeId ?? DEFAULT_FRAME_SHAPE_ID,
-      frameStrokeColor: options.frameStrokeColor ?? CIRCLE_BORDER,
       frameStrokeWidth: options.frameStrokeWidth ?? 1,
       frameKind: options.frameKind ?? "single",
       framePatternId: options.framePatternId ?? DEFAULT_FRAME_PATTERN_ID,
@@ -483,9 +487,26 @@ export class CircularCanvas {
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
-   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+   *  frameKindに関わらず反映される（個人キャンバス/共有キャンバス共通）。 */
   setFramePattern(id: FramePatternId): void {
     this.frame.setFramePattern(id);
+  }
+
+  /** 「メガネ2」組(レンズ分割の2組目)専用の見た目の手動上書き(issue #113④)。
+   *  両方nullに戻すと自動ローテーション(issue #113③)に戻る。 */
+  setPair2Appearance(shapeId: FrameShapeId | null, patternId: FramePatternId | null): void {
+    this.frame.setPair2Appearance(shapeId, patternId);
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に実際に表示されている形状/柄のID。
+   *  SmuiViewのAppearanceSelector連携(issue #113④、メガネ1/メガネ2の個別調整
+   *  UI)が、今どの値をボタンのアクティブ表示にすべきか知るために使う。 */
+  frameShapeIdForPair(pairIndex: number): FrameShapeId {
+    return this.frame.frameShapeIdForPair(pairIndex);
+  }
+
+  framePatternIdForPair(pairIndex: number): FramePatternId {
+    return this.frame.framePatternIdForPair(pairIndex);
   }
 
   /** 振り返りスライダー（main.ts）から呼ぶ。t=nullで「たった今」＝通常のライブ
@@ -540,13 +561,18 @@ export class CircularCanvas {
 
   /** 現在の書き込みクランプ関数。レンズ分割表示が有効な間は自分の担当レンズだけに
    *  制限する（buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
-   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。それ以外は従来通り
-   *  現在のフレーム形状のclampをそのまま使う。 */
+   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。組ごとに形状が
+   *  ローテーションする(issue #113③)ため、frame.frameShapeId(共有の設定値)
+   *  ではなく自分の担当組(myPairIndex)の形状を使う——でないと、丸眼鏡以外に
+   *  ローテーションされた組の参加者は、見た目の枠と実際の書き込み可能範囲が
+   *  一致しなくなってしまう。それ以外は従来通り現在のフレーム形状のclampを
+   *  そのまま使う。 */
   private inputClamp(): (p: Point) => Point {
     const state = this.lensSplitState;
     const pairCenters = state ? this.frame.lensSplitPairCenters : null;
     if (!state || !pairCenters) return this.frame.currentShape().clamp;
-    return buildOwnLensClamp(this.frame.frameShapeId, pairCenters, state.myLensIndex);
+    const { pairIndex: myPairIndex } = lensIndexToPairSlot(state.myLensIndex);
+    return buildOwnLensClamp(this.frame.frameShapeIdForPair(myPairIndex), pairCenters, state.myLensIndex);
   }
 
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
@@ -784,7 +810,11 @@ export class CircularCanvas {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
       const { color, lifespanDays, lineWidth } = this.getToolState();
-      const memo = this.store.createMemo(p, { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth });
+      const memo = this.store.createMemo(
+        p,
+        { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth },
+        this.nowProvider()
+      );
       this.state.activeMemoId = memo.id;
     }
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
@@ -1234,9 +1264,18 @@ export class CircularCanvas {
       // 場合に箱の端が枠の外へはみ出して配置されてしまう（ユーザー指摘）。
       // 実際の文面から箱サイズが決まったこの時点で、箱全体が枠に収まる位置へ
       // 寄せてから確定する。
-      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.frame.currentShape().clamp);
+      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.inputClamp());
       this.ensureUndoSnapshot();
-      this.store.createTextMemo(safeAnchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
+      this.store.createTextMemo(
+        safeAnchor,
+        value,
+        lines,
+        fontSize,
+        width,
+        height,
+        { color, lifespanDays: this.getToolState().lifespanDays },
+        this.nowProvider()
+      );
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
@@ -1308,12 +1347,16 @@ export class CircularCanvas {
     const boxWidthPx = measureTextBoxWidthPx(this.ctx, text, fontSize);
     const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize, boxWidthPx);
     const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
-    const memo = this.store.createTextMemo({ x: 0, y: 0 }, text, lines, fontSize, width, height, {
-      color,
-      lifespanDays,
-      align: "left",
-      lineHeight,
-    });
+    const memo = this.store.createTextMemo(
+      { x: 0, y: 0 },
+      text,
+      lines,
+      fontSize,
+      width,
+      height,
+      { color, lifespanDays, align: "left", lineHeight },
+      this.nowProvider()
+    );
     this.openTextEditor({ x: 0, y: 0 }, memo);
   }
 
@@ -1698,15 +1741,23 @@ export class CircularCanvas {
 
     /** 1組(眼鏡1つ)ぶんの枠・紙・メモを描く。pairCentersが非nullの間は3組ぶん
      *  これを繰り返し呼ぶ。枠・紙はこの組のローカル原点(0,0)基準のPath2D
-     *  （frame.framePath/strokePath）なので、描く間だけoffsetへtranslateする。
-     *  クリップを確定させたらoffsetぶん戻してから描く——メモのnormalized座標は
-     *  既にlensAbsoluteCenter基準の絶対座標（グローバル、単一の共有座標系のまま、
-     *  データモデルは変更していない）なので、offsetを二重に適用しないため。 */
+     *  （frame.framePath/strokePath、レンズ分割の形状ローテーション(issue #113③)
+     *  が有効な組ではframePathForPair/strokePathForPair）なので、描く間だけ
+     *  offsetへtranslateする。クリップを確定させたらoffsetぶん戻してから描く
+     *  ——メモのnormalized座標は既にlensAbsoluteCenter基準の絶対座標（グローバル、
+     *  単一の共有座標系のまま、データモデルは変更していない）なので、offsetを
+     *  二重に適用しないため。
+     *  pairShape/pairFramePath/pairStrokePathは既定で単一表示(レンズ分割無効)時の
+     *  共通の形状・パスにフォールバックする——レンズ分割時は呼び出し側が
+     *  frame.frameShapeForPair(i)等、組ごとの値を渡す。 */
     const renderPair = (
       offset: Point,
       memos: readonly Memo[],
       isOwnPair: boolean,
-      patternStyle: CanvasPattern | CanvasGradient | string
+      patternStyle: CanvasPattern | CanvasGradient | string,
+      pairShape: FrameShape = shape,
+      pairFramePath: Path2D = this.frame.framePath,
+      pairStrokePath: Path2D = this.frame.strokePath
     ): void => {
       // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
       // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
@@ -1721,15 +1772,15 @@ export class CircularCanvas {
       ctx.save();
       ctx.translate(offset.x, offset.y);
       ctx.fillStyle = patternStyle;
-      ctx.fill(this.frame.strokePath);
+      ctx.fill(pairStrokePath);
 
       // 枠の外にはみ出さないようクリップ。
       ctx.save();
-      ctx.clip(this.frame.framePath);
+      ctx.clip(pairFramePath);
 
       if (this.frame.frameKind === "glasses" && !this.interactive) {
         // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
-        const half = r * shape.maxReach;
+        const half = r * pairShape.maxReach;
         ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
         ctx.fillRect(-half, -half, half * 2, half * 2);
       } else {
@@ -1737,7 +1788,7 @@ export class CircularCanvas {
         // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
         // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
         // 透けて見える帯ができてしまう（ユーザー指摘）。
-        drawRuledPaper(ctx, r, r * shape.maxReach);
+        drawRuledPaper(ctx, r, r * pairShape.maxReach);
       }
 
       // 以降はグローバル座標（メモの実際のnormalized座標）で描く。
@@ -1757,7 +1808,7 @@ export class CircularCanvas {
           // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
           // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
           // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
-          renderMemoAt(ctx, memo, r, displayDensity);
+          renderMemoAt(ctx, memo, r, displayDensity, this.minRenderedTextFontPx);
           continue;
         }
         const baseOpacity =
@@ -1767,7 +1818,7 @@ export class CircularCanvas {
         // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
         // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
         const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor, this.minRenderedTextFontPx);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
@@ -1810,13 +1861,21 @@ export class CircularCanvas {
       // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
       // 出なくなる。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesBridgeBar(ctx, patternStyle);
+        this.frame.drawGlassesBridgeBar(ctx, patternStyle, pairShape.id);
       }
 
-      // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
-      // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
+      // ヒンジ（クリップの外側に描く純粋な見た目要素で、メモの当たり判定・
+      // クランプとは無関係）。共有キャンバス（眼鏡）は左右のタブ。個人キャンバス
+      // の片眼鏡（"monocle"、実験中）は片側だけのタブ+その下にチェーンを垂らす
+      // （ユーザー指示：出っ張りはそのまま残し、そこからチェーンを伸ばす）。
+      // チェーンだけはフレームの柄（patternStyle）に依存しない固定インク色——
+      // 「フレームなし」でタブが紙と同化して見えづらくなっても、チェーンは
+      // 常に見えるようにするため（ユーザー指摘）。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesHinges(ctx, shape, patternStyle);
+        this.frame.drawHingeTabs(ctx, pairShape, patternStyle);
+      } else if (this.frame.frameKind === "monocle") {
+        this.frame.drawHingeTabs(ctx, pairShape, patternStyle, [1]);
+        this.frame.drawMonocleChain(ctx, pairShape);
       }
 
       ctx.restore();
@@ -1835,7 +1894,15 @@ export class CircularCanvas {
         (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
       }
       pairCenters.forEach((center, i) => {
-        renderPair({ x: center.x * r, y: center.y * r }, groups[i], i === myPairIndex, this.frame.frameStyleForPair(i));
+        renderPair(
+          { x: center.x * r, y: center.y * r },
+          groups[i],
+          i === myPairIndex,
+          this.frame.frameStyleForPair(i),
+          this.frame.frameShapeForPair(i),
+          this.frame.framePathForPair(i),
+          this.frame.strokePathForPair(i)
+        );
       });
     } else {
       renderPair({ x: 0, y: 0 }, memosToRender, true, this.frame.frameStyle);

@@ -7,6 +7,7 @@ import {
   fitCanvasToContainer,
 } from "./canvasSizing";
 import {
+  FRAME_SHAPE_ORDER,
   getFrameShape,
   getGlassesFrameShape,
   glassesBridgeHalfWidth,
@@ -22,11 +23,22 @@ import type { FramePatternId } from "./framePattern";
 import { chooseLensSplitDirection, computeLensPairCenters } from "./lensSplit";
 import type { Point } from "./types";
 
+/** 片眼鏡（frameKind==="monocle"、実験中）のチェーンの見た目。ヒンジタブ
+ *  （drawHingeTabs、frameShape.tsのGLASSES_HINGE_TAB_*）の下端から垂らす
+ *  ——タブ自体は残したまま、そこからチェーンを伸ばすイメージ（ユーザー指示）。
+ *  真下へ直線に9輪連ねる（ユーザー指示：3輪→9輪、左右に揺らさず垂直に）。
+ *  scale基準（正規化単位）の値——drawMonocleChain参照。 */
+const MONOCLE_CHAIN_LINK_COUNT = 9;
+const MONOCLE_CHAIN_LINK_RADIUS = 0.045;
+const MONOCLE_CHAIN_LINK_SPACING = 0.09;
+const MONOCLE_CHAIN_LINE_WIDTH = 0.018;
+/** フレームの柄・質感（"フレームなし"だと紙と同じ白）から独立した固定色。 */
+const MONOCLE_CHAIN_COLOR = "oklch(35% 0.02 55)";
+
 export interface FrameGeometryOptions {
   frameShapeId: FrameShapeId;
-  frameStrokeColor: string;
   frameStrokeWidth: number | ((canvasSizePx: number) => number);
-  frameKind: "single" | "glasses";
+  frameKind: "single" | "glasses" | "monocle";
   framePatternId: FramePatternId;
   contentScaleFactor?: number | ((size: number) => number);
   /** computeSquareSizeの下限をMIN_CANVAS_SIZE(200px)から差し替える。
@@ -52,12 +64,11 @@ export class FrameGeometry {
   private centerPxValue: Point = { x: 0, y: 0 };
   private contentScaleFactor: number | ((size: number) => number) | undefined;
   private frameShapeIdValue: FrameShapeId;
-  private frameStrokeColor: string;
   private frameStrokeWidthOption: number | ((canvasSizePx: number) => number);
   /** 実際に使う縁取りの太さ（px）。frameStrokeWidthOptionが関数の場合、
    *  resize()のたびにその時のキャンバス実サイズで解決し直す。 */
   private frameStrokeWidthValue = 1;
-  private frameKindValue: "single" | "glasses";
+  private frameKindValue: "single" | "glasses" | "monocle";
   private framePatternId: FramePatternId;
   private minCanvasSizePx: number | undefined;
   /** クリップ・外枠描画に使うPath2D。scale/frameShapeId/frameStrokeWidthが変わる
@@ -65,9 +76,8 @@ export class FrameGeometry {
    *  では使い回す——Path2Dの構築自体は軽くないため。 */
   private framePathValue: Path2D = new Path2D();
   private strokePathValue: Path2D = new Path2D();
-  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKind==="glasses"の時だけ
-   *  framePatternIdから組み立てる（"single"はframeStrokeColorそのまま）。
-   *  rebuildFramePaths()と同じタイミングで組み立て直す。 */
+  /** 枠のctx.strokeStyle/fillStyleに使う値。frameKindに関わらずframePatternId
+   *  から組み立てる。rebuildFramePaths()と同じタイミングで組み立て直す。 */
   private frameStyleValue: CanvasPattern | CanvasGradient | string = "";
   /** ブリッジ（接合部）の半分の高さ（scale基準、正規化単位）。frameKind==="glasses"
    *  の時だけ意味を持つ——「接合部をフレームと同じ太さにする」（ユーザー指示）ため、
@@ -88,6 +98,28 @@ export class FrameGeometry {
    *  ため、設定された柄を起点にFRAME_PATTERN_ORDERを順送りする。無効時は空配列
    *  ——frameStyleForPair()がframeStyleValueにフォールバックする。 */
   private pairFrameStyles: (CanvasPattern | CanvasGradient | string)[] = [];
+  /** pairFrameStylesに対応する柄ID一覧(index=pairIndex)。framePatternIdForPair
+   *  (issue #113④、UI表示用)のために、描画用スタイル(pairFrameStyles)とは
+   *  別にIDそのものも保持しておく。 */
+  private pairFramePatternIds: FramePatternId[] = [];
+  /** レンズ分割時、組ごとに形状(丸眼鏡/楕円/長方形)を変えるための組別形状ID一覧
+   *  (index=pairIndex)。柄と同様、同じ形状が並び続けると見分けが付きにくいため
+   *  (issue #113③、ユーザー要望)、設定された形状を起点にFRAME_SHAPE_ORDERを
+   *  順送りする。無効時は空配列——frameShapeIdForPair()がframeShapeIdValueへ
+   *  フォールバックする。 */
+  private pairFrameShapeIds: FrameShapeId[] = [];
+  /** pairFrameShapeIdsに対応する、組ごとのframePath/strokePath。組ごとに形状
+   *  そのものが異なるため、柄(frameStyleForPair)と違い単一のPath2Dを使い回せず
+   *  組ごとに個別のPath2Dを持つ必要がある。 */
+  private pairFramePaths: Path2D[] = [];
+  private pairStrokePaths: Path2D[] = [];
+  /** 「メガネ2」組(pairIndex=1)専用の見た目の手動上書き(issue #113④、編集可能な
+   *  全ユーザーが個別に設定できる)。どちらもnullの間はbuildPairFrameShapeIds/
+   *  buildPairFrameStylesの自動ローテーション(issue #113③)にフォールバックする。
+   *  「メガネ1」(pairIndex=0)はframeShapeIdValue/framePatternId自体が基準値
+   *  ——上書きという概念が無く、setFrameShape/setFramePatternをそのまま使う。 */
+  private pair2ShapeOverride: FrameShapeId | null = null;
+  private pair2PatternOverride: FramePatternId | null = null;
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -106,7 +138,6 @@ export class FrameGeometry {
     this.container = container;
     this.dpr = dpr;
     this.frameShapeIdValue = options.frameShapeId;
-    this.frameStrokeColor = options.frameStrokeColor;
     this.frameStrokeWidthOption = options.frameStrokeWidth;
     this.frameKindValue = options.frameKind;
     this.framePatternId = options.framePatternId;
@@ -145,7 +176,42 @@ export class FrameGeometry {
     return this.pairFrameStyles[pairIndex] ?? this.frameStyleValue;
   }
 
-  get frameKind(): "single" | "glasses" {
+  /** レンズ分割時、指定した組(pairIndex)に使う形状ID。組別の形状が無ければ
+   *  (無効時・範囲外)通常のframeShapeIdにフォールバックする。 */
+  frameShapeIdForPair(pairIndex: number): FrameShapeId {
+    return this.pairFrameShapeIds[pairIndex] ?? this.frameShapeIdValue;
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に使う柄ID。frameShapeIdForPairの柄版。
+   *  AppearanceSelector側(issue #113④、メガネ1/メガネ2の個別調整UI)が「今の
+   *  組にはどの柄ボタンをアクティブ表示すべきか」を知るために使う——
+   *  frameStyleForPairはCanvas描画用のスタイル値(色・パターン)であってIDでは
+   *  ないため、これとは別に持つ。 */
+  framePatternIdForPair(pairIndex: number): FramePatternId {
+    return this.pairFramePatternIds[pairIndex] ?? this.framePatternId;
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に使う形状(FrameShape、眼鏡形状ファミリー)。
+   *  frameShapeIdForPairのFrameShape版——ヒンジ描画(drawGlassesHinges)・
+   *  プレースホルダーの塗り範囲(maxReach)にはid単体ではなくFrameShapeそのもの
+   *  が要る。 */
+  frameShapeForPair(pairIndex: number): FrameShape {
+    return getGlassesFrameShape(this.frameShapeIdForPair(pairIndex));
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)専用のframePath。組ごとに形状が異なる
+   *  ため単一のframePathを使い回せない——無ければ(無効時・範囲外)通常の
+   *  framePathにフォールバックする。 */
+  framePathForPair(pairIndex: number): Path2D {
+    return this.pairFramePaths[pairIndex] ?? this.framePathValue;
+  }
+
+  /** framePathForPairのstrokePath版。 */
+  strokePathForPair(pairIndex: number): Path2D {
+    return this.pairStrokePaths[pairIndex] ?? this.strokePathValue;
+  }
+
+  get frameKind(): "single" | "glasses" | "monocle" {
     return this.frameKindValue;
   }
 
@@ -172,6 +238,15 @@ export class FrameGeometry {
   setLensSplitPairCount(pairCount: number | null): void {
     if (this.lensSplitPairCountValue === pairCount) return;
     this.lensSplitPairCountValue = pairCount;
+    this.resize();
+  }
+
+  /** 「メガネ2」組(pairIndex=1)の見た目を手動で上書きする(issue #113④)。
+   *  両方nullに戻すと自動ローテーション(issue #113③)に戻る。 */
+  setPair2Appearance(shapeId: FrameShapeId | null, patternId: FramePatternId | null): void {
+    if (this.pair2ShapeOverride === shapeId && this.pair2PatternOverride === patternId) return;
+    this.pair2ShapeOverride = shapeId;
+    this.pair2PatternOverride = patternId;
     this.resize();
   }
 
@@ -228,7 +303,7 @@ export class FrameGeometry {
       const outerY = Math.max(...pairCenters.map((c) => Math.abs(c.y))) + GLASSES_VERTICAL_REACH;
       const aspectRatio = outerX / outerY;
       const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
-      const containerSize = computeContainerSize(this.container);
+      const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
       // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
       // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
@@ -255,7 +330,7 @@ export class FrameGeometry {
       this.scaleValue = scale;
       this.centerPxValue = {
         x: containerSize.width / 2,
-        y: containerSize.height / 2 - computeChromeCenterOffsetY(),
+        y: containerSize.height / 2 - computeChromeCenterOffsetY(this.container),
       };
       this.lensSplitPairCentersValue = this.lensSplitPairCountValue !== null ? pairCenters : null;
     } else {
@@ -263,7 +338,7 @@ export class FrameGeometry {
         this.minCanvasSizePx !== undefined
           ? computeSquareSize(this.container, this.minCanvasSizePx)
           : computeSquareSize(this.container);
-      const containerSize = computeContainerSize(this.container);
+      const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
       this.frameStrokeWidthValue = this.resolveFrameStrokeWidth(referenceSize);
       const { scale, centerPx } = fitCanvasToContainer(
         this.canvas,
@@ -274,7 +349,7 @@ export class FrameGeometry {
         containerSize
       );
       this.scaleValue = scale;
-      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY() };
+      this.centerPxValue = { x: centerPx.x, y: centerPx.y - computeChromeCenterOffsetY(this.container) };
       this.lensSplitPairCentersValue = null;
     }
     this.rebuildFramePaths();
@@ -319,10 +394,10 @@ export class FrameGeometry {
       this.framePathValue = shape.buildPath(this.scaleValue);
       this.strokePathValue = shape.buildPath(this.scaleValue, undefined, offset);
     }
-    this.frameStyleValue =
-      this.frameKindValue === "glasses"
-        ? getFramePattern(this.framePatternId).buildStyle(this.ctx, this.scaleValue * shape.horizontalReach)
-        : this.frameStrokeColor;
+    this.frameStyleValue = getFramePattern(this.framePatternId).buildStyle(
+      this.ctx,
+      this.scaleValue * shape.horizontalReach
+    );
     // レンズ分割時は、設定された柄を起点にFRAME_PATTERN_ORDERを組の数ぶん順送り
     // した柄一覧を組別に用意する——同じ柄が並び続けると見分けが付かず単調に
     // 見える(issue #79、ユーザー指摘)ため。単一表示(pairCount===null)では
@@ -331,14 +406,49 @@ export class FrameGeometry {
       this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
         ? this.buildPairFrameStyles(this.lensSplitPairCountValue, this.scaleValue * shape.horizontalReach)
         : [];
+    this.pairFramePatternIds =
+      this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
+        ? this.buildPairFramePatternIds(this.lensSplitPairCountValue)
+        : [];
+    // 柄と同様、レンズ分割時は組ごとに形状(丸眼鏡/楕円/長方形)も順送りする
+    // (issue #113③)。組ごとに形状そのものが異なるため、柄と違いPath2Dも
+    // 組ごとに個別に組み立て直す必要がある——glassesBridgeHalfHeight/offsetは
+    // 形状に依らない値(frameStrokeWidth/scaleだけから決まる)なのでそのまま使い回せる。
+    this.pairFrameShapeIds =
+      this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
+        ? this.buildPairFrameShapeIds(this.lensSplitPairCountValue)
+        : [];
+    this.pairFramePaths = this.pairFrameShapeIds.map((id) =>
+      getGlassesFrameShape(id).buildPath(this.scaleValue, this.glassesBridgeHalfHeight, 0)
+    );
+    this.pairStrokePaths = this.pairFrameShapeIds.map((id) =>
+      getGlassesFrameShape(id).buildPath(this.scaleValue, this.glassesBridgeHalfHeight, offset)
+    );
   }
 
   private buildPairFrameStyles(pairCount: number, reachPx: number): (CanvasPattern | CanvasGradient | string)[] {
+    return this.buildPairFramePatternIds(pairCount).map((patternId) =>
+      getFramePattern(patternId).buildStyle(this.ctx, reachPx)
+    );
+  }
+
+  private buildPairFramePatternIds(pairCount: number): FramePatternId[] {
     const baseIndex = FRAME_PATTERN_ORDER.indexOf(this.framePatternId);
-    return Array.from({ length: pairCount }, (_, i) => {
-      const patternId = FRAME_PATTERN_ORDER[(baseIndex + i) % FRAME_PATTERN_ORDER.length];
-      return getFramePattern(patternId).buildStyle(this.ctx, reachPx);
-    });
+    return Array.from({ length: pairCount }, (_, i) =>
+      // 「メガネ2」(i===1)に手動上書きがあれば、自動ローテーションより優先する(issue #113④)。
+      i === 1 && this.pair2PatternOverride !== null
+        ? this.pair2PatternOverride
+        : FRAME_PATTERN_ORDER[(baseIndex + i) % FRAME_PATTERN_ORDER.length]
+    );
+  }
+
+  private buildPairFrameShapeIds(pairCount: number): FrameShapeId[] {
+    const baseIndex = FRAME_SHAPE_ORDER.indexOf(this.frameShapeIdValue);
+    return Array.from({ length: pairCount }, (_, i) =>
+      i === 1 && this.pair2ShapeOverride !== null
+        ? this.pair2ShapeOverride
+        : FRAME_SHAPE_ORDER[(baseIndex + i) % FRAME_SHAPE_ORDER.length]
+    );
   }
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
@@ -352,7 +462,7 @@ export class FrameGeometry {
   }
 
   /** フレームの柄・質感（マット/べっ甲/クリア/木目）を切り替える。
-   *  frameKind==="single"では意味を持たない（常にframeStrokeColorの単色）。 */
+   *  frameKindに関わらず反映される（個人キャンバス/共有キャンバス共通）。 */
   setFramePattern(id: FramePatternId): void {
     this.framePatternId = id;
     this.resize();
@@ -374,18 +484,25 @@ export class FrameGeometry {
    *  タブの大きさはthis.frameStrokeWidthValue（ウィンドウサイズに応じて動的に
    *  変わりうる）の倍率ではなく、ブリッジと同じthis.scale基準（正規化単位）で
    *  決める——frameStrokeWidthの倍率にすると、フレームを太くするたびにヒンジ
-   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。 */
-  drawGlassesHinges(
+   *  まで連動して肥大化してしまい、独立に調整できない（ユーザー指摘）。
+   *
+   *  directions（既定は両側）は片眼鏡（frameKind==="monocle"、canvasView.ts参照）
+   *  向け——単一レンズの片側だけに、チェーン/つるの取り付け部を思わせるタブを
+   *  1つだけ出したいため、[1]や[-1]のように片方だけ渡せるようにしてある。
+   *  shape（FrameShape）はhorizontalReachさえ持っていればよく、"glasses"系・
+   *  "single"系のどちらの形状でも同じ計算式で成立する。 */
+  drawHingeTabs(
     ctx: CanvasRenderingContext2D,
     shape: FrameShape,
-    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue,
+    directions: readonly (1 | -1)[] = [1, -1]
   ): void {
     const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
     const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
     const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
     const tabRadius = this.scaleValue * GLASSES_HINGE_TAB_RADIUS;
 
-    for (const direction of [1, -1] as const) {
+    for (const direction of directions) {
       const innerX = direction * frameOuterEdge;
       const outerX = innerX + direction * tabLength;
       const left = Math.min(innerX, outerX);
@@ -394,6 +511,36 @@ export class FrameGeometry {
       ctx.roundRect(left, -tabHalfHeight, tabLength, tabHalfHeight * 2, tabRadius);
       ctx.fillStyle = style;
       ctx.fill();
+    }
+  }
+
+  /** 片眼鏡（frameKind==="monocle"、実験中）のチェーン。タブ（drawHingeTabs）
+   *  自体はそのまま残し、その下端から垂らす（ユーザー指示：出っ張りはそのまま
+   *  で、その下にチェーンを伸ばすイメージ）。フレームの柄・質感（frameStyle、
+   *  "フレームなし"だと紙と同じ白）とは独立した固定のインク色で描く——単色の
+   *  タブだけだと「フレームなし」の時に白い塊として見えづらくなってしまう
+   *  （ユーザー指摘）ため、フレームの見た目に関わらずチェーンだけは常に見える
+   *  ようにする。輪を9つ、左右に揺らさず真下へ直線に連ねる（ユーザー指示）
+   *  ——実物の鎖のような詳細な質感は持たせず、線画のインクの世界観に合わせた
+   *  単純な円の輪郭のみ（ユーザー指示：紙とインクの世界観、icons.ts参照）。 */
+  drawMonocleChain(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
+    const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
+    const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
+    const tabHalfHeight = this.scaleValue * GLASSES_HINGE_TAB_HALF_HEIGHT;
+    // タブ（drawHingeTabsが同じ位置に描く矩形）の水平中央・下端を鎖の起点にする。
+    const anchorX = frameOuterEdge + tabLength / 2;
+    const anchorY = tabHalfHeight;
+    const linkRadius = this.scaleValue * MONOCLE_CHAIN_LINK_RADIUS;
+    const linkSpacing = this.scaleValue * MONOCLE_CHAIN_LINK_SPACING;
+
+    ctx.strokeStyle = MONOCLE_CHAIN_COLOR;
+    ctx.lineWidth = Math.max(1, this.scaleValue * MONOCLE_CHAIN_LINE_WIDTH);
+    for (let i = 0; i < MONOCLE_CHAIN_LINK_COUNT; i++) {
+      const cx = anchorX;
+      const cy = anchorY + linkRadius + i * linkSpacing;
+      ctx.beginPath();
+      ctx.arc(cx, cy, linkRadius, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 
@@ -411,9 +558,10 @@ export class FrameGeometry {
    *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
   drawGlassesBridgeBar(
     ctx: CanvasRenderingContext2D,
-    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue,
+    shapeId: FrameShapeId = this.frameShapeIdValue
   ): void {
-    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeIdValue, this.glassesBridgeHalfHeight);
+    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(shapeId, this.glassesBridgeHalfHeight);
     const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidthValue;
     ctx.fillStyle = style;
     ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);

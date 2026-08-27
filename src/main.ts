@@ -5,6 +5,7 @@ import { MemoStore } from "./memoStore";
 import { Toolbar } from "./toolbar";
 import { RewindSelector } from "./rewindSelector";
 import { AppearanceSelector } from "./appearanceSelector";
+import { FrameColorSelector } from "./frameColorSelector";
 import { createFadeVisibility, FADE_TRANSITION_MS } from "./fadeVisibility";
 import { setupControlPanelDrawer } from "./controlPanelDrawer";
 import { ReviveInfoPill } from "./reviveInfoPill";
@@ -18,10 +19,12 @@ import {
   loadCustomThemeHue,
   loadFramePattern,
   loadFrameShape,
+  loadPersonalFramePattern,
   loadThemePreference,
   saveCustomThemeHue,
   saveFramePattern,
   saveFrameShape,
+  savePersonalFramePattern,
   saveThemePreference,
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
@@ -40,10 +43,9 @@ app.innerHTML = `
     </div>
     <div class="app-header-right">
       <nav class="view-nav">
-        <button type="button" class="view-nav-btn" data-view="canvas">キャンバス</button>
+        <button type="button" class="view-nav-btn" data-view="canvas">個人</button>
         <button type="button" class="view-nav-btn" data-view="shared">共有</button>
       </nav>
-      <div id="settings-slot"></div>
     </div>
   </header>
   <main class="app-main">
@@ -79,65 +81,6 @@ let disconnectRealtime: (() => void) | null = null;
 // onSelectRoomから呼ぶ。selectRoom自体はスクロールの都合でsmuiViewが持つ）。
 let subscribeToRoom: ((canvasId: string) => void) | null = null;
 
-// 設定メニュー（テーマ・使い方・エクスポートに加え、アカウント区画を持つ）を
-// 先に作り、そのアカウント区画の枠にmountAccountWidgetでClerkの中身
-// （未ログイン時のログインボタン／ログイン中のアカウント情報ボタン）を
-// 描き込む——以前はヘッダーに独立した専用の枠(#account-slot)や書き出し
-// ボタン(#export-slot)を持っていたが、設定ボタンの隣に並んでいるのが
-// 冗長という指摘のため、設定メニューの中へ完全に統合した。
-//
-// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
-// してしまわないようnullを返す——ExportSection側はnullなら書き出さず
-// エラー表示に留める。canvasView/smuiView/currentViewはこの時点ではまだ
-// 定義されていないが、このコールバックは書き出しボタンが押された時にだけ
-// 呼ばれるため、それまでに定義が済んでいれば問題ない。
-// onOpenTemplatePickerはtemplatePicker（後述）を後から参照するクロージャ——
-// 実際に呼ばれるのはボタンが押された時点（モジュール初期化がすべて終わった
-// 後）なので、この時点でtemplatePickerがまだ未初期化でも問題ない。
-const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
-const settingsMenu = new SettingsMenu(
-  settingsSlot,
-  loadThemePreference(),
-  loadCustomThemeHue(),
-  (pref) => {
-    saveThemePreference(pref);
-    applyTheme(pref, loadCustomThemeHue());
-  },
-  (hue) => {
-    saveCustomThemeHue(hue);
-    applyTheme("custom", hue);
-  },
-  () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
-  () => templatePicker.open()
-);
-
-void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
-  if (session) {
-    setTokenGetter(session.getToken);
-    void syncOnSignIn(store);
-    const realtime = connectRealtimeSync(session, {
-      onPersonalMemoUpserted: (memo) => store.applyRemoteUpsert(memo),
-      onPersonalMemoDeleted: (memoId) => store.applyRemoteDelete(memoId),
-      onSharedChanged: (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
-      onSessionChanged: (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
-      onHeatChanged: (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
-      onMemoUpserted: (canvasId, memo) => smuiView.notifyMemoUpserted(canvasId, memo),
-      onMemoDeleted: (canvasId, memoId) => smuiView.notifyMemoDeleted(canvasId, memoId),
-      onReconnected: () => {
-        void refreshFromCloud(store);
-        smuiView.notifyReconnected();
-      },
-    });
-    disconnectRealtime = realtime.disconnect;
-    subscribeToRoom = realtime.subscribeToRoom;
-  } else {
-    setTokenGetter(null);
-    disconnectRealtime?.();
-    disconnectRealtime = null;
-    subscribeToRoom = null;
-  }
-});
-
 // .app-footerの高さ（--app-footer-height）は、モバイル幅ではハンドルの開閉で
 // 変わるようになった（style.css .control-panel-body参照）。共有タブの
 // .info-row（見た目の設定・セッション開始等の行）がこの実測値を見てフッターの
@@ -158,7 +101,8 @@ const durationSlot = document.querySelector<HTMLDivElement>("#duration-slot")!;
 // 「残り時間」ピル（キャンバスタブ）: ツールバー直上の行に、共有タブの
 // 「＋ルームを作成」等と同じ見た目で置く（ユーザー指示）。共有タブ側は
 // smuiView自身が同じ行の中で持つ（getRoomMenuSlot()の横）。
-const canvasReviveInfoPill = new ReviveInfoPill(document.querySelector<HTMLDivElement>("#canvas-info-row")!);
+const canvasInfoRow = document.querySelector<HTMLDivElement>("#canvas-info-row")!;
+const canvasReviveInfoPill = new ReviveInfoPill(canvasInfoRow);
 
 const onToolChange = () => {
   canvasView.closeWritingSession();
@@ -223,7 +167,97 @@ const getToolState = () => ({
 // 「＋テンプレートを使用」は道具バー側（onOpenTemplatePicker、上記）へ
 // 試験的に移したため、空キャンバスの案内には渡さない——省略時は
 // 「ドラッグで書き始める」の案内だけを出す（canvasView.ts参照）。
-const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {});
+// frameStrokeWidthは既定(1px固定)のままだと、フレームの色（マット/べっ甲/
+// クリア/木目、いずれも柄・質感を見せるパターン）を選んでもほぼ見えない
+// （ユーザー指摘）ため、共有キャンバス（SMUI_FRAME_WEIGHT_RATIO、smuiView.ts）
+// と同じくキャンバスサイズに比例した太さにする——ただし共有の太いウェリントン
+// 風フレームほどは主張させず、控えめな比率にする。
+const PERSONAL_FRAME_WEIGHT_RATIO = 0.02;
+const personalFramePatternId = loadPersonalFramePattern();
+// 実験中（方法A）：個人キャンバスを「片眼鏡」(frameKind:"monocle")にする案の
+// 検証用。frameGeometry.ts/canvasView.tsのdrawHingeTabsが片側だけタブを描く
+// （直接の呼び出し元はcanvasView.tsのrenderPair）——幾何形状(clip/clamp)自体は
+// "single"と同じ丸/楕円/長方形をそのまま使うため、書き込み判定・サイズ計算は
+// 変わらない。
+// 片眼鏡のタブ+チェーン（frameGeometry.tsのdrawHingeTabs/drawMonocleChain）は
+// 円の右側にframeStrokeWidth+タブぶんはみ出して描かれる。既定のcontentScaleFactor
+// (0.43、fitCanvasToContainer参照)だと、正方形に近いコンテナ（幅=高さ、スマホ
+// 幅など）では円の外側の余白がこのはみ出し分より狭く、チェーンが見切れて
+// しまっていた（ユーザー指摘）。円自体をひとまわり小さく描いて余白を広げる。
+const PERSONAL_CONTENT_SCALE_FACTOR = 0.36;
+const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
+  framePatternId: personalFramePatternId,
+  frameStrokeWidth: (canvasSizePx) => canvasSizePx * PERSONAL_FRAME_WEIGHT_RATIO,
+  frameKind: "monocle",
+  contentScaleFactor: PERSONAL_CONTENT_SCALE_FACTOR,
+});
+
+// フレームの色（マット/べっ甲/クリア/木目）の変更ボタン。共有キャンバスの
+// AppearanceSelectorと同じframePattern.tsの4種を、個人キャンバスにも
+// 色だけ（形は変更なし）で開放する（ユーザー指示）。この端末だけのローカル
+// 設定（storage.tsのloadPersonalFramePattern/savePersonalFramePattern、
+// サーバー同期なし）。
+new FrameColorSelector(canvasInfoRow, personalFramePatternId, (id) => {
+  savePersonalFramePattern(id);
+  canvasView.setFramePattern(id);
+});
+
+// 設定メニュー（テーマ・使い方・エクスポートに加え、アカウント区画を持つ）。
+// 以前はヘッダー右上に固定表示していたが、常に居座って邪魔という指摘のため、
+// 各タブの操作列（キャンバスタブ: canvasInfoRow、共有タブ: smuiView.
+// getSettingsSlot()）へ移した——インスタンスは1個のままで、タブ切り替えの
+// たびsettingsMenu.moveTo()でDOM上の置き場所だけを動かす（setView()参照）。
+// アカウント区画の枠にはmountAccountWidgetでClerkの中身（未ログイン時の
+// ログインボタン／ログイン中のアカウント情報ボタン）を描き込む。
+//
+// 共有タブでルーム未選択の間は、プレースホルダーの空Storeを書き出し対象に
+// してしまわないようnullを返す——ExportSection側はnullなら書き出さず
+// エラー表示に留める。smuiView/currentViewはこの時点ではまだ定義されて
+// いないが、このコールバックは書き出しボタンが押された時にだけ呼ばれる
+// ため、それまでに定義が済んでいれば問題ない。
+const settingsMenu = new SettingsMenu(
+  canvasInfoRow,
+  loadThemePreference(),
+  loadCustomThemeHue(),
+  (pref) => {
+    saveThemePreference(pref);
+    applyTheme(pref, loadCustomThemeHue());
+  },
+  (hue) => {
+    saveCustomThemeHue(hue);
+    applyTheme("custom", hue);
+  },
+  () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
+  () => templatePicker.open()
+);
+
+void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
+  if (session) {
+    setTokenGetter(session.getToken);
+    void syncOnSignIn(store);
+    const realtime = connectRealtimeSync(session, {
+      onPersonalMemoUpserted: (memo) => store.applyRemoteUpsert(memo),
+      onPersonalMemoDeleted: (memoId) => store.applyRemoteDelete(memoId),
+      onSharedChanged: (canvasId) => smuiView.notifyRemoteChangeIfCurrent(canvasId),
+      onSessionChanged: (canvasId, sessionState) => smuiView.notifySessionChanged(canvasId, sessionState),
+      onHeatChanged: (canvasId, memoId, heat) => smuiView.notifyHeatChanged(canvasId, memoId, heat),
+      onMemoUpserted: (canvasId, memo) => smuiView.notifyMemoUpserted(canvasId, memo),
+      onMemoDeleted: (canvasId, memoId) => smuiView.notifyMemoDeleted(canvasId, memoId),
+      onReconnected: () => {
+        void refreshFromCloud(store);
+        smuiView.notifyReconnected();
+      },
+    });
+    disconnectRealtime = realtime.disconnect;
+    subscribeToRoom = realtime.subscribeToRoom;
+  } else {
+    setTokenGetter(null);
+    disconnectRealtime?.();
+    disconnectRealtime = null;
+    subscribeToRoom = null;
+  }
+});
+
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
 // （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
 // ——選んだ共有キャンバス（ルーム）のMemoStoreだけを扱う（個人MemoStoreの
@@ -267,7 +301,12 @@ const appearanceSelector = new AppearanceSelector(
     framePatternId = id;
     saveFramePattern(id);
     smuiView.setFramePattern(id);
-  }
+  },
+  // 「メガネ2」(issue #113④)はルーム・組専用の上書きで、個人のローカル既定値
+  // (loadFrameShape/loadFramePattern)には影響しない——「メガネ1」と違いsaveFrame*
+  // を呼ばない。
+  (id) => smuiView.setPair2FrameShape(id),
+  (id) => smuiView.setPair2FramePattern(id)
 );
 
 // 共有キャンバス（ルーム）の作成・選択・招待リンクのメニュー。招待リンク経由の
@@ -376,6 +415,9 @@ function setView(view: "canvas" | "shared"): void {
     setToolbarVisible(view === "canvas" || view === "shared");
     // 「テンプレートを使用」（設定メニュー内）は個人キャンバス専用（issue #79ユーザー指示）。
     settingsMenu.setTemplateSectionVisible(view === "canvas");
+    // 設定ボタン自体も、今表示中のタブの操作列へ移す（ヘッダー固定をやめた、
+    // ユーザー指示）。
+    settingsMenu.moveTo(view === "canvas" ? canvasInfoRow : smuiView.getSettingsSlot());
     setDurationVisible(view === "canvas");
     smuiView.setActive(view === "shared");
   }, FADE_TRANSITION_MS);
@@ -409,16 +451,23 @@ function frame(): void {
   }
   if (currentView === "shared") {
     smuiView.render(now);
-    // ルーム接続中は見た目の設定をルームマスターに委ねて同期する
-    // （ユーザー指示）——ルームマスター以外は選べないようにロックし、
-    // ルームの値をAppearanceSelectorの表示にも反映する。setLocked/setValues
-    // は値が変わらない限りDOMを触らないので、毎フレーム呼んでも無駄がない。
+    // ルーム接続中は見た目の設定を同期する——編集可能な全ユーザーに開放されて
+    // いるため(issue #113④)、以前のようにルームマスター限定ではなく、定員超過の
+    // 観覧者だけロックする。ルームの値をAppearanceSelectorの表示にも反映する。
+    // setLocked/setValuesは値が変わらない限りDOMを触らないので、毎フレーム
+    // 呼んでも無駄がない。「メガネ2」タブは、共同アイデア出しでレンズ分割が
+    // 2組になっている間だけ表示する(pair2Available)。
     const appearanceSync = smuiView.getAppearanceSync();
     if (appearanceSync) {
       appearanceSelector.setLocked(appearanceSync.locked);
       appearanceSelector.setValues(appearanceSync.shapeId, appearanceSync.patternId);
+      appearanceSelector.setPair2Visible(appearanceSync.pair2Available);
+      if (appearanceSync.pair2Available) {
+        appearanceSelector.setPair2Values(appearanceSync.pair2ShapeId, appearanceSync.pair2PatternId);
+      }
     } else {
       appearanceSelector.setLocked(false);
+      appearanceSelector.setPair2Visible(false);
     }
     zoomed = smuiView.isZoomed();
     mobileTextEditing = smuiView.isEditingTextFixedBottom();

@@ -9,6 +9,7 @@ import type { DrawTool, Memo, StrokeMemo, TextMemo } from "./types";
 const STORAGE_KEY = "memos";
 const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
+const PERSONAL_FRAME_PATTERN_KEY = "personalFramePattern";
 const CUSTOM_TEMPLATES_KEY = "customTemplates";
 const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
@@ -155,6 +156,24 @@ export function loadFramePattern(): FramePatternId {
 
 export function saveFramePattern(id: FramePatternId): void {
   localStorage.setItem(FRAME_PATTERN_KEY, id);
+}
+
+/** 個人キャンバスで選んだフレームの柄・質感(着せ替え)。共有キャンバス
+ *  (loadFramePattern/saveFramePattern)とは別キーで持つ——サーバーに
+ *  同期される共有ルームの見た目とは無関係な、この端末だけのローカル設定。 */
+export function loadPersonalFramePattern(): FramePatternId {
+  try {
+    const raw = localStorage.getItem(PERSONAL_FRAME_PATTERN_KEY);
+    return raw !== null && VALID_FRAME_PATTERNS.has(raw as FramePatternId)
+      ? (raw as FramePatternId)
+      : DEFAULT_FRAME_PATTERN_ID;
+  } catch {
+    return DEFAULT_FRAME_PATTERN_ID;
+  }
+}
+
+export function savePersonalFramePattern(id: FramePatternId): void {
+  localStorage.setItem(PERSONAL_FRAME_PATTERN_KEY, id);
 }
 
 function isCustomTemplateShaped(value: unknown): value is TemplateDef {

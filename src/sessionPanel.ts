@@ -225,13 +225,19 @@ export class SessionPanel {
     if (!session) {
       // 未開始: 誰でも見えるが、マスターでなければ押せない（招待リンク欄などと
       // 同じ、隠すのではなく無効表示にする慣習）。
-      this.trigger.disabled = !isMaster;
+      // disabled/innerHTMLは値が変わった時だけ書き換える——render()のたびに
+      // 無条件で書き込むと、ボタンを押している最中（pointerdown〜pointerup）に
+      // 毎フレーム再代入が挟まってしまい、Chromiumがそのクリックのclickイベント
+      // 生成を握りつぶす不具合があった（実機・コンソールのイベントトレースで確認：
+      // pointerdown/pointerupは届くのにclickだけ一度も発火しない）。
+      if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
       // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
       // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
       // メディアクエリで出し分けて短縮表示にする（style.css参照）。セッション
       // 進行中の表示（下のPHASE_LABEL+残り時間）は対象外——常に短い文字列
       // なので詰まる心配が無い。
-      this.triggerLabelEl.innerHTML = '<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>';
+      const idleLabel = '<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>';
+      if (this.triggerLabelEl.innerHTML !== idleLabel) this.triggerLabelEl.innerHTML = idleLabel;
       this.startForm.hidden = false;
       this.activeControls.hidden = true;
       this.phaseLabelEl.hidden = true;
@@ -239,8 +245,9 @@ export class SessionPanel {
     }
 
     const remaining = formatMinutesSeconds(session.phaseEndsAt - now);
-    this.triggerLabelEl.textContent = `${PHASE_LABEL[session.phase]} ${remaining}`;
-    this.trigger.disabled = !isMaster;
+    const remainingLabel = `${PHASE_LABEL[session.phase]} ${remaining}`;
+    if (this.triggerLabelEl.textContent !== remainingLabel) this.triggerLabelEl.textContent = remainingLabel;
+    if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
     if (!isMaster) {
       // 非マスターは静的な表示のみ——ポップオーバーは開かせない。
       if (this.open) this.close();
