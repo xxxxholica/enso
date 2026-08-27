@@ -177,10 +177,17 @@ const personalFramePatternId = loadPersonalFramePattern();
 // （直接の呼び出し元はcanvasView.tsのrenderPair）——幾何形状(clip/clamp)自体は
 // "single"と同じ丸/楕円/長方形をそのまま使うため、書き込み判定・サイズ計算は
 // 変わらない。
+// 片眼鏡のタブ+チェーン（frameGeometry.tsのdrawHingeTabs/drawMonocleChain）は
+// 円の右側にframeStrokeWidth+タブぶんはみ出して描かれる。既定のcontentScaleFactor
+// (0.43、fitCanvasToContainer参照)だと、正方形に近いコンテナ（幅=高さ、スマホ
+// 幅など）では円の外側の余白がこのはみ出し分より狭く、チェーンが見切れて
+// しまっていた（ユーザー指摘）。円自体をひとまわり小さく描いて余白を広げる。
+const PERSONAL_CONTENT_SCALE_FACTOR = 0.36;
 const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   framePatternId: personalFramePatternId,
   frameStrokeWidth: (canvasSizePx) => canvasSizePx * PERSONAL_FRAME_WEIGHT_RATIO,
   frameKind: "monocle",
+  contentScaleFactor: PERSONAL_CONTENT_SCALE_FACTOR,
 });
 
 // フレームの色（マット/べっ甲/クリア/木目）の変更ボタン。共有キャンバスの
