@@ -1,5 +1,5 @@
 import { CircularCanvas } from "./canvasView";
-import type { CircularCanvasOptions, ToolState } from "./canvasView";
+import type { CircularCanvasOptions, LensSplitState, ToolState } from "./canvasView";
 import {
   addMemoReaction,
   advanceSession,
@@ -23,7 +23,6 @@ import { computeLensSplitPairCount, LENS_COUNT } from "./lensSplit";
 import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
-import { ReactionBar } from "./reactionBar";
 import { ReactionPicker } from "./reactionPicker";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
@@ -108,10 +107,6 @@ export class SmuiView {
    *  保持しておく。 */
   private sharedStore: MemoStore | null = null;
   private toolbar: Toolbar;
-  /** issue #128: リアクション専用フェーズ中、道具バー(setHidden)の代わりに
-   *  同じ場所へ出すバー。ユーザー指摘: 道具バーがグレーアウトのままだと
-   *  リアクションできること自体が伝わりにくいため。 */
-  private reactionBar!: ReactionBar;
   private sessionPanel!: SessionPanel;
   private reactionPicker!: ReactionPicker;
   /** issue #128: このクライアントが今セッション中に既にリアクションを送った
@@ -121,6 +116,9 @@ export class SmuiView {
    *  「押した/押していない」の二値のみ管理する(最終サマリ参照)。ルーム切り替え
    *  ごとにリセットする。 */
   private reactedMemoIds = new Set<string>();
+  /** updateReactionHover参照。マウスホバーで最後にReactionPickerを開いた
+   *  memoId(無ければnull)。 */
+  private lastHoveredReactionMemoId: string | null = null;
   /** ルームの作成者=ルームマスター。セッションの開始・進行操作の可否判定に使う。 */
   private ownerId: string | null = null;
   private session: SessionState | null = null;
@@ -144,7 +142,6 @@ export class SmuiView {
     this.frameShapeId = initialFrameShapeId;
     this.framePatternId = initialFramePatternId;
     this.toolbar = toolbar;
-    this.reactionBar = new ReactionBar(toolbar.getContainer());
 
     this.buildDom(container);
 
@@ -195,6 +192,29 @@ export class SmuiView {
     return null;
   }
 
+  /** レンズ分割表示(issue #79)の状態を、セッションのmyColorIndex/maxParticipants
+   *  から計算する。これらはセッション開始時に払い出され、セッションが続く間
+   *  (ideation以降のフェーズも含めて)ずっと有効な値のため、フェーズを問わず
+   *  同じ組ぶんのレンズを描画し続けられる。
+   *  issue #128: 当初rank/discussion/votingでは「メガネ2組を1つに結合した
+   *  単一の合体表示」(setLensSplit(null))にしていたが、合体表示自体の描画・
+   *  当たり判定が不安定という指摘（ユーザー報告）を受け、フェーズ①開始時に
+   *  表示していたのと同じ最大2組のレンズ分割をそのまま維持する方式に変更した。 */
+  private computeLensSplitState(session: SessionState): LensSplitState | null {
+    // レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが
+    // 4以上)は、レンズ分割の対象外(閲覧専用、issue #79、ユーザー確認済みの
+    // 製品判断)。myColorIndexがそもそもnull（色プール自体が枯渇——maxParticipants
+    // を超えて参加した場合）も同様に対象外——このレンズ分割とは無関係の既存の
+    // 別経路なので従来通り自由に書けるままにする（回帰させない）。
+    const myLensIndex = session.myColorIndex !== null && session.myColorIndex < LENS_COUNT ? session.myColorIndex : null;
+    if (myLensIndex === null) return null;
+    return {
+      myLensIndex,
+      lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
+      pairCount: computeLensSplitPairCount(session.maxParticipants),
+    };
+  }
+
   /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
    *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked)、
    *  リアクションスタンプの受付(setReactionMode、issue #128)を揃える。
@@ -206,17 +226,11 @@ export class SmuiView {
    *  状態にする。フェーズ①(発散)は各参加者が自分のレンズへ実際に描画している
    *  最中で、タップ操作の意味がドラッグ開始と衝突するため、このコミット時点では
    *  リアクションを配線していない（最終サマリ参照）。
-   *  リアクションのみ受け付ける状態の間は、道具バーを隠して代わりにReactionBar
-   *  を出す(applyReactionBarState、ユーザー指摘: 押せないだけの道具バーだと
-   *  リアクションできること自体が伝わらない)。 */
+   *  リアクションのみ受け付ける状態の間、道具バーはsetEnabled(false)の
+   *  グレーアウト表示のまま(ユーザー指示)——代わりにマウスホバーでメモに
+   *  乗るたびにReactionPickerを自動的に開く(render()内のポーリング参照)ことで
+   *  リアクションできることに気付けるようにしている。 */
   private applyRestrictions(): void {
-    // リアクション専用状態(reactionModeActive)の間は、道具バーを隠して同じ
-    // 場所にReactionBarを出す(issue #128、ユーザー指摘: 押せないだけの道具バー
-    // だとリアクションできること自体が伝わらない)。ブランチの最後にまとめて適用する。
-    let reactionModeActive = false;
-    let reactionBarLabel = "";
-    let reactionBarEmoji: readonly string[] = [];
-
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
@@ -224,9 +238,10 @@ export class SmuiView {
       this.lens.setLocked(false);
       this.lens.setReactionMode(false);
       this.lens.setLensSplit(null);
-      this.applyReactionBarState(false, "", []);
       return;
     }
+    const lensSplitState = this.computeLensSplitState(this.session);
+    this.lens.setLensSplit(lensSplitState);
     const isMaster = this.isRoomMaster();
     if (this.session.phase === "discussion") {
       this.toolbar.setEnabled(isMaster);
@@ -236,62 +251,25 @@ export class SmuiView {
       // モードにする(setReactionModeがドラッグ・消去等の開始を一括で防ぐため、
       // setLocked(true)と重ねて呼ぶ必要はない——タップだけ拾えなくなってしまう)。
       this.lens.setLocked(false);
-      reactionModeActive = !isMaster;
-      this.lens.setReactionMode(reactionModeActive);
-      this.lens.setLensSplit(null);
-      reactionBarLabel = "議論中: メモをタップしてリアクション";
-      reactionBarEmoji = REACTION_EMOJI;
+      this.lens.setReactionMode(!isMaster);
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setReactionMode(false);
-      // レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが
-      // 4以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
-      // 製品判断）。maxParticipants自体もLENS_COUNTと同じ4が上限のため
-      // (sessionPanel.ts MAX_PARTICIPANTS_RANGE)、通常はここに該当しない
-      // ——過去に開始した8人上限のセッションが残っている場合の後方互換として
-      // 残す。myColorIndexがそもそもnull（色プール自体が枯渇——maxParticipants
-      // を超えて参加した場合）は、このレンズ分割とは無関係の既存の別経路なので
-      // 従来通り自由に書けるままにする（回帰させない）。
-      const myLensIndex =
-        this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
-      const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
+      // レンズ分割の対象外(myColorIndexがLENS_COUNT以上、または色プール枯渇)の
+      // 参加者は、フェーズ①の間だけ閲覧専用にする(computeLensSplitStateの
+      // コメント参照)。
+      const isOverflowLensParticipant = this.session.myColorIndex !== null && lensSplitState === null;
       this.lens.setLocked(isOverflowLensParticipant);
-      this.lens.setLensSplit(
-        myLensIndex !== null
-          ? {
-              myLensIndex,
-              lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
-              pairCount: computeLensSplitPairCount(this.session.maxParticipants),
-            }
-          : null
-      );
     } else {
       // rank / voting: 全員リアクションのみ受け付ける読み取り専用。
       this.toolbar.setEnabled(false);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
-      reactionModeActive = true;
       this.lens.setReactionMode(true);
-      this.lens.setLensSplit(null);
-      if (this.session.phase === "voting") {
-        reactionBarLabel = "審議中: メモをタップして🔥を送る";
-        reactionBarEmoji = [VOTING_EMOJI];
-      } else {
-        reactionBarLabel = "序列づけ中: メモをタップしてリアクション";
-        reactionBarEmoji = REACTION_EMOJI;
-      }
     }
-    this.applyReactionBarState(reactionModeActive, reactionBarLabel, reactionBarEmoji);
-  }
-
-  /** 道具バー(Toolbar.setHidden)とReactionBarの表示切り替えをまとめて行う。 */
-  private applyReactionBarState(active: boolean, label: string, allowedEmoji: readonly string[]): void {
-    this.toolbar.setHidden(active);
-    if (active) this.reactionBar.update(label, allowedEmoji);
-    this.reactionBar.setVisible(active);
   }
 
   /** セッション状態が変わるたびに呼ぶ(selectRoom/session系コールバック/
@@ -305,7 +283,10 @@ export class SmuiView {
     this.session = session;
     this.applyRestrictions();
     // フェーズが変わったのに前のフェーズ基準で開いたままのシートが残らないように閉じる。
-    if (session?.phase !== prevPhase) this.reactionPicker.close();
+    if (session?.phase !== prevPhase) {
+      this.reactionPicker.close();
+      this.lastHoveredReactionMemoId = null;
+    }
     // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
     // fadeExempt/frozenDensityを確定させた直後なので、すぐ取得し直す——放置すると
     // 確定したはずのメモが古いlastTracedAtのままフェードし続けてしまう。
@@ -459,6 +440,7 @@ export class SmuiView {
     this.sessionPanel.reset();
     this.reactionPicker.close();
     this.reactedMemoIds.clear();
+    this.lastHoveredReactionMemoId = null;
     this.applySession(null, { silent: true });
     this.ownerId = null;
     // 前のルームでルームマスターが設定した見た目を次のルームへ持ち越さない
@@ -665,7 +647,23 @@ export class SmuiView {
     if (!this.active) return;
     this.lens.render(now);
     this.updateReviveInfoPill(now);
+    this.updateReactionHover();
     this.sessionPanel.update(now, this.isRoomMaster(), this.session);
+  }
+
+  /** issue #128: リアクション専用状態(setReactionMode(true))の間、マウスが
+   *  乗っているメモが変わるたびにReactionPickerを開き直す（ユーザー指示:
+   *  ホバーでリアクション用のブロックを出したい)。タッチには「ホバー」に
+   *  相当する状態が無いため、この経路はマウスの間だけ働く
+   *  (canvasView.getReactionHoverMemoId参照)——タッチは引き続きタップで開く
+   *  (handleMemoTap)。同じメモに乗り続けている間は毎フレーム呼び直さない
+   *  よう、直前に開いた対象だけを覚えておく（一度手動で閉じても、乗せたまま
+   *  なら再度開き直しはしない——マウスが一度離れてから戻った時だけ開く）。 */
+  private updateReactionHover(): void {
+    const memoId = this.lens.getReactionHoverMemoId();
+    if (memoId === this.lastHoveredReactionMemoId) return;
+    this.lastHoveredReactionMemoId = memoId;
+    if (memoId) this.handleMemoTap(memoId);
   }
 
   /** 「残り時間」ピルの中身を今の状況に合わせる。審議(voting)フェーズ中は、時間で

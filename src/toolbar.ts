@@ -499,21 +499,4 @@ export class Toolbar {
     this.colorLocked = locked;
     this.syncSwatch();
   }
-
-  /** issue #128: 共有ルームのリアクション専用フェーズ(rank/voting、議論の非マスター)
-   *  の間、道具バー自体を隠すために呼ぶ（smuiView.ts）。setEnabled(false)の
-   *  グレーアウト表示だと「押せないだけ」に見え、代わりにリアクションで
-   *  操作できることが伝わりにくいため、道具バーごと隠して同じ場所に
-   *  ReactionBarを出す（ユーザー指示）。main.tsのcreateFadeVisibility
-   *  （タブ切り替え時の.is-visible/hidden制御）とは独立した専用クラスで
-   *  上書きすることで、互いに競合しないようにしてある。 */
-  setHidden(hidden: boolean): void {
-    this.el.classList.toggle("toolbar--reaction-hidden", hidden);
-  }
-
-  /** ReactionBar(reactionBar.ts)を道具バーと同じ場所（横並びの兄弟要素）に
-   *  マウントするための入れ物。 */
-  getContainer(): HTMLElement {
-    return this.container;
-  }
 }

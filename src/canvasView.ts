@@ -122,7 +122,9 @@ interface PinchState {
   startPan: Point;
 }
 
-/** レンズ分割表示(issue #79、共同アイデア出しフェーズ①限定)の状態。
+/** レンズ分割表示(issue #79)の状態。issue #128以降、フェーズ①(発散)に限らず
+ *  セッション開始から終了まで(発散/序列づけ/議論/審議)ずっと同じ組ぶんの
+ *  レンズを描画し続ける(smuiView.computeLensSplitState参照)。
  *  myLensIndexは自分の担当レンズ番号(session.myColorIndexをそのまま流用)、
  *  lensIndexForMemoは既存メモをどのレンズに属するとみなすかの判定関数
  *  （memo.colorから参加者色を逆引きする、smuiView.ts参照）、pairCountは
@@ -314,6 +316,11 @@ export class CircularCanvas {
    *  でない（mode==="idle"）ときにポインタの下のメモを追いかける。 */
   private hoverInfoMemoId: string | null = null;
   private hoverInfoPoint: Point | null = null;
+  /** issue #128: setReactionMode(true)中のマウスホバー用。レンズ分割中でも
+   *  自分の担当レンズ以外のメモをホバー対象にできるよう、hoverInfoMemoIdとは
+   *  別に生の座標(toNormalizedRaw、inputClampを経ない)でヒットテストする
+   *  （onPointerDownのreactionModeActive分岐と同じ考え方）。 */
+  private reactionHoverMemoId: string | null = null;
   /** 消しゴムツールでの当たり範囲プレビュー用（ユーザー指示：クリックして実際に
    *  消し始めるまで、消しゴムの大きさが分からない問題を解消したい）。上のhoverInfo
    *  と同じ理由でmouseの間だけ、実際に消し始める前（mode==="idle"）に更新する
@@ -687,6 +694,29 @@ export class CircularCanvas {
     // 判定し、外側ならジェスチャーを始めずに無視する（issue: 円の外にpointerdown
     // すると、toNormalizedのクランプで円周上の点として扱われ描画されてしまう）。
     const raw = this.toNormalizedRaw(ev.clientX, ev.clientY);
+
+    if (this.reactionModeActive) {
+      // リアクションのタップは、レンズ分割中でも「自分の担当レンズ」以外の
+      // メモも対象にする必要があるため、inputClamp()(=自分のレンズ内に丸め込む
+      // buildOwnLensClamp)によるisInsideClamp判定はここでは適用しない
+      // ——メモの座標系自体は分割の有無に関わらず単一の共有座標系のままなので
+      // (lensSplit.tsのコメント参照)、生のrawをそのままhitTestMemoに渡せば
+      // どの組のメモでも正しく拾える。描画のように枠外クリックが誤って何かを
+      // 作ってしまう心配も無い(hitTestMemoは既存メモの近くでなければnullを返すだけ)。
+      try {
+        this.canvas.setPointerCapture(ev.pointerId);
+      } catch {
+        // ブラウザ差異等でcaptureに失敗しても致命的ではないため無視する。
+      }
+      this.activePointerId = ev.pointerId;
+      // 道具に関わらず、触れた瞬間のヒット結果と画面座標だけを覚えておき、
+      // 実際の判定・発火はonPointerUpでTAP_MAX_MOVEMENT_PX以内だったかを見てから行う
+      // （ドラッグして離した場合はタップ扱いにしない）。
+      const hit = this.hitTestMemo(raw);
+      this.reactionTapCandidate = { memoId: hit?.id ?? null, downClientPoint: { x: ev.clientX, y: ev.clientY } };
+      return;
+    }
+
     if (!isInsideClamp(raw, this.inputClamp())) return;
 
     // 指がキャンバス外に多少はみ出してもmove/upを確実に拾えるようにする
@@ -698,15 +728,6 @@ export class CircularCanvas {
       // ブラウザ差異等でcaptureに失敗しても致命的ではないため無視する。
     }
     this.activePointerId = ev.pointerId;
-
-    if (this.reactionModeActive) {
-      // 道具に関わらず、触れた瞬間のヒット結果と画面座標だけを覚えておき、
-      // 実際の判定・発火はonPointerUpでTAP_MAX_MOVEMENT_PX以内だったかを見てから行う
-      // （ドラッグして離した場合はタップ扱いにしない）。
-      const hit = this.hitTestMemo(raw);
-      this.reactionTapCandidate = { memoId: hit?.id ?? null, downClientPoint: { x: ev.clientX, y: ev.clientY } };
-      return;
-    }
 
     if (this.textEditor) return; // テキスト入力中は他の操作を受け付けない（blurで確定してから）
     const p = raw;
@@ -1408,6 +1429,13 @@ export class CircularCanvas {
 
     this.eraserHoverPoint = isMouse && tool === "eraser" ? this.toNormalized(ev.clientX, ev.clientY) : null;
 
+    // issue #128: リアクション専用状態では、選んでいる道具に関わらずマウス
+    // ホバーだけでリアクション対象のメモを検出する（ユーザー指示: ホバーで
+    // リアクション用のブロックを出したい）。inputClamp()を経ないrawを使うのは
+    // onPointerDownのreactionModeActive分岐と同じ理由（自分の担当レンズ以外の
+    // メモも対象にするため）。
+    this.reactionHoverMemoId = isMouse && this.reactionModeActive ? (this.hitTestMemo(this.toNormalizedRaw(ev.clientX, ev.clientY))?.id ?? null) : null;
+
     if (!isMouse || (tool !== "trace" && tool !== "move")) {
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
@@ -1419,12 +1447,20 @@ export class CircularCanvas {
     this.hoverInfoPoint = hitMemo ? p : null;
   }
 
+  /** issue #128: setReactionMode(true)中、今マウスがホバーしているメモID
+   *  （無ければnull）。smuiView.render()が毎フレーム読み、前回値と差分があれば
+   *  ReactionPickerを開き直す。 */
+  getReactionHoverMemoId(): string | null {
+    return this.reactionHoverMemoId;
+  }
+
   /** マウスがキャンバスの外に出たら、ホバー案内・消しゴムのプレビュー円も消す
    *  （出しっぱなしにならないように）。 */
   private onPointerLeave = (): void => {
     this.hoverInfoMemoId = null;
     this.hoverInfoPoint = null;
     this.eraserHoverPoint = null;
+    this.reactionHoverMemoId = null;
   };
 
   private onPointerUp = (ev: PointerEvent): void => {
