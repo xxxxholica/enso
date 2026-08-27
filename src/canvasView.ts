@@ -260,6 +260,8 @@ export interface CircularCanvasOptions {
    *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
    *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
   textEditorMinWidthPx?: number;
+  /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
+  minRenderedTextFontPx?: number;
 }
 
 export class CircularCanvas {
@@ -370,6 +372,7 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
+  private minRenderedTextFontPx: number | undefined;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -410,6 +413,7 @@ export class CircularCanvas {
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
+    this.minRenderedTextFontPx = options.minRenderedTextFontPx;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -1757,7 +1761,7 @@ export class CircularCanvas {
           // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
           // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
           // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
-          renderMemoAt(ctx, memo, r, displayDensity);
+          renderMemoAt(ctx, memo, r, displayDensity, this.minRenderedTextFontPx);
           continue;
         }
         const baseOpacity =
@@ -1767,7 +1771,7 @@ export class CircularCanvas {
         // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
         // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
         const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor, this.minRenderedTextFontPx);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";

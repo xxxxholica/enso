@@ -2470,6 +2470,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
   gap: var(--space-3);
   margin-top: 4px;
 }
@@ -2489,8 +2490,8 @@ body[data-view="shared"] #duration-slot {
      あった——日本語フォントの行間計算がOSやフォントスタックによって微妙に
      異なるため、ここで測った値をそのまま使うと足りないことがある。今後また
      同じズレが起きないよう、実測でぎりぎり収まる値ちょうどではなく、
-     余裕を持たせた値（-460px→-520px）にしてある。 */
-  max-width: clamp(90px, calc(100dvh - 520px), 240px);
+     円を十分な大きさで表示しつつ低い画面にも収まる値（-420px）にしてある。 */
+  max-width: clamp(160px, calc(100dvh - 420px), 360px);
   aspect-ratio: 1 / 1;
 }
 
@@ -2504,11 +2505,12 @@ body[data-view="shared"] #duration-slot {
 .tutorial-sandbox-message {
   margin: 0;
   min-height: 2.6em;
-  max-width: 46ch;
+  width: min(100%, 56ch);
   font-size: var(--text-sm);
   line-height: 1.85;
   color: var(--ink-85);
   text-align: center;
+  text-wrap: pretty;
 }
 
 .tutorial-sandbox-actions {

@@ -4,7 +4,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
-import { FONT_SIZE_STEPS, measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
+import { measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { LifespanDays, Memo, Point } from "./types";
 
@@ -48,6 +48,10 @@ const TEXT_EDITOR_MIN_WIDTH_PX = 120;
  *  説明文が重なってる」——真の原因はここで、text-editor-overlayの幅
  *  （TEXT_EDITOR_MIN_WIDTH_PX）だけでは直らなかった）。 */
 const MIN_CANVAS_SIZE_PX = 90;
+
+/** 練習用の円では、入力時のプレースホルダー（最小16px）と確定後のメモが
+ *  同じ大きさに見えるよう、通常のlargeより少し大きい基準値を使う。 */
+const TUTORIAL_FONT_SIZE = 36;
 
 /** 「眺める」手順専用: 盤面の3枚全部（添え物2枚＋「書く」手順でユーザーが
  *  書いた1枚）が、この手順の待ち時間のうちに薄れていく様子を見せる
@@ -295,6 +299,7 @@ export class TutorialSandbox {
       // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
       textEditorZIndex: TEXT_EDITOR_Z_INDEX,
       textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
+      minRenderedTextFontPx: 16,
     });
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
@@ -341,7 +346,7 @@ export class TutorialSandbox {
       // 「つぎへ」が押せるようになる瞬間freezeToRealPaceが本物の寿命へ
       // 切り替えるため、薄れきって掴めなくなる心配はない。
       lifespanDays: this.step === "write" ? WATCH_DEMO_LIFESPAN_DAYS : FIXED_LIFESPAN_DAYS,
-      fontSize: FONT_SIZE_STEPS.medium,
+      fontSize: TUTORIAL_FONT_SIZE,
       lineWidth: PEN_LINE_WIDTH,
       eraserRadius: 16,
     };
@@ -666,7 +671,7 @@ function seedTextThought(
   now0: number,
   lifespanDays: LifespanDays = FIXED_LIFESPAN_DAYS
 ): Memo {
-  const fontSize = FONT_SIZE_STEPS.medium;
+  const fontSize = TUTORIAL_FONT_SIZE;
   const boxWidthPx = measureTextBoxWidthPx(measureCtx, text, fontSize);
   const textLines = wrapTextAtReferenceScale(measureCtx, text, fontSize, boxWidthPx);
   const { width, height } = normalizedBoxSize(fontSize, textLines.length, boxWidthPx);
