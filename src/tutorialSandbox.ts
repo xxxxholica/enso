@@ -4,6 +4,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
+import { ReviveInfoPill } from "./reviveInfoPill";
 import { measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { LifespanDays, Memo, Point } from "./types";
@@ -110,7 +111,7 @@ type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
 const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  write: "円の中をタップして、思いついたことを書いてみましょう。",
+  write: "円をタップするか、そのままキー入力して、思いついたことを書いてみましょう。",
   watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
   release: "今度は、要らない一枚に触れたまま、時計回りに回して早く手放してみましょう。",
@@ -194,6 +195,7 @@ export class TutorialSandbox {
   private store: MemoStore | null = null;
   private canvasView: CircularCanvas | null = null;
   private rewindSelector: RewindSelector | null = null;
+  private reviveInfoPill: ReviveInfoPill | null = null;
 
   private raf = 0;
   private running = false;
@@ -315,6 +317,7 @@ export class TutorialSandbox {
       minRenderedTextFontPx: 16,
       nowProvider: () => this.currentVirtualNow(),
     });
+    this.reviveInfoPill = new ReviveInfoPill(this.canvasWrap);
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
     this.seed();
@@ -333,6 +336,7 @@ export class TutorialSandbox {
     }
     this.canvasView?.destroy();
     this.canvasView = null;
+    this.reviveInfoPill = null;
     this.store = null;
     this.memoBaselines = [];
     this.watchStartMemos = [];
@@ -424,6 +428,7 @@ export class TutorialSandbox {
     // ライブ表示に上書きする」という形で確実性を持たせている。
     if (this.step === "done") this.canvasView.setRewindAt(null);
     this.canvasView.render(now);
+    this.reviveInfoPill?.update(this.canvasView.getHoverRemainingMs(now));
     this.syncWatchProgress(now);
     this.checkProgress();
     this.raf = requestAnimationFrame(this.loop);
@@ -500,6 +505,16 @@ export class TutorialSandbox {
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
+  }
+
+  /** 使い方モーダルのcapture段から、直接キー入力を通してよい状態かを返す。 */
+  isWritingStep(): boolean {
+    return this.running && this.step === "write";
+  }
+
+  startDirectTextInput(initialText: string): void {
+    if (!this.isWritingStep()) return;
+    this.canvasView?.startTextInputAtCenter(initialText);
   }
 
   /** 短縮された「眺める」の経過を、通常の1日寿命における0〜24時間へ換算する。 */
@@ -670,6 +685,9 @@ export class TutorialSandbox {
       createdAt: memo.createdAt + elapsed,
       lastTracedAt: memo.lastTracedAt + elapsed,
       traceHistory: memo.traceHistory.map((timestamp) => timestamp + elapsed),
+      // 「眺める」専用の短い寿命は演出終了時に破棄し、ユーザーが書いたものも
+      // 元からあるものも、チュートリアル開始時と同じ通常寿命へ統一する。
+      lifespanDays: FIXED_LIFESPAN_DAYS,
       status: "active" as const,
     }));
     this.store.replaceAll(restored);

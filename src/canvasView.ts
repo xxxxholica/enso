@@ -1684,6 +1684,22 @@ export class CircularCanvas {
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
   }
 
+  /** モーダル等のcapture段で拾った文字を、このキャンバスの中央入力として開始する。 */
+  startTextInputAtCenter(initialText: string): void {
+    if (
+      !this.interactive ||
+      this.rewindAt !== null ||
+      this.locked ||
+      this.voteOnly ||
+      this.textEditor ||
+      this.state.mode !== "idle" ||
+      initialText.length !== 1
+    ) {
+      return;
+    }
+    this.openTextEditor({ x: 0, y: 0 }, null, initialText);
+  }
+
   /** 上と同じ対象（なぞる/移動で実際に触れている、またはPCでホバーしている
    *  メモ）のIDだけを返す。投票フェーズ中、smuiView.tsが残り時間の代わりに
    *  支持率(%)を出すために使う（issue #79）。 */

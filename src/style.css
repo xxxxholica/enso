@@ -2643,6 +2643,18 @@ body[data-view="shared"] #duration-slot {
   display: none;
 }
 
+/* 本体ではツールバー直上に出る残り時間ピルを、練習では円の下端へ重ねる。
+   表示・非表示で説明文以下のレイアウトが動かないようabsoluteにする。 */
+.tutorial-sandbox-canvas-wrap .revive-info-pill {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .tutorial-sandbox-message {
   margin: 0;
   min-height: 2.6em;

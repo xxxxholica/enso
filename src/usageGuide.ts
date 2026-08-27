@@ -253,6 +253,21 @@ class UsageGuide {
     if (ev.target instanceof HTMLElement && ev.target.classList.contains("text-editor-overlay")) {
       return;
     }
+    // 練習の「書き込む」では、本体と同じく印字可能なキーから直接入力を始める。
+    // capture段で止めず、CircularCanvas.onGlobalKeyDownまで伝播させる。
+    if (
+      this.pageIndex === 1 &&
+      this.sandbox?.isWritingStep() &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey &&
+      ev.key.length === 1
+    ) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.sandbox.startDirectTextInput(ev.key);
+      return;
+    }
     ev.stopPropagation();
     if (ev.key === "Escape") this.close();
   };
