@@ -89,7 +89,11 @@ export class ExportSection {
         download(image, `ensou-${stamp}.png`);
       } else {
         const text = source.getExportText();
-        download(new Blob([text], { type: "text/plain;charset=utf-8" }), `ensou-${stamp}.txt`);
+        // AndroidのダウンロードマネージャはMIMEのcharsetヒントを保持しないことが
+        // 多く、テキストビューアがBOM無しだとShift-JIS等と誤判定して文字化けする
+        // ため、UTF-8 BOMを本体に付与してエンコーディングを明示する。
+        const BOM = "﻿";
+        download(new Blob([BOM + text], { type: "text/plain;charset=utf-8" }), `ensou-${stamp}.txt`);
       }
       this.onExported?.();
     } catch (e) {
