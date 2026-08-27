@@ -1,4 +1,5 @@
 import { createFadeVisibility } from "./fadeVisibility";
+import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { ICONS } from "./icons";
 import { DEFAULT_FONT_SIZE_STEP, FONT_SIZE_STEPS } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
@@ -8,8 +9,15 @@ import type { DrawTool } from "./types";
 export type ToolbarTool = DrawTool | "eraser" | "text" | "move" | "trace";
 
 export const DEFAULT_INK = "oklch(22% 0.012 55)";
-/** ネイティブのカラーピッカーを開く初期値。実際の描画色は色を変更するまでこの近似値ではなくDEFAULT_INKのまま。 */
-const COLOR_INPUT_SEED = "#2f2a26";
+
+/** 「好きな色」の色相スライダーで選んだ色相(0〜360)を、実際に描画で使える
+ *  インク色に変換する。settingsMenu.tsのcustomSwatchBackground()と同じ式
+ *  （ペン・マーカーどちらにも使える、彩度控えめの中間的な明るさ）——専用の
+ *  ネイティブ<input type="color">をやめてこちらに揃えたため、値の作り方も
+ *  同じ考え方にしている。 */
+function customInkColor(hue: number): string {
+  return `oklch(75% 0.15 ${hue})`;
+}
 
 /** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）の
  *  小/中/大の3段階。以前はペンの太さと同じくバーで連続的に選べるようにして
@@ -147,7 +155,20 @@ export class Toolbar {
    *  差し替える。 */
   private presetButtons: HTMLButtonElement[] = [];
   private customSwatchBtn!: HTMLButtonElement;
-  private colorInput!: HTMLInputElement;
+  /** 「好きな色」ポップオーバーの器（.icon-anchor）・中身・開閉制御。以前は
+   *  ネイティブの<input type="color">を直接クリックで開閉していたが、ネイティブ
+   *  UIはページのCSSが一切効かずアニメーションを付けられない（ユーザー指示：
+   *  一瞬で開閉せず徐々に見えるようにしたい）ため、テーマのカラーパレット
+   *  （settingsMenu.ts）と同じ自前描画の色相スライダー＋.icon-popoverに
+   *  置き換えた。createFadeVisibilityで他のポップオーバーと同じフェードを、
+   *  exclusivePopoverで外側クリックでの自動クローズ・他ポップオーバーとの
+   *  排他制御を担う。 */
+  private customColorAnchor!: HTMLElement;
+  private customColorPopover!: HTMLElement;
+  private customColorPopoverFade!: (show: boolean) => void;
+  private customColorPopoverOpen = false;
+  private readonly closeCustomColorPopoverRef = () => this.closeCustomColorPopover();
+  private hueSlider!: HTMLInputElement;
   private swatchRow!: HTMLElement;
   /** setColorLocked参照。syncSwatch()がtoolの種類だけを見てdisabledを
    *  決め直してしまうと、道具を切り替えるたびにこのロックが解除されて
@@ -158,11 +179,6 @@ export class Toolbar {
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
-  /** ネイティブのカラーピッカー（colorInput）が開いているかどうか。開いて
-   *  いる間にもう一度カスタムスワッチを押すと閉じるようにする（ユーザー
-   *  指示：1回押すと開く・もう1回押すと閉じるトグルにしたい）——ブラウザは
-   *  ピッカーの開閉状態を直接教えてくれないため、こちらで手動管理する。 */
-  private colorPickerOpen = false;
 
   constructor(
     container: HTMLElement,
@@ -414,24 +430,12 @@ export class Toolbar {
       row.appendChild(btn);
     }
 
-    this.colorInput = document.createElement("input");
-    this.colorInput.type = "color";
-    this.colorInput.value = COLOR_INPUT_SEED;
-    this.colorInput.className = "toolbar-color-input";
-    this.colorInput.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
-    this.colorInput.addEventListener("input", () => {
-      this.customColor = this.colorInput.value;
-      this.setActiveColor(this.customColor);
-      this.syncSwatch();
-      this.onChange?.();
-    });
-    // ピッカーを閉じる操作（色を選ぶ／Escape／外側クリック等）は全部この
-    // 要素からフォーカスが外れる形で起きるため、blurで開閉状態をリセットする
-    // ——ボタン側のトグル管理（colorPickerOpen）とブラウザ側の実際の開閉を
-    // 食い違わせないため。
-    this.colorInput.addEventListener("blur", () => {
-      this.colorPickerOpen = false;
-    });
+    // 4つ目「好きな色」。ネイティブの<input type="color">はやめ、テーマの
+    // カラーパレット（settingsMenu.ts）と同じ自前描画の色相スライダーを
+    // .icon-popoverの中に置く（ユーザー指示：開閉を徐々に見えるようにしたい
+    // ——ネイティブUIではCSSが一切効かないため実現できなかった）。
+    this.customColorAnchor = document.createElement("div");
+    this.customColorAnchor.className = "icon-anchor toolbar-custom-color-anchor";
 
     // 未使用のうちは「好きな色」だと一目で分かるよう虹色の見た目にする
     // （style.cssの.toolbar-swatch--custom）。一度選んだ後は、その色そのものを
@@ -439,26 +443,54 @@ export class Toolbar {
     this.customSwatchBtn = document.createElement("button");
     this.customSwatchBtn.type = "button";
     this.customSwatchBtn.className = "toolbar-swatch toolbar-swatch--custom";
-    this.customSwatchBtn.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
-    this.customSwatchBtn.appendChild(this.colorInput);
-    // 1回押すと開き、開いている間にもう一度押すと閉じるトグルにする
-    // （ユーザー指示）。ネイティブのカラーピッカーはHTMLInputElement.
-    // showPicker()/hidePicker()で開閉できる——.click()だと開くだけで
-    // 閉じる手段が無いため、こちらに切り替えた。
-    this.customSwatchBtn.addEventListener("click", (ev) => {
-      if (ev.target === this.colorInput) return;
-      if (this.colorPickerOpen) {
-        // hidePicker()はTSの標準DOM型定義にまだ無いため個別に型を補う。
-        (this.colorInput as HTMLInputElement & { hidePicker?: () => void }).hidePicker?.();
-        this.colorPickerOpen = false;
-        return;
-      }
-      this.colorInput.showPicker();
-      this.colorPickerOpen = true;
+    this.customSwatchBtn.setAttribute("aria-label", "好きな色を選ぶ");
+    this.customSwatchBtn.addEventListener("click", () => this.toggleCustomColorPopover());
+    this.customColorAnchor.appendChild(this.customSwatchBtn);
+
+    this.customColorPopover = document.createElement("div");
+    this.customColorPopover.className = "icon-popover toolbar-custom-color-popover";
+    this.customColorPopover.hidden = true;
+    this.customColorPopoverFade = createFadeVisibility(this.customColorPopover);
+
+    this.hueSlider = document.createElement("input");
+    this.hueSlider.type = "range";
+    this.hueSlider.min = "0";
+    this.hueSlider.max = "360";
+    this.hueSlider.step = "1";
+    this.hueSlider.value = "0";
+    this.hueSlider.className = "theme-hue-slider";
+    this.hueSlider.setAttribute("aria-label", "好きな色を選ぶ");
+    this.hueSlider.addEventListener("input", () => {
+      this.customColor = customInkColor(Number(this.hueSlider.value));
+      this.setActiveColor(this.customColor);
+      this.syncSwatch();
+      this.onChange?.();
     });
-    row.appendChild(this.customSwatchBtn);
+    this.customColorPopover.appendChild(this.hueSlider);
+    this.customColorAnchor.appendChild(this.customColorPopover);
+
+    row.appendChild(this.customColorAnchor);
 
     details.appendChild(row);
+  }
+
+  private toggleCustomColorPopover(): void {
+    if (this.customColorPopoverOpen) this.closeCustomColorPopover();
+    else this.openCustomColorPopover();
+  }
+
+  private openCustomColorPopover(): void {
+    if (this.customColorPopoverOpen) return;
+    notifyOpen(this.closeCustomColorPopoverRef, this.customColorAnchor);
+    this.customColorPopoverOpen = true;
+    this.customColorPopoverFade(true);
+  }
+
+  private closeCustomColorPopover(): void {
+    if (!this.customColorPopoverOpen) return;
+    this.customColorPopoverOpen = false;
+    this.customColorPopoverFade(false);
+    notifyClose(this.closeCustomColorPopoverRef);
   }
 
   /** 今の道具の固定3色（activePresetInks）をスワッチの背景・ラベルに反映し、
@@ -489,7 +521,8 @@ export class Toolbar {
     });
     this.customSwatchBtn.dataset.active = String(!isPresetActive);
     this.customSwatchBtn.disabled = !enabled;
-    this.colorInput.disabled = !enabled;
+    this.hueSlider.disabled = !enabled;
+    if (!enabled) this.closeCustomColorPopover();
     if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
     }
