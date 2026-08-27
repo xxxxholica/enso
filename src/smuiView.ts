@@ -73,6 +73,11 @@ export class SmuiView {
   private getToolState: () => ToolState;
   private frameShapeId: FrameShapeId;
   private framePatternId: FramePatternId;
+  /** 「メガネ2」(レンズ分割の2組目)専用の見た目の手動上書き(issue #113④)。
+   *  未設定(null)の間はCircularCanvas側で自動ローテーション(issue #113③)に
+   *  フォールバックする。 */
+  private frameShapeId2: FrameShapeId | null = null;
+  private framePatternId2: FramePatternId | null = null;
 
   private roomMenuSlotEl!: HTMLElement;
   private appearanceSlotEl!: HTMLElement;
@@ -163,6 +168,19 @@ export class SmuiView {
 
   private isRoomMaster(): boolean {
     return this.ownerId !== null && getCurrentUser()?.id === this.ownerId;
+  }
+
+  /** 見た目(フレームの形・柄)を変更できるか(issue #113④)。以前はルームマスター
+   *  限定だったが、「編集可能な全ユーザー(定員超過時の観覧者は対象外)」に
+   *  開放した——サーバー側のrequireAppearanceEditableと同じ判定をここでも
+   *  行い、押しても403になるだけのボタンをロックせず出したままにしない。
+   *  ルームマスターは常に可。進行中セッションが無ければ(通常の描画権限と
+   *  同じく)メンバー全員が対象。セッション中は色スロット(myColorIndex)を
+   *  持っていること(定員超過の観覧者でないこと)を要求する。 */
+  private isAppearanceEditable(): boolean {
+    if (this.isRoomMaster()) return true;
+    if (!this.session) return true;
+    return this.session.myColorIndex !== null;
   }
 
   /** 今のセッションフェーズに応じて強制すべき色。無ければnull(通常どおり
@@ -396,6 +414,8 @@ export class SmuiView {
     // 値を持っていればapplyRemoteAppearanceで上書きされる。
     this.frameShapeId = loadFrameShape();
     this.framePatternId = loadFramePattern();
+    this.frameShapeId2 = null;
+    this.framePatternId2 = null;
     this.lens = this.buildPlaceholderCanvas();
     this.setStatus("読み込み中…");
 
@@ -408,7 +428,12 @@ export class SmuiView {
         id,
         (remoteDetail) => {
           sharedStore.replaceAll(remoteDetail.memos);
-          this.applyRemoteAppearance(remoteDetail.frameShapeId, remoteDetail.framePatternId);
+          this.applyRemoteAppearance(
+            remoteDetail.frameShapeId,
+            remoteDetail.framePatternId,
+            remoteDetail.frameShapeId2,
+            remoteDetail.framePatternId2
+          );
         },
         (session) => this.applySession(session)
       );
@@ -418,7 +443,7 @@ export class SmuiView {
       this.roomSync = sync;
       this.sharedStore = sharedStore;
       this.ownerId = detail.ownerId || null;
-      this.applyRemoteAppearance(detail.frameShapeId, detail.framePatternId);
+      this.applyRemoteAppearance(detail.frameShapeId, detail.framePatternId, detail.frameShapeId2, detail.framePatternId2);
       // このGETを待っている間に取りこぼした変更通知があれば、ここで拾い直す。
       if (this.pendingRemoteChangeDuringLoad) {
         this.pendingRemoteChangeDuringLoad = false;
@@ -520,50 +545,107 @@ export class SmuiView {
     this.roomSync?.pollNow();
   }
 
-  /** 操作パネルのAppearanceSelectorで選ばれた形状（レンズスタイル）を適用する。
-   *  ルーム未接続のプレースホルダーにも同じように即座に反映される。ルーム
-   *  接続中でルームマスターなら、サーバーにも保存してメンバー全員に同期する
-   *  （ユーザー指示：見た目の設定もルームマスターに委ねて同期したい）。 */
+  /** 操作パネルのAppearanceSelectorで選ばれた「メガネ1」(レンズ分割無効時は
+   *  共有キャンバス全体)の形状（レンズスタイル）を適用する。ルーム未接続の
+   *  プレースホルダーにも同じように即座に反映される。ルーム接続中で編集可能
+   *  (isAppearanceEditable、issue #113④)なら、サーバーにも保存してメンバー
+   *  全員に同期する。 */
   setFrameShape(id: FrameShapeId): void {
     this.frameShapeId = id;
     this.lens.setFrameShape(id);
-    this.pushAppearanceIfMaster();
+    this.pushAppearanceIfEditable(0);
   }
 
-  /** 操作パネルのAppearanceSelectorで選ばれた柄・質感を適用する。
+  /** 操作パネルのAppearanceSelectorで選ばれた「メガネ1」の柄・質感を適用する。
    *  ルーム未接続のプレースホルダーにも同じように即座に反映される。挙動は
-   *  setFrameShapeと同じ（ルームマスターならサーバーに保存して同期する）。 */
+   *  setFrameShapeと同じ（編集可能ならサーバーに保存して同期する）。 */
   setFramePattern(id: FramePatternId): void {
     this.framePatternId = id;
     this.lens.setFramePattern(id);
-    this.pushAppearanceIfMaster();
+    this.pushAppearanceIfEditable(0);
   }
 
-  private pushAppearanceIfMaster(): void {
-    if (!this.selectedRoomId || !this.isRoomMaster()) return;
-    void updateSharedAppearance(this.selectedRoomId, this.frameShapeId, this.framePatternId).catch((e) => {
+  /** 操作パネルのAppearanceSelectorで選ばれた「メガネ2」(レンズ分割の2組目)
+   *  専用の形状を適用する(issue #113④)。setFrameShapeと違い、一度手動で
+   *  選ぶと以後は自動ローテーション(issue #113③)より優先される。 */
+  setPair2FrameShape(id: FrameShapeId): void {
+    this.frameShapeId2 = id;
+    this.lens.setPair2Appearance(this.frameShapeId2, this.framePatternId2);
+    this.pushAppearanceIfEditable(1);
+  }
+
+  /** setPair2FrameShapeの柄版。 */
+  setPair2FramePattern(id: FramePatternId): void {
+    this.framePatternId2 = id;
+    this.lens.setPair2Appearance(this.frameShapeId2, this.framePatternId2);
+    this.pushAppearanceIfEditable(1);
+  }
+
+  /** pairIndex=0(メガネ1)/1(メガネ2)の今の値をサーバーに保存する。メガネ2側は
+   *  まだ手動上書きが無ければ(null)、自動ローテーション任せのままにして
+   *  無意味なPATCHを送らない。 */
+  private pushAppearanceIfEditable(pairIndex: 0 | 1): void {
+    if (!this.selectedRoomId || !this.isAppearanceEditable()) return;
+    const shapeId = pairIndex === 1 ? this.frameShapeId2 : this.frameShapeId;
+    const patternId = pairIndex === 1 ? this.framePatternId2 : this.framePatternId;
+    if (!shapeId || !patternId) return;
+    void updateSharedAppearance(this.selectedRoomId, shapeId, patternId, pairIndex).catch((e) => {
       console.error("[smuiView] appearance save failed", e);
     });
   }
 
   /** ポーリング/WS経由でサーバー側の見た目(フレームの形・柄)を受け取った時に
-   *  適用する。未設定(null)ならローカルの既定値を保ったままにする——setFrameShape/
-   *  setFramePatternと違い、こちらはサーバーへ書き戻さない（自分が発生源では
-   *  ないため、書き戻すと無意味なPATCHが発生するだけになる）。 */
-  private applyRemoteAppearance(shapeId: FrameShapeId | null, patternId: FramePatternId | null): void {
+   *  適用する。メガネ1(shapeId/patternId)が未設定(null)ならローカルの既定値を
+   *  保ったままにする——setFrameShape/setFramePatternと違い、こちらはサーバーへ
+   *  書き戻さない（自分が発生源ではないため、書き戻すと無意味なPATCHが発生する
+   *  だけになる）。メガネ2(shapeId2/patternId2)はnullそのものが「手動上書き無し
+   *  =自動ローテーション任せ」という意味を持つ有効な値なので、そのまま代入する。 */
+  private applyRemoteAppearance(
+    shapeId: FrameShapeId | null,
+    patternId: FramePatternId | null,
+    shapeId2: FrameShapeId | null,
+    patternId2: FramePatternId | null
+  ): void {
     if (shapeId) this.frameShapeId = shapeId;
     if (patternId) this.framePatternId = patternId;
+    this.frameShapeId2 = shapeId2;
+    this.framePatternId2 = patternId2;
     this.lens.setFrameShape(this.frameShapeId);
     this.lens.setFramePattern(this.framePatternId);
+    this.lens.setPair2Appearance(this.frameShapeId2, this.framePatternId2);
+  }
+
+  /** 進行中のアイデア出しセッションが、レンズ分割を2組(「メガネ1」「メガネ2」)
+   *  表示にしているか(issue #113④)。myColorIndex等の自分の割当に関わらず、
+   *  ルーム全体の組数(maxParticipants由来)だけで決まる——メガネ2の調整自体は
+   *  自分がどちらの組に属しているかとは無関係に、編集可能な誰でも行えるため。 */
+  private isPair2Available(): boolean {
+    return this.active && this.session !== null && this.session.phase === "ideation" &&
+      computeLensSplitPairCount(this.session.maxParticipants) === 2;
   }
 
   /** main.tsのframe()ループから、共有タブを見ている間だけ呼んでよい。
    *  AppearanceSelector（main.ts所有）を、ルーム未接続なら通常のローカル
    *  編集用に戻し(null)、ルーム接続中ならこのルームの値・ロック状態
-   *  （ルームマスター以外は変更不可）を反映させるために使う。 */
-  getAppearanceSync(): { locked: boolean; shapeId: FrameShapeId; patternId: FramePatternId } | null {
+   *  （編集可能かどうか、issue #113④）を反映させるために使う。pair2*は
+   *  「メガネ2」タブが使える時だけ意味を持つ（呼び出し側はpair2Availableで判定）。 */
+  getAppearanceSync(): {
+    locked: boolean;
+    shapeId: FrameShapeId;
+    patternId: FramePatternId;
+    pair2Available: boolean;
+    pair2ShapeId: FrameShapeId;
+    pair2PatternId: FramePatternId;
+  } | null {
     if (!this.selectedRoomId) return null;
-    return { locked: !this.isRoomMaster(), shapeId: this.frameShapeId, patternId: this.framePatternId };
+    return {
+      locked: !this.isAppearanceEditable(),
+      shapeId: this.frameShapeId,
+      patternId: this.framePatternId,
+      pair2Available: this.isPair2Available(),
+      pair2ShapeId: this.lens.frameShapeIdForPair(1),
+      pair2PatternId: this.lens.framePatternIdForPair(1),
+    };
   }
 
   /** ルームを選択済みか。ExportSection(exportControl.ts)が、ルーム未選択時に
