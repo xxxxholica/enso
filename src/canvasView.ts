@@ -2,7 +2,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { opacityAtTime } from "./fade";
 import { FrameGeometry } from "./frameGeometry";
 import { DEFAULT_FRAME_SHAPE_ID, GLASSES_CENTER_OFFSET } from "./frameShape";
-import type { FrameShapeId } from "./frameShape";
+import type { FrameShape, FrameShapeId } from "./frameShape";
 import { DEFAULT_FRAME_PATTERN_ID } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { circleIntersectsBox, clampBoxCenter, isInsideClamp, pointNearStrokes } from "./geometry";
@@ -540,13 +540,18 @@ export class CircularCanvas {
 
   /** 現在の書き込みクランプ関数。レンズ分割表示が有効な間は自分の担当レンズだけに
    *  制限する（buildOwnLensClamp——自分のレンズ番号は既に分かっているため、
-   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。それ以外は従来通り
-   *  現在のフレーム形状のclampをそのまま使う。 */
+   *  clampToGlassesのような「近い方を選ぶ」探索は不要）。組ごとに形状が
+   *  ローテーションする(issue #113③)ため、frame.frameShapeId(共有の設定値)
+   *  ではなく自分の担当組(myPairIndex)の形状を使う——でないと、丸眼鏡以外に
+   *  ローテーションされた組の参加者は、見た目の枠と実際の書き込み可能範囲が
+   *  一致しなくなってしまう。それ以外は従来通り現在のフレーム形状のclampを
+   *  そのまま使う。 */
   private inputClamp(): (p: Point) => Point {
     const state = this.lensSplitState;
     const pairCenters = state ? this.frame.lensSplitPairCenters : null;
     if (!state || !pairCenters) return this.frame.currentShape().clamp;
-    return buildOwnLensClamp(this.frame.frameShapeId, pairCenters, state.myLensIndex);
+    const { pairIndex: myPairIndex } = lensIndexToPairSlot(state.myLensIndex);
+    return buildOwnLensClamp(this.frame.frameShapeIdForPair(myPairIndex), pairCenters, state.myLensIndex);
   }
 
   /** 空のキャンバスに重ねる案内を組み立てる。canvas要素の兄弟としてcontainerに
@@ -1234,7 +1239,7 @@ export class CircularCanvas {
       // 場合に箱の端が枠の外へはみ出して配置されてしまう（ユーザー指摘）。
       // 実際の文面から箱サイズが決まったこの時点で、箱全体が枠に収まる位置へ
       // 寄せてから確定する。
-      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.frame.currentShape().clamp);
+      const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.inputClamp());
       this.ensureUndoSnapshot();
       this.store.createTextMemo(safeAnchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
     };
@@ -1698,15 +1703,23 @@ export class CircularCanvas {
 
     /** 1組(眼鏡1つ)ぶんの枠・紙・メモを描く。pairCentersが非nullの間は3組ぶん
      *  これを繰り返し呼ぶ。枠・紙はこの組のローカル原点(0,0)基準のPath2D
-     *  （frame.framePath/strokePath）なので、描く間だけoffsetへtranslateする。
-     *  クリップを確定させたらoffsetぶん戻してから描く——メモのnormalized座標は
-     *  既にlensAbsoluteCenter基準の絶対座標（グローバル、単一の共有座標系のまま、
-     *  データモデルは変更していない）なので、offsetを二重に適用しないため。 */
+     *  （frame.framePath/strokePath、レンズ分割の形状ローテーション(issue #113③)
+     *  が有効な組ではframePathForPair/strokePathForPair）なので、描く間だけ
+     *  offsetへtranslateする。クリップを確定させたらoffsetぶん戻してから描く
+     *  ——メモのnormalized座標は既にlensAbsoluteCenter基準の絶対座標（グローバル、
+     *  単一の共有座標系のまま、データモデルは変更していない）なので、offsetを
+     *  二重に適用しないため。
+     *  pairShape/pairFramePath/pairStrokePathは既定で単一表示(レンズ分割無効)時の
+     *  共通の形状・パスにフォールバックする——レンズ分割時は呼び出し側が
+     *  frame.frameShapeForPair(i)等、組ごとの値を渡す。 */
     const renderPair = (
       offset: Point,
       memos: readonly Memo[],
       isOwnPair: boolean,
-      patternStyle: CanvasPattern | CanvasGradient | string
+      patternStyle: CanvasPattern | CanvasGradient | string,
+      pairShape: FrameShape = shape,
+      pairFramePath: Path2D = this.frame.framePath,
+      pairStrokePath: Path2D = this.frame.strokePath
     ): void => {
       // 枠は「strokePath（framePathを原点から一様拡大しただけの、ひとまわり
       // 大きい形状）を丸ごと塗りつぶし、その上からframePathでクリップした紙を
@@ -1721,15 +1734,15 @@ export class CircularCanvas {
       ctx.save();
       ctx.translate(offset.x, offset.y);
       ctx.fillStyle = patternStyle;
-      ctx.fill(this.frame.strokePath);
+      ctx.fill(pairStrokePath);
 
       // 枠の外にはみ出さないようクリップ。
       ctx.save();
-      ctx.clip(this.frame.framePath);
+      ctx.clip(pairFramePath);
 
       if (this.frame.frameKind === "glasses" && !this.interactive) {
         // ルーム未接続のプレースホルダー: 罫線を引かず無地の白で塗りつぶす。
-        const half = r * shape.maxReach;
+        const half = r * pairShape.maxReach;
         ctx.fillStyle = GLASSES_PLACEHOLDER_FILL;
         ctx.fillRect(-half, -half, half * 2, half * 2);
       } else {
@@ -1737,7 +1750,7 @@ export class CircularCanvas {
         // 紙面もmaxReachぶん広めに塗る（クリップで結局切り取られるので広めに塗って
         // 問題はない）——でないと丸眼鏡以外で、枠の内側なのに紙が届かず背景色が
         // 透けて見える帯ができてしまう（ユーザー指摘）。
-        drawRuledPaper(ctx, r, r * shape.maxReach);
+        drawRuledPaper(ctx, r, r * pairShape.maxReach);
       }
 
       // 以降はグローバル座標（メモの実際のnormalized座標）で描く。
@@ -1810,13 +1823,13 @@ export class CircularCanvas {
       // 自身のブリッジの高さぴったりに塗ることで、紙が透ける帯も境目の筋も
       // 出なくなる。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesBridgeBar(ctx, patternStyle);
+        this.frame.drawGlassesBridgeBar(ctx, patternStyle, pairShape.id);
       }
 
       // ヒンジ（共有キャンバスの眼鏡形状だけの装飾）。クリップの外側に描く
       // 純粋な見た目要素で、メモの当たり判定・クランプとは無関係。
       if (this.frame.frameKind === "glasses") {
-        this.frame.drawGlassesHinges(ctx, shape, patternStyle);
+        this.frame.drawGlassesHinges(ctx, pairShape, patternStyle);
       }
 
       ctx.restore();
@@ -1835,7 +1848,15 @@ export class CircularCanvas {
         (groups[pairIndex] ?? groups[groups.length - 1]).push(memo);
       }
       pairCenters.forEach((center, i) => {
-        renderPair({ x: center.x * r, y: center.y * r }, groups[i], i === myPairIndex, this.frame.frameStyleForPair(i));
+        renderPair(
+          { x: center.x * r, y: center.y * r },
+          groups[i],
+          i === myPairIndex,
+          this.frame.frameStyleForPair(i),
+          this.frame.frameShapeForPair(i),
+          this.frame.framePathForPair(i),
+          this.frame.strokePathForPair(i)
+        );
       });
     } else {
       renderPair({ x: 0, y: 0 }, memosToRender, true, this.frame.frameStyle);

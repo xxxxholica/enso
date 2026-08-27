@@ -7,6 +7,7 @@ import {
   fitCanvasToContainer,
 } from "./canvasSizing";
 import {
+  FRAME_SHAPE_ORDER,
   getFrameShape,
   getGlassesFrameShape,
   glassesBridgeHalfWidth,
@@ -88,6 +89,17 @@ export class FrameGeometry {
    *  ため、設定された柄を起点にFRAME_PATTERN_ORDERを順送りする。無効時は空配列
    *  ——frameStyleForPair()がframeStyleValueにフォールバックする。 */
   private pairFrameStyles: (CanvasPattern | CanvasGradient | string)[] = [];
+  /** レンズ分割時、組ごとに形状(丸眼鏡/楕円/長方形)を変えるための組別形状ID一覧
+   *  (index=pairIndex)。柄と同様、同じ形状が並び続けると見分けが付きにくいため
+   *  (issue #113③、ユーザー要望)、設定された形状を起点にFRAME_SHAPE_ORDERを
+   *  順送りする。無効時は空配列——frameShapeIdForPair()がframeShapeIdValueへ
+   *  フォールバックする。 */
+  private pairFrameShapeIds: FrameShapeId[] = [];
+  /** pairFrameShapeIdsに対応する、組ごとのframePath/strokePath。組ごとに形状
+   *  そのものが異なるため、柄(frameStyleForPair)と違い単一のPath2Dを使い回せず
+   *  組ごとに個別のPath2Dを持つ必要がある。 */
+  private pairFramePaths: Path2D[] = [];
+  private pairStrokePaths: Path2D[] = [];
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -139,6 +151,32 @@ export class FrameGeometry {
    *  無ければ(無効時・範囲外)通常のframeStyleにフォールバックする。 */
   frameStyleForPair(pairIndex: number): CanvasPattern | CanvasGradient | string {
     return this.pairFrameStyles[pairIndex] ?? this.frameStyleValue;
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に使う形状ID。組別の形状が無ければ
+   *  (無効時・範囲外)通常のframeShapeIdにフォールバックする。 */
+  frameShapeIdForPair(pairIndex: number): FrameShapeId {
+    return this.pairFrameShapeIds[pairIndex] ?? this.frameShapeIdValue;
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)に使う形状(FrameShape、眼鏡形状ファミリー)。
+   *  frameShapeIdForPairのFrameShape版——ヒンジ描画(drawGlassesHinges)・
+   *  プレースホルダーの塗り範囲(maxReach)にはid単体ではなくFrameShapeそのもの
+   *  が要る。 */
+  frameShapeForPair(pairIndex: number): FrameShape {
+    return getGlassesFrameShape(this.frameShapeIdForPair(pairIndex));
+  }
+
+  /** レンズ分割時、指定した組(pairIndex)専用のframePath。組ごとに形状が異なる
+   *  ため単一のframePathを使い回せない——無ければ(無効時・範囲外)通常の
+   *  framePathにフォールバックする。 */
+  framePathForPair(pairIndex: number): Path2D {
+    return this.pairFramePaths[pairIndex] ?? this.framePathValue;
+  }
+
+  /** framePathForPairのstrokePath版。 */
+  strokePathForPair(pairIndex: number): Path2D {
+    return this.pairStrokePaths[pairIndex] ?? this.strokePathValue;
   }
 
   get frameKind(): "single" | "glasses" {
@@ -317,6 +355,20 @@ export class FrameGeometry {
       this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
         ? this.buildPairFrameStyles(this.lensSplitPairCountValue, this.scaleValue * shape.horizontalReach)
         : [];
+    // 柄と同様、レンズ分割時は組ごとに形状(丸眼鏡/楕円/長方形)も順送りする
+    // (issue #113③)。組ごとに形状そのものが異なるため、柄と違いPath2Dも
+    // 組ごとに個別に組み立て直す必要がある——glassesBridgeHalfHeight/offsetは
+    // 形状に依らない値(frameStrokeWidth/scaleだけから決まる)なのでそのまま使い回せる。
+    this.pairFrameShapeIds =
+      this.frameKindValue === "glasses" && this.lensSplitPairCountValue !== null
+        ? this.buildPairFrameShapeIds(this.lensSplitPairCountValue)
+        : [];
+    this.pairFramePaths = this.pairFrameShapeIds.map((id) =>
+      getGlassesFrameShape(id).buildPath(this.scaleValue, this.glassesBridgeHalfHeight, 0)
+    );
+    this.pairStrokePaths = this.pairFrameShapeIds.map((id) =>
+      getGlassesFrameShape(id).buildPath(this.scaleValue, this.glassesBridgeHalfHeight, offset)
+    );
   }
 
   private buildPairFrameStyles(pairCount: number, reachPx: number): (CanvasPattern | CanvasGradient | string)[] {
@@ -325,6 +377,11 @@ export class FrameGeometry {
       const patternId = FRAME_PATTERN_ORDER[(baseIndex + i) % FRAME_PATTERN_ORDER.length];
       return getFramePattern(patternId).buildStyle(this.ctx, reachPx);
     });
+  }
+
+  private buildPairFrameShapeIds(pairCount: number): FrameShapeId[] {
+    const baseIndex = FRAME_SHAPE_ORDER.indexOf(this.frameShapeIdValue);
+    return Array.from({ length: pairCount }, (_, i) => FRAME_SHAPE_ORDER[(baseIndex + i) % FRAME_SHAPE_ORDER.length]);
   }
 
   /** フレーム形状（丸眼鏡/楕円/長方形）を切り替える。次のrender()から反映される。 */
@@ -397,9 +454,10 @@ export class FrameGeometry {
    *  合わせて塗ることで、この帯ごと同じ1枚のフィルで覆い、境目自体をなくす。 */
   drawGlassesBridgeBar(
     ctx: CanvasRenderingContext2D,
-    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue
+    style: CanvasPattern | CanvasGradient | string = this.frameStyleValue,
+    shapeId: FrameShapeId = this.frameShapeIdValue
   ): void {
-    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(this.frameShapeIdValue, this.glassesBridgeHalfHeight);
+    const halfWidth = this.scaleValue * glassesBridgeHalfWidth(shapeId, this.glassesBridgeHalfHeight);
     const halfHeight = this.scaleValue * this.glassesBridgeHalfHeight + this.frameStrokeWidth;
     ctx.fillStyle = style;
     ctx.fillRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
