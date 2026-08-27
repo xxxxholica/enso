@@ -1454,6 +1454,27 @@ export class CircularCanvas {
     return this.reactionHoverMemoId;
   }
 
+  /** issue #128: 指定メモの代表座標(memo.x, memo.y)の、今の画面上の位置(px、
+   *  ビューポート基準のposition:fixed座標)。ReactionPickerをメモの近くに
+   *  浮かせて表示する(Teams/Discord風、ユーザー指示)ための変換で、
+   *  openTextEditorのresizeToContentが使っている変換式と同じもの
+   *  （メモの座標系はレンズ分割の有無に関わらず単一の共有座標系のため、
+   *  組ごとのオフセット補正は不要——onPointerDownのreactionModeActive分岐と
+   *  同じ考え方）。見つからない・非表示中のメモならnull。 */
+  getMemoScreenPosition(memoId: string): Point | null {
+    const memo = this.store.getAll().find((m) => m.id === memoId);
+    if (!memo) return null;
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const scale = this.effectiveScale();
+    const vv = window.visualViewport;
+    const viewportOffsetX = vv?.offsetLeft ?? 0;
+    const viewportOffsetY = vv?.offsetTop ?? 0;
+    return {
+      x: canvasRect.left + this.frame.centerPx.x + this.viewPan.x + memo.x * scale + viewportOffsetX,
+      y: canvasRect.top + this.frame.centerPx.y + this.viewPan.y + memo.y * scale + viewportOffsetY,
+    };
+  }
+
   /** マウスがキャンバスの外に出たら、ホバー案内・消しゴムのプレビュー円も消す
    *  （出しっぱなしにならないように）。 */
   private onPointerLeave = (): void => {

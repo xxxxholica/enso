@@ -1,37 +1,39 @@
-import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
-import type { Reaction } from "./types";
+import type { Point, Reaction } from "./types";
 
 /**
- * issue #128: 共有ルームのリアクションスタンプ。円形キャンバス（canvasView.ts）は
- * メモを<canvas>の中に描画するため、メモごとに個別のDOM要素・ポップオーバー位置を
- * 持たせるのは難しい——代わりに、タップされたメモ1件ぶんの情報を画面下部の
- * シート（モバイルの下部ツールバーと同じ「画面下固定」の考え方、issue #103）に
- * まとめて出す方式にする。メモの位置（ズーム・レンズ分割・スクロールで常に変わる）
- * に追従させる座標計算が不要になり、実装・見た目とも単純になる。
+ * issue #128: 共有ルームのリアクションスタンプ。Teams/Discordのように、対象の
+ * メモのすぐ近くに小さなパネルを浮かせてスタンプを押せるようにする
+ * （ユーザー指示：画面下固定シートより要素の近くで完結する方が楽）。
+ * canvasView.getMemoScreenPosition()でメモの代表座標を画面px(position:fixed
+ * 基準)に変換し、その位置を基準に自分の大きさぶん収まるよう補正して配置する。
  *
- * 1人1メモにつき1スタンプまで・変更不可（バックエンド仕様）なので、押した後は
- * ボタンを押せなくする。「誰が押したかは実名で表示する」(issue決定事項)ため、
- * emojiごとに押した人の表示名を並べて見せる(renderReactionSummary、db.jsの
- * JOINでサーバーがdisplayNameを解決して返す)。ただし「自分が既にどれを押したか
- * (=送信済みボタンのうちどれが自分の選択か)」はサーバー側のuserIdでしか
- * 判定できずゲストの自分のuserIdをフロントが持っていないため、この画面内では
- * 「押した/押していない」の二値までしか出さない（正確な自分の選択の可視化は、
- * ゲストの自分のuserId自体をフロントに持たせる別途対応が必要——最終サマリ参照）。
+ * ホバー・タップいずれでも同じ内容が開く(smuiView.ts)。ボタンはタップ後の
+ * 確認ステップを挟まず、押した瞬間に送信する。1人1メモにつき1スタンプまで・
+ * 変更不可（バックエンド仕様）なので、押した後はボタンを押せなくする。
+ * 「誰が押したかは実名で表示する」(issue決定事項)ため、emojiごとに押した人の
+ * 表示名をボタンの下に並べる(db.jsのJOINでサーバーがdisplayNameを解決して返す)。
+ * ただし「自分が既にどれを押したか(=送信済みのうちどれが自分の選択か)」は
+ * サーバー側のuserIdでしか判定できずゲストの自分のuserIdをフロントが持って
+ * いないため、この画面内では「押した/押していない」の二値までしか出さない
+ * （正確な自分の選択の可視化には、ゲスト自身のuserIdをフロントに持たせる
+ * 別途対応が必要——最終サマリ参照）。
  */
 
 export interface ReactionPickerCallbacks {
   onPick: (memoId: string, emoji: string) => void;
 }
 
+/** パネルと画面端の最小マージン(px)。 */
+const VIEWPORT_MARGIN = 8;
+/** パネルとアンカー点(メモの代表座標)の間の隙間(px)。 */
+const ANCHOR_GAP = 14;
+
 export class ReactionPicker {
-  private overlay: HTMLElement;
-  private sheet: HTMLElement;
-  private titleEl: HTMLElement;
+  private el: HTMLElement;
   private buttonsEl: HTMLElement;
   private summaryEl: HTMLElement;
   private closeBtn: HTMLButtonElement;
-  private fade: (show: boolean) => void;
   private readonly closeRef = () => this.close();
   private isOpen = false;
   private currentMemoId: string | null = null;
@@ -40,57 +42,48 @@ export class ReactionPicker {
   constructor(container: HTMLElement, callbacks: ReactionPickerCallbacks) {
     this.callbacks = callbacks;
 
-    this.overlay = document.createElement("div");
-    this.overlay.className = "reaction-picker-overlay";
-    this.overlay.hidden = true;
-    // シートの外側（暗い背景部分）をタップしたら閉じる。
-    this.overlay.addEventListener("click", (ev) => {
-      if (ev.target === this.overlay) this.close();
-    });
+    this.el = document.createElement("div");
+    this.el.className = "reaction-float";
+    this.el.hidden = true;
 
-    this.sheet = document.createElement("div");
-    this.sheet.className = "reaction-picker-sheet";
-    this.overlay.appendChild(this.sheet);
-
-    const header = document.createElement("div");
-    header.className = "reaction-picker-header";
-    this.titleEl = document.createElement("p");
-    this.titleEl.className = "reaction-picker-title";
-    header.appendChild(this.titleEl);
     this.closeBtn = document.createElement("button");
     this.closeBtn.type = "button";
-    this.closeBtn.className = "reaction-picker-close";
+    this.closeBtn.className = "reaction-float-close";
     this.closeBtn.textContent = "×";
     this.closeBtn.setAttribute("aria-label", "閉じる");
     this.closeBtn.addEventListener("click", () => this.close());
-    header.appendChild(this.closeBtn);
-    this.sheet.appendChild(header);
+    this.el.appendChild(this.closeBtn);
 
     this.buttonsEl = document.createElement("div");
-    this.buttonsEl.className = "reaction-picker-buttons";
-    this.sheet.appendChild(this.buttonsEl);
+    this.buttonsEl.className = "reaction-float-buttons";
+    this.el.appendChild(this.buttonsEl);
 
     this.summaryEl = document.createElement("div");
-    this.summaryEl.className = "reaction-picker-summary";
-    this.sheet.appendChild(this.summaryEl);
+    this.summaryEl.className = "reaction-float-summary";
+    this.el.appendChild(this.summaryEl);
 
-    this.fade = createFadeVisibility(this.overlay);
-    container.appendChild(this.overlay);
+    container.appendChild(this.el);
   }
 
-  /** メモをタップした時に呼ぶ。allowedEmojiは今のフェーズで押せるスタンプの種類
-   *  （sharedCanvas.REACTION_EMOJI/VOTING_EMOJI参照）、alreadyReactedはこの
-   *  クライアントが今セッション中に既にこのメモへ送信済みかどうか。 */
-  open(memoId: string, label: string, allowedEmoji: readonly string[], reactions: Reaction[], alreadyReacted: boolean): void {
+  /** メモがタップ/ホバーされた時に呼ぶ。allowedEmojiは今のフェーズで押せる
+   *  スタンプの種類（sharedCanvas.REACTION_EMOJI/VOTING_EMOJI参照）、
+   *  alreadyReactedはこのクライアントが今セッション中に既にこのメモへ送信済み
+   *  かどうか、anchorはcanvasView.getMemoScreenPosition()が返す画面座標。 */
+  open(
+    memoId: string,
+    allowedEmoji: readonly string[],
+    reactions: Reaction[],
+    alreadyReacted: boolean,
+    anchor: Point
+  ): void {
     this.currentMemoId = memoId;
-    notifyOpen(this.closeRef, this.overlay);
-    this.titleEl.textContent = label;
+    notifyOpen(this.closeRef, this.el);
 
     this.buttonsEl.innerHTML = "";
     for (const emoji of allowedEmoji) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "reaction-picker-emoji-btn";
+      btn.className = "reaction-float-btn";
       btn.textContent = emoji;
       btn.disabled = alreadyReacted;
       btn.addEventListener("click", () => {
@@ -103,8 +96,22 @@ export class ReactionPicker {
     renderReactionSummary(this.summaryEl, reactions, alreadyReacted);
 
     this.isOpen = true;
-    this.overlay.hidden = false;
-    this.fade(true);
+    this.el.hidden = false;
+    this.reposition(anchor);
+  }
+
+  /** 開いたまま(ホバー継続中・パン/ズーム中)、アンカー位置を追従させる。
+   *  中身は変えず位置だけ更新するので、毎フレーム呼んでも軽い。 */
+  reposition(anchor: Point): void {
+    if (!this.isOpen) return;
+    const rect = this.el.getBoundingClientRect();
+    let left = anchor.x - rect.width / 2;
+    let top = anchor.y - rect.height - ANCHOR_GAP; // 既定: メモの上に浮かせる
+    left = Math.min(Math.max(VIEWPORT_MARGIN, left), window.innerWidth - rect.width - VIEWPORT_MARGIN);
+    if (top < VIEWPORT_MARGIN) top = anchor.y + ANCHOR_GAP; // 上に収まらなければ下に出す
+    top = Math.min(Math.max(VIEWPORT_MARGIN, top), window.innerHeight - rect.height - VIEWPORT_MARGIN);
+    this.el.style.left = `${left}px`;
+    this.el.style.top = `${top}px`;
   }
 
   /** 送信結果を受け取って表示を更新する（送信中に閉じられていなければ）。
@@ -118,11 +125,16 @@ export class ReactionPicker {
     renderReactionSummary(this.summaryEl, reactions, true);
   }
 
+  /** 今開いていて、かつanchorMemoIdの対象なら真。render()の追従判定に使う。 */
+  isOpenFor(memoId: string): boolean {
+    return this.isOpen && this.currentMemoId === memoId;
+  }
+
   close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.currentMemoId = null;
-    this.fade(false);
+    this.el.hidden = true;
     notifyClose(this.closeRef);
   }
 }
@@ -134,27 +146,25 @@ export class ReactionPicker {
 function renderReactionSummary(container: HTMLElement, reactions: Reaction[], alreadyReacted: boolean): void {
   container.innerHTML = "";
   if (reactions.length === 0) {
-    const empty = document.createElement("p");
-    empty.textContent = "まだリアクションがありません";
-    container.appendChild(empty);
-    return;
-  }
-  const byEmoji = new Map<string, Reaction[]>();
-  for (const r of reactions) {
-    if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
-    byEmoji.get(r.emoji)!.push(r);
-  }
-  for (const [emoji, group] of byEmoji) {
-    const line = document.createElement("p");
-    line.className = "reaction-picker-summary-line";
-    const names = group.map((r) => `${r.displayName ?? "名前未設定"}さん`).join("、");
-    line.textContent = `${emoji} ${names}`;
-    container.appendChild(line);
+    if (!alreadyReacted) return; // まだ何も無い・自分も未送信ならこの節自体を出さない(パネルを小さく保つ)
+  } else {
+    const byEmoji = new Map<string, Reaction[]>();
+    for (const r of reactions) {
+      if (!byEmoji.has(r.emoji)) byEmoji.set(r.emoji, []);
+      byEmoji.get(r.emoji)!.push(r);
+    }
+    for (const [emoji, group] of byEmoji) {
+      const line = document.createElement("p");
+      line.className = "reaction-float-summary-line";
+      const names = group.map((r) => `${r.displayName ?? "名前未設定"}さん`).join("、");
+      line.textContent = `${emoji} ${names}`;
+      container.appendChild(line);
+    }
   }
   if (alreadyReacted) {
     const note = document.createElement("p");
-    note.className = "reaction-picker-summary-note";
-    note.textContent = "あなたはリアクション済みです";
+    note.className = "reaction-float-summary-note";
+    note.textContent = "リアクション済み";
     container.appendChild(note);
   }
 }

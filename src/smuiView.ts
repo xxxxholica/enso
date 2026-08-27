@@ -45,20 +45,6 @@ export const SMUI_FRAME_WEIGHT_RATIO = 0.04;
  *  常に右レンズの中心に合う。 */
 const STATUS_X_FRACTION = 0.5 + GLASSES_CENTER_OFFSET / (2 * GLASSES_HORIZONTAL_REACH_WITH_HINGE);
 
-/** issue #128: ReactionPickerの見出しに出す、タップされたメモの短い要約。
- *  TextMemoはtitle(rankフェーズ用に追加、issue #128)があればそれを、無ければ
- *  本文の1行目を使う。StrokeMemo(描画のみ)はタイトルに相当するものを持たない
- *  ため固定文言にする。 */
-function reactionPickerLabel(memo: Memo): string {
-  if (memo.kind === "text") {
-    const title = memo.title?.trim();
-    if (title) return title;
-    const firstLine = memo.text.split("\n")[0]?.trim() ?? "";
-    return firstLine.length > 0 ? firstLine.slice(0, 40) : "(無題のメモ)";
-  }
-  return "(描画メモ)";
-}
-
 /**
  * SMUI（鯖江メガネUI）: 「共有」タブの画面。旧デュアルレンズ構成（#9）を置き換え、
  * 個人キャンバスを含まない、大きな眼鏡形状1枚だけの共有（コラボ）キャンバスに
@@ -308,8 +294,10 @@ export class SmuiView {
     if (!store || !session) return;
     const memo = store.getAll().find((m) => m.id === memoId);
     if (!memo) return;
+    const anchor = this.lens.getMemoScreenPosition(memoId);
+    if (!anchor) return;
     const allowedEmoji = session.phase === "voting" ? [VOTING_EMOJI] : REACTION_EMOJI;
-    this.reactionPicker.open(memoId, reactionPickerLabel(memo), allowedEmoji, memo.reactions ?? [], this.reactedMemoIds.has(memoId));
+    this.reactionPicker.open(memoId, allowedEmoji, memo.reactions ?? [], this.reactedMemoIds.has(memoId), anchor);
   }
 
   /** ReactionPickerでスタンプが選ばれた時に呼ばれる。1人1メモ1スタンプ・
@@ -653,17 +641,23 @@ export class SmuiView {
 
   /** issue #128: リアクション専用状態(setReactionMode(true))の間、マウスが
    *  乗っているメモが変わるたびにReactionPickerを開き直す（ユーザー指示:
-   *  ホバーでリアクション用のブロックを出したい)。タッチには「ホバー」に
-   *  相当する状態が無いため、この経路はマウスの間だけ働く
+   *  Teams/Discordのように要素の近くに浮かせて押せるようにしたい)。タッチには
+   *  「ホバー」に相当する状態が無いため、この経路はマウスの間だけ働く
    *  (canvasView.getReactionHoverMemoId参照)——タッチは引き続きタップで開く
-   *  (handleMemoTap)。同じメモに乗り続けている間は毎フレーム呼び直さない
-   *  よう、直前に開いた対象だけを覚えておく（一度手動で閉じても、乗せたまま
-   *  なら再度開き直しはしない——マウスが一度離れてから戻った時だけ開く）。 */
+   *  (handleMemoTap)。同じメモに乗り続けている間はhandleMemoTapを呼び直さない
+   *  （一度手動で閉じても、乗せたままなら再度開き直しはしない）が、パン/ズーム
+   *  で位置がずれないよう、開いている間は毎フレームreposition()だけ呼ぶ。 */
   private updateReactionHover(): void {
     const memoId = this.lens.getReactionHoverMemoId();
-    if (memoId === this.lastHoveredReactionMemoId) return;
-    this.lastHoveredReactionMemoId = memoId;
-    if (memoId) this.handleMemoTap(memoId);
+    if (memoId !== this.lastHoveredReactionMemoId) {
+      this.lastHoveredReactionMemoId = memoId;
+      if (memoId) this.handleMemoTap(memoId);
+      return;
+    }
+    if (memoId && this.reactionPicker.isOpenFor(memoId)) {
+      const anchor = this.lens.getMemoScreenPosition(memoId);
+      if (anchor) this.reactionPicker.reposition(anchor);
+    }
   }
 
   /** 「残り時間」ピルの中身を今の状況に合わせる。審議(voting)フェーズ中は、時間で
