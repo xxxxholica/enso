@@ -23,6 +23,7 @@ import { computeLensSplitPairCount, LENS_COUNT } from "./lensSplit";
 import { colorForIndex, lensIndexForColor } from "./participantColors";
 import { phaseCutInLabel } from "./phaseCutInLabel";
 import { showPhaseCutIn } from "./phaseCutIn";
+import { ReactionBar } from "./reactionBar";
 import { ReactionPicker } from "./reactionPicker";
 import { ReviveInfoPill } from "./reviveInfoPill";
 import { SessionPanel } from "./sessionPanel";
@@ -107,6 +108,10 @@ export class SmuiView {
    *  保持しておく。 */
   private sharedStore: MemoStore | null = null;
   private toolbar: Toolbar;
+  /** issue #128: リアクション専用フェーズ中、道具バー(setHidden)の代わりに
+   *  同じ場所へ出すバー。ユーザー指摘: 道具バーがグレーアウトのままだと
+   *  リアクションできること自体が伝わりにくいため。 */
+  private reactionBar!: ReactionBar;
   private sessionPanel!: SessionPanel;
   private reactionPicker!: ReactionPicker;
   /** issue #128: このクライアントが今セッション中に既にリアクションを送った
@@ -139,6 +144,7 @@ export class SmuiView {
     this.frameShapeId = initialFrameShapeId;
     this.framePatternId = initialFramePatternId;
     this.toolbar = toolbar;
+    this.reactionBar = new ReactionBar(toolbar.getContainer());
 
     this.buildDom(container);
 
@@ -199,8 +205,18 @@ export class SmuiView {
    *  (requireMemoWritable)ため、主催者を含め全員をリアクションのみ受け付ける
    *  状態にする。フェーズ①(発散)は各参加者が自分のレンズへ実際に描画している
    *  最中で、タップ操作の意味がドラッグ開始と衝突するため、このコミット時点では
-   *  リアクションを配線していない（最終サマリ参照）。 */
+   *  リアクションを配線していない（最終サマリ参照）。
+   *  リアクションのみ受け付ける状態の間は、道具バーを隠して代わりにReactionBar
+   *  を出す(applyReactionBarState、ユーザー指摘: 押せないだけの道具バーだと
+   *  リアクションできること自体が伝わらない)。 */
   private applyRestrictions(): void {
+    // リアクション専用状態(reactionModeActive)の間は、道具バーを隠して同じ
+    // 場所にReactionBarを出す(issue #128、ユーザー指摘: 押せないだけの道具バー
+    // だとリアクションできること自体が伝わらない)。ブランチの最後にまとめて適用する。
+    let reactionModeActive = false;
+    let reactionBarLabel = "";
+    let reactionBarEmoji: readonly string[] = [];
+
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
@@ -208,6 +224,7 @@ export class SmuiView {
       this.lens.setLocked(false);
       this.lens.setReactionMode(false);
       this.lens.setLensSplit(null);
+      this.applyReactionBarState(false, "", []);
       return;
     }
     const isMaster = this.isRoomMaster();
@@ -219,8 +236,11 @@ export class SmuiView {
       // モードにする(setReactionModeがドラッグ・消去等の開始を一括で防ぐため、
       // setLocked(true)と重ねて呼ぶ必要はない——タップだけ拾えなくなってしまう)。
       this.lens.setLocked(false);
-      this.lens.setReactionMode(!isMaster);
+      reactionModeActive = !isMaster;
+      this.lens.setReactionMode(reactionModeActive);
       this.lens.setLensSplit(null);
+      reactionBarLabel = "議論中: メモをタップしてリアクション";
+      reactionBarEmoji = REACTION_EMOJI;
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
@@ -253,9 +273,25 @@ export class SmuiView {
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
+      reactionModeActive = true;
       this.lens.setReactionMode(true);
       this.lens.setLensSplit(null);
+      if (this.session.phase === "voting") {
+        reactionBarLabel = "審議中: メモをタップして🔥を送る";
+        reactionBarEmoji = [VOTING_EMOJI];
+      } else {
+        reactionBarLabel = "序列づけ中: メモをタップしてリアクション";
+        reactionBarEmoji = REACTION_EMOJI;
+      }
     }
+    this.applyReactionBarState(reactionModeActive, reactionBarLabel, reactionBarEmoji);
+  }
+
+  /** 道具バー(Toolbar.setHidden)とReactionBarの表示切り替えをまとめて行う。 */
+  private applyReactionBarState(active: boolean, label: string, allowedEmoji: readonly string[]): void {
+    this.toolbar.setHidden(active);
+    if (active) this.reactionBar.update(label, allowedEmoji);
+    this.reactionBar.setVisible(active);
   }
 
   /** セッション状態が変わるたびに呼ぶ(selectRoom/session系コールバック/

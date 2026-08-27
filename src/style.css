@@ -2744,3 +2744,34 @@ body[data-view="shared"] #duration-slot {
   margin: 8px 0 0;
   color: var(--ink-45);
 }
+
+/* --- issue #128: 道具バーの代わりにリアクション専用フェーズ中だけ表示する
+   ReactionBar(reactionBar.ts)。.toolbarクラスを流用して背景・角丸・フェード
+   挙動を道具バーと揃え、入れ替わった時に違和感が無いようにする。 --- */
+.toolbar--reaction-hidden {
+  display: none;
+}
+
+.reaction-bar {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reaction-bar-label {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-70);
+  text-align: center;
+}
+
+.reaction-bar-emoji-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.reaction-bar-emoji {
+  font-size: 22px;
+  line-height: 1;
+}
