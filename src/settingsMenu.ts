@@ -8,13 +8,21 @@ import { openUsageGuide } from "./usageGuide";
 // sepia/indigo/matchaはOSのprefers-color-schemeに存在しない追加テーマ
 // (issue #138)のため、system/light/darkの3つと区別できるよう並びの後ろに置く。
 const THEME_ORDER: ThemePreference[] = ["system", "light", "dark", "sepia", "indigo", "matcha"];
-const THEME_ICON: Record<ThemePreference, string> = {
-  system: ICONS.themeSystem,
-  light: ICONS.themeLight,
-  dark: ICONS.themeDark,
-  sepia: ICONS.themeSepia,
-  indigo: ICONS.themeIndigo,
-  matcha: ICONS.themeMatcha,
+// テーマ選択は雫・葉のような形のアイコンではなく、道具バーのインク色スワッチ
+// （.toolbar-swatch、円形に色を塗りつぶすだけの見た目）と同じ形式にする
+// （ユーザー指摘：形で意味を持たせるのではなく、実際にそのテーマがどんな色味かを
+// そのまま見せてほしい）。値はそのテーマの--paper-1（カード等の背景）と同じ
+// oklchをそのまま使う——CSS変数は今のテーマでしか参照できないため、他のテーマの
+// 色を見せるスワッチにはstyle.css側の値をここに直接コピーする必要がある。
+// "system"だけは単色を持たないため、ライト/ダークの--paper-1を斜めに割った
+// グラデーションで表す。
+const THEME_SWATCH_BACKGROUND: Record<ThemePreference, string> = {
+  system: "linear-gradient(135deg, oklch(98% 0.005 75) 50%, oklch(35% 0.007 75) 50%)",
+  light: "oklch(98% 0.005 75)",
+  dark: "oklch(35% 0.007 75)",
+  sepia: "oklch(95% 0.022 70)",
+  indigo: "oklch(30% 0.04 262)",
+  matcha: "oklch(96% 0.022 128)",
 };
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: "自動（端末の設定に従う）",
@@ -102,9 +110,12 @@ export class SettingsMenu {
     for (const pref of THEME_ORDER) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "toolbar-btn";
+      // 道具バーのインク色スワッチと同じ.toolbar-swatchクラスを使い、円形に
+      // そのテーマの色を塗りつぶすだけの見た目にする（雫・葉などの意味付け
+      // アイコンではなく、実際の色そのもので選ばせる）。
+      btn.className = "toolbar-swatch";
+      btn.style.background = THEME_SWATCH_BACKGROUND[pref];
       btn.setAttribute("aria-label", THEME_LABEL[pref]);
-      btn.innerHTML = THEME_ICON[pref];
       btn.addEventListener("click", () => this.selectTheme(pref));
       this.themeButtons.set(pref, btn);
       themeRow.appendChild(btn);
