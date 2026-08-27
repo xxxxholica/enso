@@ -32,7 +32,7 @@ import { getCurrentUser } from "./authState";
  *  風の見た目にする。キャンバスの実サイズ（px）に対する比率で持たせる
  *  ——固定pxだと、ウィンドウが小さくなってもフレームの太さだけ変わらず、
  *  レンズに対して相対的に太すぎ/細すぎに見えてしまう（ユーザー指摘）。 */
-export const SMUI_FRAME_WEIGHT_RATIO = 0.04;
+const SMUI_FRAME_WEIGHT_RATIO = 0.04;
 
 /** 案内メッセージ（statusEl）の水平位置: キャンバスの実際の横幅に対する割合
  *  （0.5=中央、1.0=右端）。右レンズの中心（原点からGLASSES_CENTER_OFFSET）が

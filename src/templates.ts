@@ -24,7 +24,7 @@ const CUSTOM_ID_PREFIX = "custom:";
  * 選択（templatePicker.ts）に並ぶ順序になる——個人利用で日常的なものを先に、
  * 構造だてて書くものを後に置いている。
  */
-export const TEMPLATES: TemplateDef[] = [
+const TEMPLATES: TemplateDef[] = [
   {
     id: "checklist",
     label: "持ち物チェック",

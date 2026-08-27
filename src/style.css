@@ -1301,24 +1301,7 @@ body[data-view="shared"] #duration-slot {
   min-width: 90px;
 }
 
-/* --- 「消えるまでの期間」が関係ない道具（移動・消しゴム・なぞる）を選んでいる
-   間は、触れない・薄いことで無効だと分かるようにする（ユーザー指示）。
-   振り返りシークバーの空状態(.seekbar-disabled)と同じ考え方。 --- */
-.duration-seekbar-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
-
-.shared-view {
-  width: 100%;
-  padding: 4px 4px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
 
 .shared-signedout {
   font-size: var(--text-sm);

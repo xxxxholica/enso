@@ -14,14 +14,14 @@ export const REFERENCE_TEXT_BOX_WIDTH_PX = 240;
 
 /** 可変幅テキストボックスの下限（基準円でのpx値）。短い一言でも極端に細く
  *  ならないようにする最小幅。 */
-export const MIN_TEXT_BOX_WIDTH_PX = 140;
+const MIN_TEXT_BOX_WIDTH_PX = 140;
 
 /** 可変幅テキストボックスの上限（基準円でのpx値）。ここを超える長さの行は
  *  折り返す——上限なしにすると、円が一番広い高さ以外では形状からはみ出す
  *  マスしか見つからなくなってしまう（実機で再現：中心以外のほぼ全域で空きが
  *  見つからず、すべての入力が同じ場所に重なった）ため、はみ出しを許容しつつも
  *  現実的な範囲に収める。 */
-export const MAX_TEXT_BOX_WIDTH_PX = 480;
+const MAX_TEXT_BOX_WIDTH_PX = 480;
 
 /** 行の高さ（フォントサイズに対する倍率）。 */
 export const LINE_HEIGHT_MULTIPLIER = 1.4;

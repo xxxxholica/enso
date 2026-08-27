@@ -8,7 +8,7 @@ export type Stroke = Point[];
 /** null = 標準（固定7日カーブ）, number = 指定した猶予日数 (1 / 3 / 7) */
 export type LifespanDays = number | null;
 
-export type MemoStatus = "active" | "faded";
+type MemoStatus = "active" | "faded";
 
 /** 描画ツール（見た目・太さ・質感）。消えるまでの期間とは独立した軸。
  *  以前は鉛筆／ペン／マーカーの3種類だったが、鉛筆とペンはほぼ同じ機能

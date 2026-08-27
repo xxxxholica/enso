@@ -11,7 +11,7 @@
  * smuiView.tsから抽出——canvasView.tsのレンズ分割描画（メモの色からレンズ番号を
  * 逆引きする）が、より上位レイヤーのsmuiView.tsを逆importしなくて済むようにする。
  */
-export const PARTICIPANT_COLORS = [
+const PARTICIPANT_COLORS = [
   "#2a78d6", // 青
   "#eb6834", // 橙
   "#1baf7a", // 水

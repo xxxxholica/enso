@@ -44,9 +44,9 @@ import type { Memo } from "./types";
 
 const WS_BASE = "wss://api.onunu.me/ws";
 export const RECONNECT_BASE_MS = 1000;
-export const RECONNECT_MAX_MS = 15000;
+const RECONNECT_MAX_MS = 15000;
 /** この時間内に一定回数以上切断されたら「フラッピング」とみなす。 */
-export const FLAP_WINDOW_MS = 30000;
+const FLAP_WINDOW_MS = 30000;
 export const FLAP_THRESHOLD = 5;
 /** フラッピング検知後、再接続を試みるまでのクールダウン時間。 */
 export const FLAP_COOLDOWN_MS = 3 * 60 * 1000;
