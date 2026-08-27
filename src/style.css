@@ -42,12 +42,12 @@
 
   --rule-line: oklch(78% 0.07 240 / 0.4);
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
 
   --radius-sm: 8px;
   --radius-md: 16px;
@@ -55,12 +55,12 @@
   --radius-xl: 24px;
   --radius-full: 999px;
 
-  --text-2xs: 11px;
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-md: 15px;
-  --text-lg: 18px;
-  --text-xl: 24px;
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
 
   --duration-fast: 150ms;
   --duration-base: 180ms;
@@ -251,7 +251,7 @@ body {
   flex-direction: column;
   align-items: center;
   padding: 0;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 /* --- ヘッダー：左に画面切り替え（キャンバス／振り返り／共有）、右にアカウント状態
@@ -283,8 +283,8 @@ body {
      見た目は変えない。 */
   align-items: stretch;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   padding-top: calc(12px + env(safe-area-inset-top, 0px));
   /* 中身（ワードマーク・ナビ文字・アカウントボタン）はどれも背景を持たない
      プレーンな要素で、下に敷く色を近似しても色浮きが起きていた
@@ -326,7 +326,7 @@ body {
 .app-header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 /* --- ログイン中は「アカウント情報」「ログアウト」の2ボタンを縦に並べる
@@ -336,7 +336,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .account-badge-warning {
@@ -382,7 +382,7 @@ body {
 #canvas-panel {
   position: relative;
   width: 100%;
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   flex-direction: column;
 }
@@ -464,7 +464,7 @@ body[data-view="shared"] #duration-slot {
   resize: none;
   overflow: hidden;
   box-sizing: border-box;
-  padding: 4px 6px;
+  padding: var(--space-1) 0.375rem;
   border: 1px dashed oklch(22% 0.012 55 / 0.35);
   border-radius: 6px;
   background: oklch(98% 0.005 75 / 0.9);
@@ -510,7 +510,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 0.625rem;
   text-align: center;
   white-space: nowrap;
   /* ボタン以外の場所（案内の文字・すき間）はそのままcanvasへのドラッグを通す。 */
@@ -537,7 +537,7 @@ body[data-view="shared"] #duration-slot {
 .canvas-empty-template-btn {
   pointer-events: auto;
   font-size: var(--text-sm);
-  padding: 7px 14px;
+  padding: 0.4375rem 0.875rem;
   box-shadow: var(--shadow-card);
 }
 
@@ -617,13 +617,13 @@ body[data-view="shared"] #duration-slot {
 
 .control-panel {
   width: 100%;
-  max-width: min(900px, 96vw);
-  min-height: 72px;
+  max-width: min(56.25rem, 96vw);
+  min-height: 4.5rem;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  column-gap: 20px;
+  column-gap: var(--space-5);
 }
 
 /* --- 画面切り替え（キャンバス／共有）。ヘッダー左側に置く。
@@ -636,8 +636,8 @@ body[data-view="shared"] #duration-slot {
 
 .view-nav {
   display: flex;
-  gap: 2px;
-  padding: 3px;
+  gap: 0.125rem;
+  padding: 0.1875rem;
   background: var(--paper-1);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-card);
@@ -653,7 +653,7 @@ body[data-view="shared"] #duration-slot {
   font-weight: 500;
   color: var(--ink-55);
   cursor: pointer;
-  padding: 5px 14px;
+  padding: 0.3125rem 0.875rem;
   border-radius: 6px;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -679,19 +679,19 @@ body[data-view="shared"] #duration-slot {
   align-items: center;
   justify-content: center;
   flex-wrap: nowrap;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .toolbar-tools {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 1.125rem;
 }
 
 .toolbar-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 /* --- 中央ブロック：色スウォッチ・文字サイズ。実際の見た目（.control-block）と
@@ -717,7 +717,7 @@ body[data-view="shared"] #duration-slot {
   justify-content: center;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 0.875rem;
   white-space: nowrap;
 }
 
@@ -738,8 +738,8 @@ body[data-view="shared"] #duration-slot {
    ツール選択・ツールの詳細ブロックのように中身がこれより低いブロックは、
    align-items/justify-content:centerで中身を上下中央に収める。 --- */
 .control-block {
-  padding: 8px 16px;
-  height: 72px;
+  padding: var(--space-2) var(--space-4);
+  height: 4.5rem;
   border-radius: var(--radius-lg);
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -863,7 +863,7 @@ body[data-view="shared"] #duration-slot {
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: 18px;
+    height: 1.125rem;
     padding: 0;
     border: none;
     background: none;
@@ -873,8 +873,8 @@ body[data-view="shared"] #duration-slot {
 
   .control-panel-handle::before {
     content: "";
-    width: 36px;
-    height: 4px;
+    width: 2.25rem;
+    height: 0.25rem;
     border-radius: var(--radius-full);
     background: var(--ink-20);
   }
@@ -913,6 +913,46 @@ body[data-view="shared"] #duration-slot {
   }
 }
 
+/* --- 横持ちスマホ向けの圧縮。上のmax-width:480pxは幅が乏しい縦持ち端末向けで
+   3ブロックが横に並びきらないための再配置だが、横持ちスマホは逆に幅は
+   十分ある一方で高さが乏しい（100dvh基準の円がヘッダー・フッターの固定高さに
+   圧迫される）。3ブロックの横並び自体は幅的に成立するため再配置はせず、
+   ヘッダー・フッターそれぞれの縦方向のpadding／.control-blockの固定height／
+   道具ボタンのサイズだけを切り詰め、浮いた分をキャンバスの円（#canvas-panel、
+   flex:1で残り高さを取る）に還元する。max-height:500pxはiPad横持ち(768px)や
+   デスクトップより十分低く、横持ちスマホ（実機はおよそ375〜430px）だけに
+   絞り込むための閾値。 --- */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-header {
+    padding: var(--space-1) var(--space-3);
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  }
+
+  .view-nav-btn {
+    padding: 0.1875rem 0.625rem;
+  }
+
+  .control-block {
+    height: 3.5rem;
+    padding: 0.25rem var(--space-3);
+  }
+
+  .toolbar-btn {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .toolbar-btn svg {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .app-footer {
+    padding: 0.25rem var(--space-3)
+      calc(0.25rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* --- キャンバス⇔振り返り⇔共有の画面切り替え時、下部バーの中身（道具バー／
    時間選択ブロック／振り返りのシークバー）とキャンバス本体（#canvas-panel等）を
    即座に切り替えるのではなく、ふわっとフェードイン・フェードアウトさせて丸ごと
@@ -948,9 +988,9 @@ body[data-view="shared"] #duration-slot {
   position: absolute;
   left: 50%;
   bottom: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 0.625rem;
   transform: translateX(-50%) translateY(6px);
-  padding: 8px 14px;
+  padding: var(--space-2) 0.875rem;
   border-radius: var(--radius-md);
   background: var(--paper-1);
   box-shadow: var(--shadow-card);
@@ -970,8 +1010,8 @@ body[data-view="shared"] #duration-slot {
   appearance: none;
   border: none;
   background: none;
-  width: 38px;
-  height: 38px;
+  width: 2.375rem;
+  height: 2.375rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -985,8 +1025,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .toolbar-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 1.25rem;
+  height: 1.25rem;
 }
 
 .toolbar-btn[data-active="true"] {
@@ -1016,7 +1056,7 @@ body[data-view="shared"] #duration-slot {
    .icon-popoverと同じ見た目・フェードをそのまま流用し、1単語だけなので
    詰まった見た目になるよう改行させず余白を絞る。 --- */
 .tool-tooltip {
-  padding: 4px 10px;
+  padding: var(--space-1) 0.625rem;
   border-radius: var(--radius-full);
   font-size: var(--text-2xs);
   color: var(--ink-85);
@@ -1033,8 +1073,8 @@ body[data-view="shared"] #duration-slot {
 .session-slider {
   appearance: none;
   width: 100%;
-  min-width: 64px;
-  height: 16px;
+  min-width: 4rem;
+  height: 1rem;
   margin: 0;
   background: transparent;
   cursor: pointer;
@@ -1042,14 +1082,14 @@ body[data-view="shared"] #duration-slot {
 
 .duration-seekbar-slider::-webkit-slider-runnable-track,
 .session-slider::-webkit-slider-runnable-track {
-  height: 3px;
+  height: 0.1875rem;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
 
 .duration-seekbar-slider::-moz-range-track,
 .session-slider::-moz-range-track {
-  height: 3px;
+  height: 0.1875rem;
   border-radius: var(--radius-full);
   background: var(--ink-20);
 }
@@ -1057,9 +1097,9 @@ body[data-view="shared"] #duration-slot {
 .duration-seekbar-slider::-webkit-slider-thumb,
 .session-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 15px;
-  height: 15px;
-  margin-top: -6px;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  margin-top: -0.375rem;
   border-radius: 50%;
   background: var(--ink-solid);
   border: 2px solid var(--paper-1);
@@ -1069,8 +1109,8 @@ body[data-view="shared"] #duration-slot {
 
 .duration-seekbar-slider::-moz-range-thumb,
 .session-slider::-moz-range-thumb {
-  width: 15px;
-  height: 15px;
+  width: 0.9375rem;
+  height: 0.9375rem;
   border: 2px solid var(--paper-1);
   border-radius: 50%;
   background: var(--ink-solid);
@@ -1096,7 +1136,7 @@ body[data-view="shared"] #duration-slot {
 .toolbar-swatches {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 /* 選択ツールを選んでいる間は、触れない・薄いことで無効だと分かるように
@@ -1109,8 +1149,8 @@ body[data-view="shared"] #duration-slot {
 
 .toolbar-swatch {
   position: relative;
-  width: 26px;
-  height: 26px;
+  width: 1.625rem;
+  height: 1.625rem;
   border-radius: 50%;
   border: 2px solid var(--paper-1);
   /* 固定の暗い色(旧oklch(22% 0.012 55 / 0.15))だと、ダークテーマでボタンの
@@ -1173,15 +1213,15 @@ body[data-view="shared"] #duration-slot {
 .theme-hue-slider {
   appearance: none;
   width: 100%;
-  min-width: 120px;
-  height: 20px;
-  margin: 4px 0 0;
+  min-width: 7.5rem;
+  height: 1.25rem;
+  margin: var(--space-1) 0 0;
   background: transparent;
   cursor: pointer;
 }
 
 .theme-hue-slider::-webkit-slider-runnable-track {
-  height: 10px;
+  height: 0.625rem;
   border-radius: var(--radius-full);
   background: linear-gradient(
     to right,
@@ -1196,7 +1236,7 @@ body[data-view="shared"] #duration-slot {
 }
 
 .theme-hue-slider::-moz-range-track {
-  height: 10px;
+  height: 0.625rem;
   border-radius: var(--radius-full);
   background: linear-gradient(
     to right,
@@ -1212,9 +1252,9 @@ body[data-view="shared"] #duration-slot {
 
 .theme-hue-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 20px;
-  height: 20px;
-  margin-top: -5px;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: -0.3125rem;
   border-radius: 50%;
   background: var(--paper-1);
   border: 2px solid var(--ink-solid);
@@ -1222,8 +1262,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .theme-hue-slider::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
+  width: 1.25rem;
+  height: 1.25rem;
   border-radius: 50%;
   background: var(--paper-1);
   border: 2px solid var(--ink-solid);
@@ -1242,7 +1282,7 @@ body[data-view="shared"] #duration-slot {
   font-size: var(--text-xs);
   color: var(--ink-40);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 0.125rem var(--space-1);
 }
 
 /* --- 道具バー全体のグレーアウト。振り返りスライダーで過去に遡っている間、
@@ -1265,7 +1305,7 @@ body[data-view="shared"] #duration-slot {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   /* .toolbar-details-cardと同じ式（固定pxではなくclamp）にして、2ブロックの
      横幅比を画面幅によらず常に1:1に揃える（ユーザー指示・指摘）。 */
   width: clamp(150px, 15vw, 200px);
@@ -1301,7 +1341,7 @@ body[data-view="shared"] #duration-slot {
 }
 
 .duration-seekbar-slider {
-  min-width: 90px;
+  min-width: 5.625rem;
 }
 
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
@@ -1314,7 +1354,7 @@ body[data-view="shared"] #duration-slot {
 
 .archive-empty {
   width: 100%;
-  max-width: 480px;
+  max-width: 30rem;
   text-align: center;
   font-size: var(--text-sm);
   color: var(--ink-45);
@@ -1325,7 +1365,7 @@ body[data-view="shared"] #duration-slot {
    まとまりが見た目に伝わらなかった（ユーザー指摘：色々な要素が区切られる
    ことなく1枚に同居している）。最初の区画は仕切り線を引かない。 --- */
 .shared-menu-section {
-  padding-top: 12px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--ink-08);
 }
 
@@ -1341,12 +1381,12 @@ body[data-view="shared"] #duration-slot {
 .shared-create-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .shared-create-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* ボタン行だけ右寄せにする——.shared-statusはエラー文言が長くなり得るため、
@@ -1362,13 +1402,13 @@ body[data-view="shared"] #duration-slot {
    本文フォント基準）。 --- */
 .shared-create-btn-label {
   display: inline-block;
-  min-width: 108px;
+  min-width: 6.75rem;
   text-align: center;
 }
 
 .shared-copy-btn-label {
   display: inline-block;
-  min-width: 98px;
+  min-width: 6.125rem;
   text-align: center;
 }
 
@@ -1377,7 +1417,7 @@ body[data-view="shared"] #duration-slot {
   font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--ink-45);
-  margin-bottom: 6px;
+  margin-bottom: 0.375rem;
 }
 
 /* --- 作成・自動参加のエラー／一時的な状態表示。以前は「作成しました」
@@ -1407,7 +1447,7 @@ body[data-view="shared"] #duration-slot {
   min-width: 0;
   font: inherit;
   font-size: var(--text-xs);
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--ink-20);
   border-radius: 6px;
   background: var(--paper-1);
@@ -1432,18 +1472,18 @@ body[data-view="shared"] #duration-slot {
   flex-direction: column;
   /* 塗りつぶしのピルが隙間なく並ぶと圧迫感が出る（ユーザー指摘）ため、
      項目同士の間隔を広めに取る。 */
-  gap: 8px;
+  gap: var(--space-2);
   /* ルーム数が増えても popover 自体は伸びず、一覧の内側だけスクロールする。 */
-  max-height: 220px;
+  max-height: 13.75rem;
   overflow-y: auto;
   /* スクロールバーとピルの間に余白を持たせる。 */
-  padding-right: 2px;
+  padding-right: 0.125rem;
 }
 
 .shared-room-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 /* ルーム名＋名前変更アイコンをまとめる器。 */
@@ -1452,7 +1492,7 @@ body[data-view="shared"] #duration-slot {
   align-items: center;
   flex: 1 1 auto;
   min-width: 0;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 /* 名前が長いとポップオーバー幅（.shared-room-popover、上限340px）から
@@ -1501,7 +1541,7 @@ body[data-view="shared"] #duration-slot {
   /* .pill-btn/.shared-room-btnは枠線を持たない(border:none)ぶん、そのまま
      同じ padding だと枠線1pxずつ(計2px)背が高くなってしまう——上下の
      paddingを1pxずつ削って総高さを完全に一致させる。 */
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--ink-20);
   border-radius: var(--radius-full);
   background: var(--paper-1);
@@ -1540,7 +1580,7 @@ body[data-view="shared"] #duration-slot {
   font-weight: 500;
   color: var(--ink-85);
   white-space: nowrap;
-  padding: 5px 12px;
+  padding: 0.3125rem var(--space-3);
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -1557,12 +1597,12 @@ body[data-view="shared"] #duration-slot {
 .pill-btn--icon {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .pill-btn--icon svg {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   flex: 0 0 auto;
 }
 
@@ -1624,13 +1664,13 @@ body[data-view="shared"] #duration-slot {
 .shared-room-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   background: var(--paper-1);
 }
 
 .shared-room-trigger-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   display: block;
 }
 
@@ -1647,9 +1687,9 @@ body[data-view="shared"] #duration-slot {
    足す。幅が狭いと文字ボタン・招待リンク入力欄が詰まって圧迫感が出やすい
    （ユーザー指摘）ため、下限・上限とも少し広げてある。 --- */
 .shared-room-popover {
-  min-width: 260px;
-  max-width: min(340px, 90vw);
-  padding: 14px 16px;
+  min-width: 16.25rem;
+  max-width: min(21.25rem, 90vw);
+  padding: 0.875rem var(--space-4);
 }
 
 /* --- .icon-popoverの既定は「トリガーの真上に、トリガーを中心として」開く
@@ -1678,7 +1718,7 @@ body[data-view="shared"] #duration-slot {
     right: auto;
     bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
     margin: 0;
-    max-width: min(340px, 92vw);
+    max-width: min(21.25rem, 92vw);
     max-height: 60vh;
     overflow-y: auto;
     transform: translateX(-50%) translateY(6px);
@@ -1704,7 +1744,7 @@ body[data-view="shared"] #duration-slot {
     right: auto;
     bottom: calc(var(--app-footer-height, 100px) + 8px + 34px + 10px);
     margin: 0;
-    max-width: min(340px, 92vw);
+    max-width: min(21.25rem, 92vw);
     max-height: 60vh;
     overflow-y: auto;
     transform: translateX(-50%) translateY(6px);
@@ -1721,7 +1761,7 @@ body[data-view="shared"] #duration-slot {
 .appearance-pair-tab-btn {
   width: auto;
   height: auto;
-  padding: 5px 14px;
+  padding: 0.3125rem 0.875rem;
   border-radius: 6px;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -1748,16 +1788,16 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
   padding: 0;
   border-radius: var(--radius-full);
   background: transparent;
 }
 
 .settings-trigger svg {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
   flex: 0 0 auto;
 }
 
@@ -1777,14 +1817,14 @@ body[data-view="shared"] #duration-slot {
    この行にはもう並ばない(issue #154)。 --- */
 .shared-room-trigger,
 .session-panel-trigger {
-  height: 32px;
+  height: 2rem;
 }
 
 /* --- 設定メニュー内の「PNG」「TXT」書き出しボタンを1行に並べる（ユーザー
    指示）。均等に幅を分け、テーマ行・使い方ボタンと同じ左右の余白に揃える。 --- */
 .export-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .export-row-btn {
@@ -1795,8 +1835,8 @@ body[data-view="shared"] #duration-slot {
 /* --- 失敗時・ルーム未選択時のエラーだけをここに出す（.shared-statusと同じ
    考え方）。空文字の間は<p>の既定marginごと消し、行として場所を取らない。 --- */
 .export-status {
-  margin: 4px 2px 0;
-  max-width: 200px;
+  margin: var(--space-1) 0.125rem 0;
+  max-width: 12.5rem;
   font-size: var(--text-2xs);
   color: var(--ink-50);
   white-space: normal;
@@ -1816,13 +1856,13 @@ body[data-view="shared"] #duration-slot {
    他のメニューと同じ260pxに揃える（ユーザー指摘：各メニューのサイズが
    まばら）。 --- */
 .settings-popover {
-  min-width: 260px;
-  padding: 14px 16px;
+  min-width: 16.25rem;
+  padding: 0.875rem var(--space-4);
   left: 0;
   right: auto;
   top: 100%;
   bottom: auto;
-  margin-top: 10px;
+  margin-top: 0.625rem;
   margin-bottom: 0;
   transform: translateY(-6px);
   /* モバイル幅だと画面のほぼ全体をこのメニューが覆い、下のキャンバスが
@@ -1845,8 +1885,8 @@ body[data-view="shared"] #duration-slot {
      padding-top(14px)だけだと上の余白が下（この8pxのmargin-bottom＋
      文字の下側の空き）より狭く見えた（ユーザー指摘）ため、文字ごと
      少し下へ寄せて釣り合わせる。 */
-  margin-top: 4px;
-  margin-bottom: 8px;
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 /* --- 「使い方を見る」ボタンを、上のテーマ行と左右の余白が揃うまで幅いっぱいに
@@ -1878,7 +1918,7 @@ body[data-view="shared"] #duration-slot {
 .session-panel-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   background: var(--paper-1);
 }
 
@@ -1887,8 +1927,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .session-panel-trigger svg {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
   flex: 0 0 auto;
 }
 
@@ -1906,15 +1946,15 @@ body[data-view="shared"] #duration-slot {
    スライダー・進行中の操作ボタンを縦に並べる。項目数が多くギチギチに
    詰まって見えていた（ユーザー指摘）ため、余白・行間とも広めに取っている。 --- */
 .session-panel-popover {
-  min-width: 260px;
-  padding: 18px 20px;
+  min-width: 16.25rem;
+  padding: 1.125rem var(--space-5);
 }
 
 .session-start-form,
 .session-active-controls {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 /* --- "results"(投票確定後の結果ロック、issue #114/#119対応)中の案内文。
@@ -1932,7 +1972,7 @@ body[data-view="shared"] #duration-slot {
 .session-form-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0.375rem;
   font-size: 0.85em;
 }
 
@@ -1960,7 +2000,7 @@ body[data-view="shared"] #duration-slot {
 .shared-room-menu-main {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0.875rem;
 }
 
 /* --- SMUI（鯖江メガネUI）ビュー：「共有」タブ。個人キャンバスは含まず、
@@ -1975,7 +2015,7 @@ body[data-view="shared"] #duration-slot {
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   flex-direction: column;
 }
@@ -2015,8 +2055,8 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
+  gap: 0.625rem;
+  min-height: 2.125rem;
   pointer-events: none;
 }
 
@@ -2082,16 +2122,16 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: var(--space-6) var(--space-4);
   background: color-mix(in oklch, var(--paper-2) 82%, transparent);
   overflow-y: auto;
 }
 
 .template-picker-sheet {
-  width: min(760px, 100%);
+  width: min(47.5rem, 100%);
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
-  padding: 22px 24px 24px;
+  padding: 1.375rem var(--space-6) var(--space-6);
   border-radius: var(--radius-xl);
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -2114,12 +2154,12 @@ body[data-view="shared"] #duration-slot {
 .template-picker-head {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: -22px -24px 0;
-  padding: 22px 24px 16px;
+  margin: -1.375rem -1.5rem 0;
+  padding: 1.375rem var(--space-6) var(--space-4);
   background: var(--paper-1);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   border-bottom: 1px solid var(--ink-08);
@@ -2132,20 +2172,20 @@ body[data-view="shared"] #duration-slot {
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   font-family: "Klee One", "Noto Sans JP", sans-serif;
   font-size: var(--text-lg);
   font-weight: 600;
 }
 
 .template-picker-title svg {
-  width: 18px;
-  height: 18px;
+  width: 1.125rem;
+  height: 1.125rem;
   flex: 0 0 auto;
 }
 
 .template-picker-lead {
-  margin: 5px 0 0;
+  margin: 0.3125rem 0 0;
   font-size: var(--text-xs);
   line-height: 1.6;
   color: var(--ink-55);
@@ -2157,8 +2197,8 @@ body[data-view="shared"] #duration-slot {
   background: none;
   margin-left: auto;
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
   border-radius: var(--radius-full);
   font-size: var(--text-md);
   color: var(--ink-60);
@@ -2173,10 +2213,10 @@ body[data-view="shared"] #duration-slot {
 .template-picker-grid {
   /* ヘッダー直下にカードが詰まって見えるとの指摘があったため、見出しの
      padding-bottom(16px)+border-bottomに加えてここでもしっかり余白を取る。 */
-  margin-top: 20px;
+  margin-top: var(--space-5);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .template-card {
@@ -2186,8 +2226,8 @@ body[data-view="shared"] #duration-slot {
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
+  gap: var(--space-2);
+  padding: 0.875rem;
   border: 1px solid var(--ink-12);
   border-radius: 18px;
   background: color-mix(in oklch, var(--paper-2) 50%, transparent);
@@ -2219,13 +2259,13 @@ body[data-view="shared"] #duration-slot {
   font-size: var(--text-xs);
   line-height: 24px;
   color: var(--ink-80);
-  padding: 4px 10px 6px;
+  padding: var(--space-1) 0.625rem 0.375rem;
   border-radius: 10px;
   background: repeating-linear-gradient(to bottom, transparent 0 23px, var(--rule-line) 23px 24px) #ffffff;
 }
 
 .template-picker-foot {
-  margin: 16px 0 0;
+  margin: var(--space-4) 0 0;
   font-size: var(--text-xs);
   color: var(--ink-50);
 }
@@ -2242,20 +2282,20 @@ body[data-view="shared"] #duration-slot {
   all: unset;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   cursor: pointer;
   text-align: left;
   font: inherit;
-  padding-right: 22px;
+  padding-right: 1.375rem;
 }
 
 .template-card-delete {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 26px;
-  height: 26px;
+  width: 1.625rem;
+  height: 1.625rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2269,8 +2309,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .template-card-delete svg {
-  width: 15px;
-  height: 15px;
+  width: 0.9375rem;
+  height: 0.9375rem;
 }
 
 .template-card-delete:hover {
@@ -2283,7 +2323,7 @@ body[data-view="shared"] #duration-slot {
 .template-card-confirm {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.625rem;
 }
 
 .template-card-confirm-text {
@@ -2296,7 +2336,7 @@ body[data-view="shared"] #duration-slot {
 .template-card-confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .template-card-confirm-delete {
@@ -2319,7 +2359,7 @@ body[data-view="shared"] #duration-slot {
 }
 
 .template-card-create-plus {
-  font-size: 22px;
+  font-size: 1.375rem;
   line-height: 1;
   color: var(--ink-45);
 }
@@ -2327,29 +2367,29 @@ body[data-view="shared"] #duration-slot {
 /* --- 新規テンプレート作成フォーム。カード一覧（.template-picker-grid）と
    同じシートの中で、hiddenの出し入れだけで切り替える（別の全画面を重ねない）。 --- */
 .template-picker-create {
-  margin-top: 18px;
+  margin-top: 1.125rem;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .template-create-input {
   width: 100%;
   box-sizing: border-box;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .template-theme-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
 .template-theme-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .template-theme-row .template-create-input {
@@ -2359,20 +2399,20 @@ body[data-view="shared"] #duration-slot {
 /* --- テーマ欄の削除ボタン。.template-picker-closeと同じ見た目だが、行の中に
    収まるよう一段小さくする。 --- */
 .template-theme-remove {
-  width: 24px;
-  height: 24px;
+  width: 1.5rem;
+  height: 1.5rem;
   font-size: var(--text-xs);
   flex: 0 0 auto;
 }
 
 .template-picker-create .pill-btn {
   align-self: flex-start;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .template-create-status {
   min-height: 1em;
-  margin: 10px 0 0;
+  margin: 0.625rem 0 0;
   font-size: var(--text-xs);
   color: oklch(55% 0.16 25 / 0.9);
 }
@@ -2384,8 +2424,8 @@ body[data-view="shared"] #duration-slot {
 .template-create-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
+  gap: var(--space-2);
+  margin-top: 0.875rem;
 }
 
 @media (max-width: 480px) {
@@ -2394,15 +2434,15 @@ body[data-view="shared"] #duration-slot {
   }
 
   .template-picker-sheet {
-    padding: 18px 16px 20px;
+    padding: 1.125rem var(--space-4) var(--space-5);
     border-radius: var(--radius-lg);
   }
 
   /* .template-picker-headの負のmargin（背景を端まで伸ばす分）は、上の
      .template-picker-sheetのpaddingと同じ値に揃える必要がある。 */
   .template-picker-head {
-    margin: -18px -16px 0;
-    padding: 18px 16px 16px;
+    margin: -1.125rem -1rem 0;
+    padding: 1.125rem var(--space-4) var(--space-4);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 }
@@ -2416,17 +2456,17 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: var(--space-6) var(--space-4);
   background: color-mix(in oklch, var(--paper-2) 86%, transparent);
   overflow-y: auto;
 }
 
 .usage-guide-sheet {
   position: relative;
-  width: min(680px, 100%);
+  width: min(42.5rem, 100%);
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
-  padding: 28px 32px 24px;
+  padding: 1.75rem 2rem var(--space-6);
   border-radius: 24px;
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -2459,8 +2499,8 @@ body[data-view="shared"] #duration-slot {
   background: none;
   margin-left: auto;
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
   border-radius: var(--radius-full);
   font-size: var(--text-lg);
   line-height: 1;
@@ -2540,8 +2580,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .usage-guide-marker {
-  width: 40px;
-  height: 40px;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: var(--radius-full);
   background: var(--paper-1);
   border: 1px solid var(--ink-20);
@@ -2554,8 +2594,8 @@ body[data-view="shared"] #duration-slot {
 }
 
 .usage-guide-canvas {
-  width: 112px;
-  height: 112px;
+  width: 7rem;
+  height: 7rem;
   display: block;
 }
 
@@ -2582,13 +2622,13 @@ body[data-view="shared"] #duration-slot {
 
 @media (max-width: 560px) {
   .usage-guide-marker {
-    width: 32px;
-    height: 32px;
+    width: 2rem;
+    height: 2rem;
     font-size: var(--text-md);
   }
   .usage-guide-canvas {
-    width: 96px;
-    height: 96px;
+    width: 6rem;
+    height: 6rem;
   }
 }
 
@@ -2600,7 +2640,7 @@ body[data-view="shared"] #duration-slot {
   align-items: center;
   width: 100%;
   gap: var(--space-3);
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .tutorial-sandbox-canvas-wrap {
@@ -2646,7 +2686,7 @@ body[data-view="shared"] #duration-slot {
   flex-direction: column;
   align-items: center;
   gap: var(--space-1);
-  width: min(100%, 240px);
+  width: min(100%, 15rem);
 }
 
 .tutorial-watch-progress-label {
@@ -2657,7 +2697,7 @@ body[data-view="shared"] #duration-slot {
 .tutorial-watch-progress-bar {
   appearance: none;
   width: 100%;
-  height: 6px;
+  height: 0.375rem;
   overflow: hidden;
   border: none;
   border-radius: var(--radius-full);
@@ -2685,7 +2725,7 @@ body[data-view="shared"] #duration-slot {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 34px;
+  min-height: 2.125rem;
 }
 
 .tutorial-sandbox-skip {
@@ -2731,7 +2771,7 @@ body[data-view="shared"] #duration-slot {
   left: -15%;
   right: -15%;
   height: 22%;
-  min-height: 84px;
+  min-height: 5.25rem;
   background: var(--ink-solid);
   box-shadow: var(--shadow-popover);
   transform: translateX(-130%) skewY(-3deg);
