@@ -104,6 +104,11 @@ export class SmuiView {
    *  自分がまだ最新かを確認する——古い方はSharedRoomSyncを作らず即座に
    *  諦めることで、置き去りのインスタンスが残るのを防ぐ。 */
   private roomRequestSeq = 0;
+  /** selectRoom()の初回GET待ち中はroomSyncがまだ無いため、その間に届いた
+   *  notifyRemoteChangeIfCurrent()はそのままだと黙って消えてしまう
+   *  （issue #113: マスターの見た目変更が参加者に反映されないケースの一因）。
+   *  取りこぼした通知があったことを覚えておき、roomSync生成直後に拾い直す。 */
+  private pendingRemoteChangeDuringLoad = false;
   private statusResizeObserver!: ResizeObserver;
 
   private active = false;
@@ -388,6 +393,7 @@ export class SmuiView {
     const mySeq = ++this.roomRequestSeq;
     this.roomSync?.stop();
     this.roomSync = null;
+    this.pendingRemoteChangeDuringLoad = false;
     this.selectedRoomId = id;
     this.sharedStore = null;
     this.sessionPanel.reset();
@@ -428,6 +434,11 @@ export class SmuiView {
       this.sharedStore = sharedStore;
       this.ownerId = detail.ownerId || null;
       this.applyRemoteAppearance(detail.frameShapeId, detail.framePatternId, detail.frameShapeId2, detail.framePatternId2);
+      // このGETを待っている間に取りこぼした変更通知があれば、ここで拾い直す。
+      if (this.pendingRemoteChangeDuringLoad) {
+        this.pendingRemoteChangeDuringLoad = false;
+        sync.pollNow();
+      }
       this.lens.destroy();
       this.canvasContainerEl.innerHTML = "";
       this.lens = new CircularCanvas(this.canvasContainerEl, sharedStore, this.effectiveToolState, this.lensOptions());
@@ -508,7 +519,14 @@ export class SmuiView {
    *  サーバー側に購読解除が無く、過去に見ていた別ルーム分の通知も届き
    *  続けるため、今表示中のルームと一致する時だけ即座に取得し直す。 */
   notifyRemoteChangeIfCurrent(canvasId: string): void {
-    if (this.selectedRoomId === canvasId) this.roomSync?.pollNow();
+    if (this.selectedRoomId !== canvasId) return;
+    if (this.roomSync) {
+      this.roomSync.pollNow();
+    } else {
+      // selectRoom()の初回GETがまだ解決していない（roomSync未生成の）間に届いた
+      // 通知はここでは処理できないので、GET完了後に拾い直せるよう覚えておく。
+      this.pendingRemoteChangeDuringLoad = true;
+    }
   }
 
   /** realtimeSync.tsのWebSocket再接続直後に呼ぶ。接続中は通知の取りこぼしが

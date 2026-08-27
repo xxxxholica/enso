@@ -89,6 +89,9 @@ let subscribeToRoom: ((canvasId: string) => void) | null = null;
 // エラー表示に留める。canvasView/smuiView/currentViewはこの時点ではまだ
 // 定義されていないが、このコールバックは書き出しボタンが押された時にだけ
 // 呼ばれるため、それまでに定義が済んでいれば問題ない。
+// onOpenTemplatePickerはtemplatePicker（後述）を後から参照するクロージャ——
+// 実際に呼ばれるのはボタンが押された時点（モジュール初期化がすべて終わった
+// 後）なので、この時点でtemplatePickerがまだ未初期化でも問題ない。
 const settingsSlot = document.querySelector<HTMLDivElement>("#settings-slot")!;
 const settingsMenu = new SettingsMenu(
   settingsSlot,
@@ -97,7 +100,8 @@ const settingsMenu = new SettingsMenu(
     saveThemePreference(pref);
     applyTheme(pref);
   },
-  () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView)
+  () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
+  () => templatePicker.open()
 );
 
 void mountAccountWidget(settingsMenu.getAccountSlot(), (session) => {
@@ -189,15 +193,16 @@ setupControlPanelDrawer(
   document.querySelector<HTMLButtonElement>(".control-panel-handle")!
 );
 
-// 空のキャンバスの「＋テンプレートを使用」から開く全画面のテンプレート選択。
-// 選ばれたテンプレートは道具バー経由でそのまま盤面に置く（道具をテキストに切り替える
-// 副作用も含めて、以前の道具バーのテンプレートボタンとまったく同じ流れ）。
-// キャンバス／共有のどちらのタブから開いても、行き先の振り分けは上のToolbarの
-// onInsertTemplateがcurrentViewを見て行うため、選択画面自体は1つで足りる
-// ——全画面の幕がヘッダーのタブ切り替えごと覆うので、開いている間にタブが
-// 変わることもない。
+// 設定メニュー（上のSettingsMenuへのonOpenTemplatePicker）の「テンプレートを
+// 使用」から開く全画面のテンプレート選択。空キャンバス中央の案内・道具バーへ
+// 置く案も試したが、頻度の低い呼び出しとして最終的に設定メニューへ落ち着けた
+// （ユーザー指示）。選ばれたテンプレートは道具バー経由でそのまま盤面に置く
+// （道具をテキストに切り替える副作用も含めて、以前の道具バーのテンプレート
+// ボタンとまったく同じ流れ）。キャンバス／共有のどちらのタブから開いても、
+// 行き先の振り分けは上のToolbarのonInsertTemplateがcurrentViewを見て行う
+// ため、選択画面自体は1つで足りる——全画面の幕がヘッダーのタブ切り替えごと
+// 覆うので、開いている間にタブが変わることもない。
 const templatePicker = new TemplatePicker((id) => toolbar.insertTemplate(id));
-const openTemplatePicker = () => templatePicker.open();
 
 const getToolState = () => ({
   tool: toolbar.getTool(),
@@ -208,9 +213,10 @@ const getToolState = () => ({
   eraserRadius: toolbar.getEraserRadius(),
 });
 
-const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
-  onRequestTemplatePicker: openTemplatePicker,
-});
+// 「＋テンプレートを使用」は道具バー側（onOpenTemplatePicker、上記）へ
+// 試験的に移したため、空キャンバスの案内には渡さない——省略時は
+// 「ドラッグで書き始める」の案内だけを出す（canvasView.ts参照）。
+const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {});
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
 // （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
 // ——選んだ共有キャンバス（ルーム）のMemoStoreだけを扱う（個人MemoStoreの
@@ -366,6 +372,8 @@ function setView(view: "canvas" | "shared"): void {
     // 使うため表示する。振り返りスライダーは個人キャンバス専用なのでキャンバス
     // 表示中だけ出す。
     setToolbarVisible(view === "canvas" || view === "shared");
+    // 「テンプレートを使用」（設定メニュー内）は個人キャンバス専用（issue #79ユーザー指示）。
+    settingsMenu.setTemplateSectionVisible(view === "canvas");
     setDurationVisible(view === "canvas");
     smuiView.setActive(view === "shared");
   }, FADE_TRANSITION_MS);
