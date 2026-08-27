@@ -215,7 +215,7 @@ const getToolState = () => ({
 
 // 「＋テンプレートを使用」は道具バー側（onOpenTemplatePicker、上記）へ
 // 試験的に移したため、空キャンバスの案内には渡さない——省略時は
-// 「ドラッグで書き始める」の案内だけを出す（canvasView.ts参照）。
+// 「自由に書いてみる」の案内だけを出す（canvasView.ts参照）。
 const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {});
 // SMUI（眼鏡ビュー）: 「共有」タブ。個人キャンバスは含まず、大きな眼鏡形状1枚
 // （左右レンズ+ブリッジが1つの連続領域）だけの共有キャンバスを表示する
