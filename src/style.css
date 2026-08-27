@@ -2403,7 +2403,7 @@ body[data-view="shared"] #duration-slot {
   margin-top: var(--space-4);
 }
 
-/* min-heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
+/* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
    出た後の「振り返る」「done」手順）の実測ぶんの高さに、フォントの描画差
    ぶんの余裕を足した値。これを全ページ・全手順共通の下限に揃え、それより
    低い序・結・練の他の手順ではjustify-content:centerで余った縦のすき間に
@@ -2413,7 +2413,8 @@ body[data-view="shared"] #duration-slot {
    への刷新でページ内の要素構成が変わったため、この下限も実測し直してある
    ——以前は「みる」手順（スライダーが出る前）だけを基準に600px、その後
    スライダー追加で700pxまで引き上げていたが、今の練習パートはより
-   コンパクトな構成のため520pxに収まる。
+   円の拡大後も含めて620pxに収まる。高さを固定することで、手順ごとの文章量や
+   スライダーの有無によってモーダル全体が微妙に伸び縮みするのを防ぐ。
    min()の右側（calc(100dvh - 200px)）は、床面自体がヘッダー等を含めた
    モーダル全体をmax-height（.usage-guide-sheet、100dvh-48px）より高くして
    しまい、結果としてスクロールが必要になる（ユーザー報告：ウィンドウの
@@ -2429,9 +2430,18 @@ body[data-view="shared"] #duration-slot {
   justify-content: center;
   gap: var(--space-4);
   text-align: center;
-  min-height: min(520px, calc(100dvh - 200px));
+  height: min(620px, calc(100dvh - 200px));
+  min-height: 0;
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
+}
+
+/* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の
+   高さが変わるたび、見出しと円まで上下に動いてしまう。練習だけ上端を基準に置き、
+   状態変化は円より下の領域で吸収する。 */
+.usage-guide-page--practice {
+  justify-content: flex-start;
+  padding-top: 0;
 }
 
 .usage-guide-page-content {
@@ -2509,6 +2519,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 100%;
   gap: var(--space-3);
   margin-top: 4px;
 }
@@ -2528,8 +2539,8 @@ body[data-view="shared"] #duration-slot {
      あった——日本語フォントの行間計算がOSやフォントスタックによって微妙に
      異なるため、ここで測った値をそのまま使うと足りないことがある。今後また
      同じズレが起きないよう、実測でぎりぎり収まる値ちょうどではなく、
-     余裕を持たせた値（-460px→-520px）にしてある。 */
-  max-width: clamp(90px, calc(100dvh - 520px), 240px);
+     円を十分な大きさで表示しつつ低い画面にも収まる値（-420px）にしてある。 */
+  max-width: clamp(160px, calc(100dvh - 420px), 360px);
   aspect-ratio: 1 / 1;
 }
 
@@ -2543,21 +2554,73 @@ body[data-view="shared"] #duration-slot {
 .tutorial-sandbox-message {
   margin: 0;
   min-height: 2.6em;
-  max-width: 46ch;
+  width: min(100%, 56ch);
   font-size: var(--text-sm);
   line-height: 1.85;
   color: var(--ink-85);
   text-align: center;
+  text-wrap: pretty;
+}
+
+.tutorial-watch-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: min(100%, 240px);
+}
+
+.tutorial-watch-progress-label {
+  font-size: var(--text-xs);
+  color: var(--ink-60);
+}
+
+.tutorial-watch-progress-bar {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--ink-12);
+}
+
+.tutorial-watch-progress-bar::-webkit-progress-bar {
+  background: var(--ink-12);
+  border-radius: var(--radius-full);
+}
+
+.tutorial-watch-progress-bar::-webkit-progress-value {
+  background: var(--ink-60);
+  border-radius: var(--radius-full);
+}
+
+.tutorial-watch-progress-bar::-moz-progress-bar {
+  background: var(--ink-60);
+  border-radius: var(--radius-full);
 }
 
 .tutorial-sandbox-actions {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  justify-content: center;
+  width: 100%;
+  min-height: 34px;
 }
 
 .tutorial-sandbox-skip {
+  position: absolute;
+  left: calc(50% + 64px);
   color: var(--ink-40);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .tutorial-sandbox-skip {
+    left: auto;
+    right: 0;
+  }
 }
 
 /* --- フェーズ切り替えの「カットイン」演出 (issue #79) -------------------

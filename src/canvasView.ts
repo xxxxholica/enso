@@ -260,6 +260,10 @@ export interface CircularCanvasOptions {
    *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
    *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
   textEditorMinWidthPx?: number;
+  /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
+  minRenderedTextFontPx?: number;
+  /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
+  nowProvider?: () => number;
 }
 
 export class CircularCanvas {
@@ -370,6 +374,8 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
+  private minRenderedTextFontPx: number | undefined;
+  private nowProvider: () => number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
    *  熱量(投票)カウントとして扱われる。 */
   private rotationVoteHandler: ((memoId: string) => void) | null = null;
@@ -410,6 +416,8 @@ export class CircularCanvas {
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
+    this.minRenderedTextFontPx = options.minRenderedTextFontPx;
+    this.nowProvider = options.nowProvider ?? Date.now;
     this.canvas = document.createElement("canvas");
     this.canvas.className = "circle-canvas";
     this.container.appendChild(this.canvas);
@@ -806,7 +814,11 @@ export class CircularCanvas {
       this.store.startStroke(this.state.activeMemoId, p);
     } else {
       const { color, lifespanDays, lineWidth } = this.getToolState();
-      const memo = this.store.createMemo(p, { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth });
+      const memo = this.store.createMemo(
+        p,
+        { tool: tool as "pen" | "marker", color, lifespanDays, lineWidth },
+        this.nowProvider()
+      );
       this.state.activeMemoId = memo.id;
     }
     if (this.state.idleTimer !== null) window.clearTimeout(this.state.idleTimer);
@@ -1258,7 +1270,16 @@ export class CircularCanvas {
       // 寄せてから確定する。
       const safeAnchor = clampBoxCenter(anchor, width / 2, height / 2, this.inputClamp());
       this.ensureUndoSnapshot();
-      this.store.createTextMemo(safeAnchor, value, lines, fontSize, width, height, { color, lifespanDays: this.getToolState().lifespanDays });
+      this.store.createTextMemo(
+        safeAnchor,
+        value,
+        lines,
+        fontSize,
+        width,
+        height,
+        { color, lifespanDays: this.getToolState().lifespanDays },
+        this.nowProvider()
+      );
     };
     el.addEventListener("blur", commit);
     el.addEventListener("keydown", (kev) => {
@@ -1330,12 +1351,16 @@ export class CircularCanvas {
     const boxWidthPx = measureTextBoxWidthPx(this.ctx, text, fontSize);
     const lines = wrapTextAtReferenceScale(this.ctx, text, fontSize, boxWidthPx);
     const { width, height } = normalizedBoxSize(fontSize, lines.length, boxWidthPx, lineHeight);
-    const memo = this.store.createTextMemo({ x: 0, y: 0 }, text, lines, fontSize, width, height, {
-      color,
-      lifespanDays,
-      align: "left",
-      lineHeight,
-    });
+    const memo = this.store.createTextMemo(
+      { x: 0, y: 0 },
+      text,
+      lines,
+      fontSize,
+      width,
+      height,
+      { color, lifespanDays, align: "left", lineHeight },
+      this.nowProvider()
+    );
     this.openTextEditor({ x: 0, y: 0 }, memo);
   }
 
@@ -1787,7 +1812,7 @@ export class CircularCanvas {
           // 確定済み(fadeExempt)のメモは、遡り表示中であっても常に確定した
           // 濃さへ向かうまま——時間経過フェードから恒久的に外れているという
           // 仕様のため（displayDensityでなめらかに確定値へ収束させる）。
-          renderMemoAt(ctx, memo, r, displayDensity);
+          renderMemoAt(ctx, memo, r, displayDensity, this.minRenderedTextFontPx);
           continue;
         }
         const baseOpacity =
@@ -1797,7 +1822,7 @@ export class CircularCanvas {
         // 上げ下げする——熱グロー(別レイヤーの光彩)に代わる表現（issue #79、
         // ユーザー指示：熱グローのエフェクトが良くない、ペン自体の濃さで表現したい）。
         const densityFactor = VOTING_DENSITY_OPACITY_FLOOR + (1 - VOTING_DENSITY_OPACITY_FLOOR) * displayDensity;
-        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor);
+        renderMemoAt(ctx, memo, r, baseOpacity * densityFactor, this.minRenderedTextFontPx);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";

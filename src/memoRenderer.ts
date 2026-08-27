@@ -34,7 +34,8 @@ export function renderMemoAt(
   ctx: CanvasRenderingContext2D,
   memo: Memo,
   radius: number,
-  opacity: number
+  opacity: number,
+  minTextFontPx?: number
 ): void {
   if (memo.kind === "stroke") {
     const style = toolRenderStyle(memo.tool, radius, memo.lineWidth);
@@ -59,7 +60,7 @@ export function renderMemoAt(
   ctx.globalAlpha = opacity;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = memo.color;
-  const fontPx = fontPxForRender(memo.fontSize, radius);
+  const fontPx = Math.max(fontPxForRender(memo.fontSize, radius), minTextFontPx ?? 0);
   ctx.font = `${fontPx}px ${TEXT_FONT_FAMILY}`;
   ctx.textBaseline = "middle";
   const lineHeight = fontPx * (memo.lineHeight ?? LINE_HEIGHT_MULTIPLIER);
