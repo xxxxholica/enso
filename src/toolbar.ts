@@ -158,6 +158,11 @@ export class Toolbar {
    *  そのスワッチ自体の色として残り続け、次回はクリックひとつで呼び戻せる。
    *  ペン・マーカーどちらで選んでも共有する1つの値（枠は増やさない）。 */
   private customColor: string | null = null;
+  /** ネイティブのカラーピッカー（colorInput）が開いているかどうか。開いて
+   *  いる間にもう一度カスタムスワッチを押すと閉じるようにする（ユーザー
+   *  指示：1回押すと開く・もう1回押すと閉じるトグルにしたい）——ブラウザは
+   *  ピッカーの開閉状態を直接教えてくれないため、こちらで手動管理する。 */
+  private colorPickerOpen = false;
 
   constructor(
     container: HTMLElement,
@@ -420,6 +425,13 @@ export class Toolbar {
       this.syncSwatch();
       this.onChange?.();
     });
+    // ピッカーを閉じる操作（色を選ぶ／Escape／外側クリック等）は全部この
+    // 要素からフォーカスが外れる形で起きるため、blurで開閉状態をリセットする
+    // ——ボタン側のトグル管理（colorPickerOpen）とブラウザ側の実際の開閉を
+    // 食い違わせないため。
+    this.colorInput.addEventListener("blur", () => {
+      this.colorPickerOpen = false;
+    });
 
     // 未使用のうちは「好きな色」だと一目で分かるよう虹色の見た目にする
     // （style.cssの.toolbar-swatch--custom）。一度選んだ後は、その色そのものを
@@ -429,9 +441,20 @@ export class Toolbar {
     this.customSwatchBtn.className = "toolbar-swatch toolbar-swatch--custom";
     this.customSwatchBtn.setAttribute("aria-label", "好きな色を選ぶ（RGB）");
     this.customSwatchBtn.appendChild(this.colorInput);
+    // 1回押すと開き、開いている間にもう一度押すと閉じるトグルにする
+    // （ユーザー指示）。ネイティブのカラーピッカーはHTMLInputElement.
+    // showPicker()/hidePicker()で開閉できる——.click()だと開くだけで
+    // 閉じる手段が無いため、こちらに切り替えた。
     this.customSwatchBtn.addEventListener("click", (ev) => {
       if (ev.target === this.colorInput) return;
-      this.colorInput.click();
+      if (this.colorPickerOpen) {
+        // hidePicker()はTSの標準DOM型定義にまだ無いため個別に型を補う。
+        (this.colorInput as HTMLInputElement & { hidePicker?: () => void }).hidePicker?.();
+        this.colorPickerOpen = false;
+        return;
+      }
+      this.colorInput.showPicker();
+      this.colorPickerOpen = true;
     });
     row.appendChild(this.customSwatchBtn);
 

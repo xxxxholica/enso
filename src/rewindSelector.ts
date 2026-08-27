@@ -1,4 +1,5 @@
 import { DURATION_STEPS } from "./durationSteps";
+import { createFadeVisibility } from "./fadeVisibility";
 
 interface RewindStep {
   label: string;
@@ -53,6 +54,7 @@ export class RewindSelector {
     this.el.className = "duration-seekbar control-block";
     this.container.appendChild(this.el);
     this.build();
+    this.attachTooltip();
   }
 
   /** 遡り先の絶対時刻（ms）。「たった今」（=末尾の目盛り）ならnull＝ライブ表示。 */
@@ -112,6 +114,24 @@ export class RewindSelector {
     this.slider.value = String(MAX_INDEX);
     this.syncLabel();
     this.onChange?.();
+  }
+
+  /** 他の道具ボタン（Toolbar.attachToolTooltip参照）と同じ、ホバーで機能名を
+   *  上に出す案内。振り返りバーだけこの案内が無く、初見だと何のスライダーか
+   *  分かりにくい、というユーザー指摘のため。同じ.icon-popover/.tool-tooltip
+   *  の見た目・フェードをそのまま流用し、マウスの時だけ働かせる（タッチでは
+   *  「押さずに触れる」状態が無く、タップの前後にちらつくだけになるため）。 */
+  private attachTooltip(): void {
+    const tooltip = document.createElement("span");
+    tooltip.className = "icon-popover tool-tooltip";
+    tooltip.textContent = "振り返り";
+    tooltip.hidden = true;
+    this.el.appendChild(tooltip);
+    const setVisible = createFadeVisibility(tooltip);
+    this.el.addEventListener("pointerenter", (ev) => {
+      if (ev.pointerType === "mouse") setVisible(true);
+    });
+    this.el.addEventListener("pointerleave", () => setVisible(false));
   }
 
   private syncLabel(): void {
