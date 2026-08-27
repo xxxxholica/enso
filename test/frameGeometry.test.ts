@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FrameGeometry } from "../src/frameGeometry";
+import { FRAME_SHAPE_ORDER } from "../src/frameShape";
 
 function makeFakeCtx(): CanvasRenderingContext2D {
   const gradient = { addColorStop: () => {} };
@@ -56,19 +57,53 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function makeGlassesGeometry(): FrameGeometry {
+  const canvas = document.createElement("canvas");
+  const ctx = makeFakeCtx();
+  const container = makeContainer(400, 2000);
+  return new FrameGeometry(canvas, ctx, container, 1, {
+    frameShapeId: "round",
+    frameStrokeColor: "#000",
+    frameStrokeWidth: (canvasSizePx) => canvasSizePx * 0.04,
+    frameKind: "glasses",
+    framePatternId: "matte",
+  });
+}
+
+describe("FrameGeometry: 共同アイデア出しの組ごとの形状ローテーション (issue #113③)", () => {
+  it("レンズ分割が無効な間は、どの組も設定した形状のままになる", () => {
+    const geometry = makeGlassesGeometry();
+    expect(geometry.frameShapeIdForPair(0)).toBe("round");
+    expect(geometry.framePathForPair(0)).toBe(geometry.framePath);
+  });
+
+  it("レンズ分割が有効になると、組ごとにFRAME_SHAPE_ORDERを順送りした異なる形状になる", () => {
+    const geometry = makeGlassesGeometry();
+    geometry.setLensSplitPairCount(2);
+
+    const baseIndex = FRAME_SHAPE_ORDER.indexOf("round");
+    expect(geometry.frameShapeIdForPair(0)).toBe(FRAME_SHAPE_ORDER[baseIndex % FRAME_SHAPE_ORDER.length]);
+    expect(geometry.frameShapeIdForPair(1)).toBe(FRAME_SHAPE_ORDER[(baseIndex + 1) % FRAME_SHAPE_ORDER.length]);
+    expect(geometry.frameShapeIdForPair(0)).not.toBe(geometry.frameShapeIdForPair(1));
+
+    // 形状そのものが組ごとに異なるため、単一のPath2Dを使い回さず組別に個別のPath2Dを持つ。
+    expect(geometry.framePathForPair(0)).not.toBe(geometry.framePathForPair(1));
+    expect(geometry.strokePathForPair(0)).not.toBe(geometry.strokePathForPair(1));
+  });
+
+  it("レンズ分割を無効に戻すと、組別の形状ローテーションも解除される", () => {
+    const geometry = makeGlassesGeometry();
+    geometry.setLensSplitPairCount(2);
+    geometry.setLensSplitPairCount(null);
+
+    expect(geometry.frameShapeIdForPair(0)).toBe("round");
+    expect(geometry.frameShapeIdForPair(1)).toBe("round");
+  });
+});
+
 describe("FrameGeometry: 共同アイデア出しの参加人数(レンズ分割の組数)と縁取りの太さ (issue #113②)", () => {
   it("組数(pairCount)が増えても、個々のフレームの縁取りの太さ・スケールは初期状態から変わらない", () => {
-    const canvas = document.createElement("canvas");
-    const ctx = makeFakeCtx();
-    const container = makeContainer(400, 2000);
-
-    const geometry = new FrameGeometry(canvas, ctx, container, 1, {
-      frameShapeId: "round",
-      frameStrokeColor: "#000",
-      frameStrokeWidth: (canvasSizePx) => canvasSizePx * 0.04,
-      frameKind: "glasses",
-      framePatternId: "matte",
-    });
+    const geometry = makeGlassesGeometry();
 
     const baselineStrokeWidth = geometry.frameStrokeWidthPx;
 
