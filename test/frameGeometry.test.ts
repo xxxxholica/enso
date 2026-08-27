@@ -100,3 +100,15 @@ describe("FrameGeometry: 共同アイデア出しの組ごとの形状ローテ�
     expect(geometry.frameShapeIdForPair(1)).toBe("round");
   });
 });
+
+describe("FrameGeometry: 共同アイデア出しの参加人数(レンズ分割の組数)と縁取りの太さ (issue #113②)", () => {
+  it("組数(pairCount)が増えても、個々のフレームの縁取りの太さ・スケールは初期状態から変わらない", () => {
+    const geometry = makeGlassesGeometry();
+
+    const baselineStrokeWidth = geometry.frameStrokeWidthPx;
+
+    // 3人以上の参加(maxParticipants>=3)でcomputeLensSplitPairCountが1→2になる状況を再現する。
+    geometry.setLensSplitPairCount(2);
+    expect(geometry.frameStrokeWidthPx).toBeCloseTo(baselineStrokeWidth, 5);
+  });
+});
