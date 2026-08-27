@@ -81,8 +81,6 @@ export class SmuiView {
   private framePatternId2: FramePatternId | null = null;
 
   private roomMenuSlotEl!: HTMLElement;
-  private appearanceSlotEl!: HTMLElement;
-  private settingsSlotEl!: HTMLElement;
   private canvasWrapEl!: HTMLElement;
   private canvasContainerEl!: HTMLElement;
   private statusEl!: HTMLElement;
@@ -143,19 +141,6 @@ export class SmuiView {
    *  （このクラス自身はルーム作成・選択のUIを持たず、置き場所を提供するだけ）。 */
   getRoomMenuSlot(): HTMLElement {
     return this.roomMenuSlotEl;
-  }
-
-  /** 「見た目の設定」（フレームの形・色）ボタンの器。ルーム設定ボタンの右隣に
-   *  置く（ユーザー指示）。main.tsがここにAppearanceSelectorをマウントする。 */
-  getAppearanceSlot(): HTMLElement {
-    return this.appearanceSlotEl;
-  }
-
-  /** 設定ボタン（SettingsMenu）の器。「セッションを開始」の右に置く
-   *  （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
-   *  main.tsがタブ切り替えのたびSettingsMenu.moveTo(ここ)で移設する。 */
-  getSettingsSlot(): HTMLElement {
-    return this.settingsSlotEl;
   }
 
   /** 共同アイデア出しセッションのフェーズ①②の間、実際に使われる色を上書きする
@@ -368,21 +353,19 @@ export class SmuiView {
     this.canvasWrapEl.appendChild(this.statusEl);
     view.appendChild(this.canvasWrapEl);
 
-    // ルーム作成・選択（SharedRoomMenu）、見た目の設定（AppearanceSelector、
-    // フレームの形・色）は、眼鏡キャンバスの下に横並びで置く（ユーザー指示）。
-    // main.tsがgetRoomMenuSlot()/getAppearanceSlot()経由でそれぞれの中身を
-    // マウントする——このクラス自身はルーム作成・見た目設定のUIを持たず、
-    // 置き場所を提供するだけ。「残り時間」ピルはそれらの横に並べる
-    // （ユーザー指示）——このクラス自身がlensの状態を持っているため、
-    // 他の2つと違い自分でReviveInfoPillを持ち、render()のたびに更新する。
-    // 設定ボタン（SettingsMenu）は「セッションを開始」の右、行の一番最後に置く
-    // （ユーザー指示：ヘッダー固定だった設定ボタンを各タブの操作列へ移したい）。
+    // ルーム作成・選択（SharedRoomMenu）は、眼鏡キャンバスの下に横並びで置く
+    // （ユーザー指示）。main.tsがgetRoomMenuSlot()経由で中身をマウントする
+    // ——このクラス自身はルーム作成のUIを持たず、置き場所を提供するだけ。
+    // 「見た目の設定」（AppearanceSelector）はここには置かず、設定メニュー
+    // (SettingsMenu)の区画へ統合した(issue #154)。設定ボタン自体も画面左上
+    // （ヘッダー）へ固定表示するようにしたため、このタブ内には置かない
+    // (issue #161)。「残り時間」ピルはこの行に並べる（ユーザー指示）——
+    // このクラス自身がlensの状態を持っているため、他の2つと違い自分で
+    // ReviveInfoPillを持ち、render()のたびに更新する。
     const roomMenuRow = document.createElement("div");
     roomMenuRow.className = "info-row";
     this.roomMenuSlotEl = document.createElement("div");
     roomMenuRow.appendChild(this.roomMenuSlotEl);
-    this.appearanceSlotEl = document.createElement("div");
-    roomMenuRow.appendChild(this.appearanceSlotEl);
     this.reviveInfoPill = new ReviveInfoPill(roomMenuRow);
     this.sessionPanel = new SessionPanel(roomMenuRow, {
       onStart: (options) => this.startSessionForCurrentRoom(options),
@@ -391,8 +374,6 @@ export class SmuiView {
       onEnd: () => this.endSessionForCurrentRoom(),
       onResume: () => this.resumeSessionForCurrentRoom(),
     });
-    this.settingsSlotEl = document.createElement("div");
-    roomMenuRow.appendChild(this.settingsSlotEl);
     view.appendChild(roomMenuRow);
 
     container.appendChild(view);

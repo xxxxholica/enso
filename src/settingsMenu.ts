@@ -39,22 +39,29 @@ function customSwatchBackground(hue: number): string {
 }
 
 /**
- * ヘッダーの「設定」ボタン（ユーザー指示：設定ボタンを追加してテーマ変更
- * 機能を入れたい）。テーマ（自動/ライト/ダーク）に加え、ヘッダーに個別に
- * あった「使い方」ボタン・エクスポート機能、アカウント（ログイン・ログアウト
- * 自体はClerkのウィジェットがgetAccountSlot()の枠に描く、main.ts参照）も
- * ここに統合する。各区画は共有ルームメニュー(sharedRoomMenu.ts)と同じ
- * .shared-menu-section/.shared-section-labelパターンで区切るが、区画数が
+ * ヘッダー左上に固定表示するアプリのメインメニュー（issue #161）。テーマ・
+ * 見た目の設定・テンプレート・使い方・エクスポート、アカウント（ログイン・
+ * ログアウト自体はClerkのウィジェットがgetAccountSlot()の枠に描く、main.ts
+ * 参照）をここに統合する。各区画は共有ルームメニュー(sharedRoomMenu.ts)と
+ * 同じ.shared-menu-section/.shared-section-labelパターンで区切るが、区画数が
  * 増えて仕切り線が煩雑になったため、この設定ポップオーバー内に限り
  * 仕切り線(border-top)だけをCSS側で打ち消している（余白は残す）。
  *
  * トリガーはアイコンのみ（ユーザー指示）——「設定」の文字はaria-labelで
- * スクリーンリーダーにだけ伝える。
+ * スクリーンリーダーにだけ伝える。中身がテーマだけでなくアプリ全体の機能
+ * （見た目の設定・テンプレート等）へのアクセスを含む「アプリ全体のメニュー」
+ * になっているため、アイコンは設定を意味する歯車ではなく、メニュー全般を
+ * 意味する三本線(ハンバーガー)にしている（Claude風、ユーザー指示）。
  *
- * 個人キャンバス（#canvas-info-row）・共有キャンバス（smuiView.tsのroomMenuRow）
- * どちらの下部バーにも置かれうる（moveTo参照、ユーザー指示：設定ボタンを
- * ヘッダーから各タブの操作列へ移したい）ため、appearanceSelector.ts等と同じく
- * 上向き(.icon-popover既定)で開く。
+ * 以前は各タブの操作列（ツールバーの真上）にあり、タブ切り替えのたび
+ * moveTo()でDOM上の置き場所を動かしていたが、画面の真ん中寄りで見つけ
+ * にくい・他の操作ボタンと並んで煩雑という指摘のため、画面左上（ヘッダー）
+ * へ固定で置くようにした——インスタンス・置き場所とも1つに固定されたため
+ * moveTo()は廃止した。左上には元々「円相」というアプリ名を常時表示して
+ * いたが、トリガーボタンと被るため、そちらはやめてポップオーバーの一番上に
+ * 見出しとして移した（buildTitleSection参照）。左上のトリガーの直下に
+ * 開くため、他のポップオーバー（.icon-popover既定、トリガーの上に開く）
+ * とは逆に下向き・左寄せで開く（style.cssの.settings-popover参照）。
  */
 export class SettingsMenu {
   private anchor: HTMLElement;
@@ -78,6 +85,12 @@ export class SettingsMenu {
    *  （ユーザー指摘：バーで色を変えてもスワッチの見た目が追従していなかった）。 */
   private customSwatchBtn!: HTMLButtonElement;
   private accountSlot!: HTMLElement;
+  /** 「見た目の設定」区画の器(issue #154)。以前は個人・共有各タブの操作列に
+   *  独立ボタン(FrameColorSelector/AppearanceSelector)として置かれていたが、
+   *  設定メニューへ統合した——テーマ区画と使い方区画の間（ユーザー指示）。
+   *  このクラス自身は中身(柄・形のピッカー)を持たず、main.tsが個人用・共有用
+   *  それぞれの中身をここへ差し込み、タブ切り替えのたびhiddenで出し分ける。 */
+  private appearanceSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
   /** 「テンプレート」区画本体。共有タブでは出さない（issue #79ユーザー指示：
@@ -108,7 +121,7 @@ export class SettingsMenu {
     this.triggerBtn.type = "button";
     this.triggerBtn.className = "pill-btn settings-trigger";
     this.triggerBtn.setAttribute("aria-label", "設定");
-    this.triggerBtn.innerHTML = ICONS.settings;
+    this.triggerBtn.innerHTML = ICONS.menu;
     this.triggerBtn.addEventListener("click", () => this.toggle());
     this.anchor.appendChild(this.triggerBtn);
 
@@ -116,6 +129,15 @@ export class SettingsMenu {
     this.popover.className = "settings-popover icon-popover";
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);
+
+    // 「円相」の見出し(issue #161)。左上のトリガーの位置に元々あった常時
+    // 表示のアプリ名(.app-wordmark)と入れ替わる形で、ここへ移した——
+    // 他の区画と違い操作を持たないため.shared-section-labelではなく、
+    // ヘッダーで使っていたのと同じ.app-wordmarkをそのまま流用する。
+    const titleEl = document.createElement("div");
+    titleEl.className = "app-wordmark settings-title";
+    titleEl.textContent = "円相";
+    this.popover.appendChild(titleEl);
 
     const themeSection = document.createElement("div");
     themeSection.className = "shared-menu-section";
@@ -184,6 +206,7 @@ export class SettingsMenu {
 
     this.popover.appendChild(themeSection);
 
+    this.popover.appendChild(this.buildAppearanceSection());
     this.popover.appendChild(this.buildTemplateSection());
     this.popover.appendChild(this.buildUsageSection());
     this.popover.appendChild(new ExportSection(getExportSource, () => this.close()).element);
@@ -193,6 +216,29 @@ export class SettingsMenu {
     container.appendChild(this.anchor);
 
     this.syncTheme();
+  }
+
+  /** 「見た目の設定」区画(issue #154)。中身(柄・形のピッカー)は個人・共有
+   *  タブで異なる(FrameColorSelector相当/AppearanceSelector)ため、このクラス
+   *  自身は持たず、main.tsがgetAppearanceSlot()経由で差し込む——テンプレート
+   *  区画と同じ、置き場所だけを提供するパターン。区画自体の見出し(「見た目の
+   *  設定」)は付けない——差し込まれる中身自身が「フレームの形」「フレームの
+   *  色」という自分の見出しを既に持っており、二重に見えて冗長だったため
+   *  （ユーザー指摘）。 */
+  private buildAppearanceSection(): HTMLElement {
+    const section = document.createElement("div");
+    section.className = "shared-menu-section";
+
+    this.appearanceSlot = document.createElement("div");
+    section.appendChild(this.appearanceSlot);
+    return section;
+  }
+
+  /** buildAppearanceSection()の器。main.tsが個人用・共有用それぞれの中身を
+   *  ここへ差し込み、タブ切り替えのたびhiddenで出し分ける(main.tsのsetView
+   *  参照)。 */
+  getAppearanceSlot(): HTMLElement {
+    return this.appearanceSlot;
   }
 
   /** 「＋テンプレートを使用」（全画面のテンプレート選択、templatePicker.ts）を開く。
@@ -275,16 +321,6 @@ export class SettingsMenu {
    *  main.tsのsetView()から画面切り替えのたび呼んで出し分ける。 */
   setTemplateSectionVisible(visible: boolean): void {
     this.templateSection.hidden = !visible;
-  }
-
-  /** タブ切り替え(main.tsのsetView())のたび、今表示中のタブの操作列へこの
-   *  ボタン自体(アカウント区画・Clerkウィジェットも含めて丸ごと)を移す。
-   *  インスタンスは1個のまま(アカウント区画のmountAccountWidgetはClerk
-   *  クライアントを新規生成する副作用があり、2個目を作ると二重初期化に
-   *  なるため——main.ts参照)、DOM上の置き場所だけをappendChildで動かす。 */
-  moveTo(container: HTMLElement): void {
-    this.close(); // 開いたまま移動すると新しい場所で唐突に開いて見える
-    container.appendChild(this.anchor);
   }
 
   private toggle(): void {

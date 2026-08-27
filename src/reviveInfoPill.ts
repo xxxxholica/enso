@@ -1,4 +1,17 @@
-import { formatDurationJa } from "./fade";
+/**
+ * 「残り時間1時間50分」のような表記は冗長との指摘を受け、「残り時間」を
+ * 「残り」に縮めた上で「1:50」のような時計表示にする（ユーザー指摘）。
+ * fade.tsのformatDurationJaは大きい2単位だけを見せる長文向けの書式で
+ * この用途には合わないため専用に用意する（sessionPanel.tsの
+ * formatMinutesSecondsと同じ考え方）。時は24で折り返さない
+ * （lifespanDaysが複数日の既存メモでも桁が増えるだけで破綻しないように
+ * するため）。分は常に2桁ゼロ埋め。 */
+function formatRemainingClock(ms: number): string {
+  const totalMinutes = Math.max(0, Math.round(ms / (60 * 1000)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}`;
+}
 
 /**
  * 「残り時間」を表示するピル（旧reviveInfoBox.tsのcanvas描画に代わるDOM表示、
@@ -25,7 +38,7 @@ export class ReviveInfoPill {
       return;
     }
     this.el.hidden = false;
-    this.el.textContent = `残り時間 ${formatDurationJa(remainingMs)}`;
+    this.el.textContent = `残り ${formatRemainingClock(remainingMs)}`;
   }
 
   /** 投票フェーズ中はこちらに切り替える（smuiView.ts）。「残り時間」は
