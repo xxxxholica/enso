@@ -1767,6 +1767,15 @@ body[data-view="shared"] #duration-slot {
   text-align: center;
 }
 
+/* --- 「テンプレートを使用」ボタン。道具バー・空キャンバス中央の案内から
+   設定メニューへ移した（ユーザー指示）——.settings-usage-btnと同じく、
+   テーマ行と左右の余白が揃うよう幅いっぱいに広げる。 --- */
+.settings-template-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
 .settings-popover.is-visible {
   transform: translateY(0);
 }
