@@ -1,11 +1,12 @@
 import { CircularCanvas } from "./canvasView";
-import type { CircularCanvasOptions, ToolState } from "./canvasView";
+import type { CircularCanvasOptions, LensSplitState, ToolState } from "./canvasView";
 import {
   addMemoHeat,
   advanceSession,
   endSession as endSessionApi,
   extendSession,
   getSharedCanvas,
+  resumeSession as resumeSessionApi,
   startSession,
   updateSharedAppearance,
   type SessionState,
@@ -194,16 +195,48 @@ export class SmuiView {
     return null;
   }
 
+  /** レンズ分割表示(issue #79)の状態を、現在のセッションのmyColorIndexから組み立てる。
+   *  ideation・discussion・voting共通で使う——議論・投票フェーズ(#114/#119対応での
+   *  ユーザー指示)でも「誰がどのレンズか」が分かる見た目を維持したいため、3フェーズ
+   *  とも同じ計算を使う(投票中に他レンズのメモへ手を伸ばせるようにする対応は
+   *  canvasView.tsのinputClamp()側)。
+   *  レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが4以上)は
+   *  対象外(null)——maxParticipants自体もLENS_COUNTと同じ4が上限のため
+   *  (sessionPanel.ts MAX_PARTICIPANTS_RANGE)、通常はここに該当しない——過去に開始した
+   *  8人上限のセッションが残っている場合の後方互換として残す。myColorIndexがそもそも
+   *  null(色プール自体が枯渇)の場合もnullを返す。 */
+  private currentLensSplit(): LensSplitState | null {
+    if (!this.session) return null;
+    const myLensIndex =
+      this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
+    if (myLensIndex === null) return null;
+    return {
+      myLensIndex,
+      lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
+      pairCount: computeLensSplitPairCount(this.session.maxParticipants),
+      // occupiedLensIndexesが配列でない(バックエンドが未対応/未デプロイでフィールド
+      // 自体が無い、旧レスポンス等)場合はnull——空配列と混同すると「全員未割当」
+      // 扱いになり全レンズが誤ってグレーアウトされてしまうため、判定できない時は
+      // グレーアウト自体を諦める(canvasView.ts側でnullなら何も塗らない)。
+      occupiedLensIndexes: Array.isArray(this.session.occupiedLensIndexes) ? this.session.occupiedLensIndexes : null,
+    };
+  }
+
   /** セッション状態に応じて、道具バーの見た目(色ロック表示・全体の有効/無効・
    *  道具の絞り込み)と実際のキャンバスの書き込み可否(CircularCanvas.setLocked/
    *  setVoteOnly)を揃える。フェーズ②(議論)はルームマスター以外を完全に
    *  読み取り専用にする——「話し合いの時間」であって、書き込むための時間
-   *  ではないため。フェーズ③(投票)は「選択」道具で掴んで回す投票ジェスチャー
-   *  だけに絞る——主催者を含め全員が対象（issue #79：ユーザー指示）。
-   *  setOnlyToolEnabled("move")で道具バー側もそれ以外を実際に押せなく＆
-   *  薄くし、setVoteOnlyでキャンバス側も同様に絞る（片方だけだと、道具バー上は
-   *  選べないのにキャンバスへの旧来の直接操作は残る、または逆に道具バー上は
-   *  選べてしまうのにキャンバスだけ弾く、という食い違いが起きるため両方合わせる）。 */
+   *  ではないため(レンズ分割自体はideationと同じく維持する)。フェーズ③(投票)は
+   *  「選択」道具で掴んで回す投票ジェスチャーだけに絞る——主催者を含め全員が対象
+   *  （issue #79：ユーザー指示）。レンズ分割もideation/discussionと同じく維持する
+   *  （issue #114/#119対応のユーザー指示）。setOnlyToolEnabled("move")で道具バー側もそれ以外を
+   *  実際に押せなく＆薄くし、setVoteOnlyでキャンバス側も同様に絞る（片方だけだと、
+   *  道具バー上は選べないのにキャンバスへの旧来の直接操作は残る、または逆に道具バー上は
+   *  選べてしまうのにキャンバスだけ弾く、という食い違いが起きるため両方合わせる）。
+   *  "results"(投票確定後の結果ロック、issue #114/#119対応)はオーナーを含む全員を
+   *  完全ロックし、レンズは統合した1枚として確定結果を見せる——編集を再開するには
+   *  ルームマスターがSessionPanelの「編集を再開」(resumeSessionForCurrentRoom)を
+   *  明示的に押す必要がある。 */
   private applyRestrictions(): void {
     if (!this.active || !this.session) {
       this.toolbar.setEnabled(true);
@@ -211,6 +244,7 @@ export class SmuiView {
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(false);
       this.lens.setVoteOnly(false);
+      this.lens.setLensSplitConfinesInput(true);
       this.lens.setLensSplit(null);
       return;
     }
@@ -221,40 +255,48 @@ export class SmuiView {
       this.toolbar.setOnlyToolEnabled(null);
       this.lens.setLocked(!isMaster);
       this.lens.setVoteOnly(false);
-      this.lens.setLensSplit(null);
+      // 見た目のレンズ分割は議論中も維持する(ユーザー指示)。書けるのはマスターだけだが、
+      // マスターの書き込みは自分のレンズに閉じず全体に及ぶ必要があるため、
+      // canvasView.tsのinputClamp()側で自分のレンズへの制限を外している
+      // (これを外し忘れると、道具バーは有効に見えるのに自分のレンズの外へは
+      // pointerdownが届かず書き込めない、という不具合になる——実際に踏んだ)。
+      this.lens.setLensSplitConfinesInput(false);
+      this.lens.setLensSplit(this.currentLensSplit());
     } else if (this.session.phase === "ideation") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(this.session.myColorIndex !== null);
       this.toolbar.setOnlyToolEnabled(null);
-      // レンズ枚数(LENS_COUNT=4)を超える5人目以降の参加者(色は割り当て済みだが
-      // 4以上)は、フェーズ①の間だけ閲覧専用にする（issue #79、ユーザー確認済みの
-      // 製品判断）。maxParticipants自体もLENS_COUNTと同じ4が上限のため
-      // (sessionPanel.ts MAX_PARTICIPANTS_RANGE)、通常はここに該当しない
-      // ——過去に開始した8人上限のセッションが残っている場合の後方互換として
-      // 残す。myColorIndexがそもそもnull（色プール自体が枯渇——maxParticipants
-      // を超えて参加した場合）は、このレンズ分割とは無関係の既存の別経路なので
-      // 従来通り自由に書けるままにする（回帰させない）。
-      const myLensIndex =
-        this.session.myColorIndex !== null && this.session.myColorIndex < LENS_COUNT ? this.session.myColorIndex : null;
-      const isOverflowLensParticipant = this.session.myColorIndex !== null && myLensIndex === null;
+      const lensSplit = this.currentLensSplit();
+      const isOverflowLensParticipant = this.session.myColorIndex !== null && lensSplit === null;
       this.lens.setLocked(isOverflowLensParticipant);
       this.lens.setVoteOnly(false);
-      this.lens.setLensSplit(
-        myLensIndex !== null
-          ? {
-              myLensIndex,
-              lensIndexForMemo: (memo) => lensIndexForColor(memo.color),
-              pairCount: computeLensSplitPairCount(this.session.maxParticipants),
-            }
-          : null
-      );
-    } else {
+      // ideationは従来通り、各自の書き込みを自分のレンズ内だけに制限する。
+      this.lens.setLensSplitConfinesInput(true);
+      this.lens.setLensSplit(lensSplit);
+    } else if (this.session.phase === "voting") {
       this.toolbar.setEnabled(true);
       this.toolbar.setColorLocked(false);
       this.toolbar.setOnlyToolEnabled("move");
       this.lens.setLocked(false);
       this.lens.setVoteOnly(true);
-      this.lens.setLensSplit(null);
+      // 見た目のレンズ分割は投票中も維持する(ユーザー指示)。投票は他の参加者の
+      // レンズのメモにも及ぶ必要があるため、discussionと同じ理由で自分のレンズへの
+      // 制限を外す。
+      this.lens.setLensSplitConfinesInput(false);
+      this.lens.setLensSplit(this.currentLensSplit());
+    } else {
+      // "results": 投票確定後の結果ロック。マスターも含め全員を読み取り専用にする。
+      // レンズ分割は維持する(ユーザー指示)——setLocked(true)で全員の書き込み・
+      // 投票ジェスチャーがそもそも始まらないため、voting/discussionと違い
+      // lensSplitConfinesInputは効果を持たない(inputClamp到達前にonPointerDownで
+      // 弾かれる)が、setLensSplit(null)と混同しないよう一応falseのままにしておく。
+      this.toolbar.setEnabled(false);
+      this.toolbar.setColorLocked(false);
+      this.toolbar.setOnlyToolEnabled(null);
+      this.lens.setLocked(true);
+      this.lens.setVoteOnly(false);
+      this.lens.setLensSplitConfinesInput(false);
+      this.lens.setLensSplit(this.currentLensSplit());
     }
   }
 
@@ -266,14 +308,14 @@ export class SmuiView {
    *  出てしまうのを防ぐ（issue #79）。 */
   private applySession(session: SessionState | null, options: { silent?: boolean } = {}): void {
     const prevPhase = this.session?.phase ?? null;
-    const wasVoting = prevPhase === "voting";
+    const enteredResults = prevPhase === "voting" && session?.phase === "results";
     this.session = session;
     this.applyRestrictions();
     this.lens.setRotationVoteHandler(session?.phase === "voting" ? (memoId) => this.handleRotationVote(memoId) : null);
-    // votingから抜けた(=セッション終了)ことでサーバー側のendSession()が各メモの
-    // fadeExempt/frozenDensityを確定させた直後なので、すぐ取得し直す——放置すると
+    // votingから結果ロックへ移った(サーバー側のfreezeAndLockResults()が各メモの
+    // fadeExempt/frozenDensityを確定させた)直後なので、すぐ取得し直す——放置すると
     // 確定したはずのメモが古いlastTracedAtのままフェードし続けてしまう。
-    if (wasVoting && !session) this.roomSync?.pollNow(true);
+    if (enteredResults) this.roomSync?.pollNow(true);
     if (!options.silent) {
       const label = phaseCutInLabel(prevPhase, session);
       if (label) showPhaseCutIn(label);
@@ -347,6 +389,7 @@ export class SmuiView {
       onAdvance: () => this.advanceSessionForCurrentRoom(),
       onExtend: (addMs) => this.extendSessionForCurrentRoom(addMs),
       onEnd: () => this.endSessionForCurrentRoom(),
+      onResume: () => this.resumeSessionForCurrentRoom(),
     });
     this.settingsSlotEl = document.createElement("div");
     roomMenuRow.appendChild(this.settingsSlotEl);
@@ -520,9 +563,20 @@ export class SmuiView {
   private endSessionForCurrentRoom(): void {
     const id = this.selectedRoomId;
     if (!id) return;
+    // voting中に押すと、サーバーはnullではなくphase:"results"(結果ロック)を返す
+    // ——ideation/discussion中の中断はnullが返る。どちらもそのまま適用する。
     void endSessionApi(id)
-      .then(() => this.applySession(null))
+      .then((session) => this.applySession(session))
       .catch((e) => console.error("[smuiView] session end failed", e));
+  }
+
+  /** "results"(結果ロック)からの明示的な再開。ルームマスターのみ呼べる。 */
+  private resumeSessionForCurrentRoom(): void {
+    const id = this.selectedRoomId;
+    if (!id) return;
+    void resumeSessionApi(id)
+      .then(() => this.applySession(null))
+      .catch((e) => console.error("[smuiView] session resume failed", e));
   }
 
   /** realtimeSync.tsが{type:"changed", canvasId}を受け取るたびに呼ぶ。
@@ -700,8 +754,14 @@ export class SmuiView {
 
     if (this.session?.phase === "voting" && memo) {
       const memos = this.sharedStore!.getAll();
-      const maxHeat = Math.max(1, ...memos.filter((m) => !m.fadeExempt).map((m) => m.heat ?? 0));
-      this.reviveInfoPill.updateSupport(Math.round(((memo.heat ?? 0) / maxHeat) * 100));
+      // 全メモの支持率(%)を足すと100になるよう、一番人気のものとの相対値
+      // (旧maxHeat基準)ではなく合計に対する割合にする（ユーザー指摘）。
+      // canvasView.tsのdensityTarget(投票中のインクの濃さ)と同じ考え方。
+      const totalHeat = Math.max(
+        1,
+        memos.filter((m) => !m.fadeExempt).reduce((sum, m) => sum + (m.heat ?? 0), 0)
+      );
+      this.reviveInfoPill.updateSupport(Math.round(((memo.heat ?? 0) / totalHeat) * 100));
       return;
     }
     if (memo?.fadeExempt) {

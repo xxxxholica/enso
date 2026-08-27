@@ -9,6 +9,7 @@ vi.mock("../src/sharedCanvas", () => ({
   endSession: vi.fn(),
   extendSession: vi.fn(),
   startSession: vi.fn(),
+  resumeSession: vi.fn(),
 }));
 
 vi.mock("../src/canvasView", () => {
@@ -17,6 +18,7 @@ vi.mock("../src/canvasView", () => {
     setLocked = vi.fn();
     setVoteOnly = vi.fn();
     setLensSplit = vi.fn();
+    setLensSplitConfinesInput = vi.fn();
     setRotationVoteHandler = vi.fn();
     destroy = vi.fn();
     setFrameShape = vi.fn();

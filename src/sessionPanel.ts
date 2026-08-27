@@ -7,6 +7,7 @@ export const PHASE_LABEL: Record<SessionState["phase"], string> = {
   ideation: "アイデア出し",
   discussion: "議論",
   voting: "採択・絞り込み",
+  results: "結果",
 };
 
 /** 延長ボタン1回あたりの延長量。 */
@@ -37,6 +38,8 @@ export interface SessionPanelCallbacks {
   onAdvance: () => void;
   onExtend: (addMs: number) => void;
   onEnd: () => void;
+  /** "results"(投票確定後の結果ロック、issue #114/#119対応)から編集を再開する。 */
+  onResume: () => void;
 }
 
 /**
@@ -68,6 +71,7 @@ export class SessionPanel {
   private maxParticipantsSlider!: HTMLInputElement;
 
   private activeControls!: HTMLElement;
+  private resultsControls!: HTMLElement;
   private phaseLabelEl!: HTMLElement;
 
   private isMaster = false;
@@ -149,6 +153,28 @@ export class SessionPanel {
     this.activeControls.append(advanceBtn, extendBtn, endBtn);
     this.popover.appendChild(this.activeControls);
 
+    // "results"(投票確定後の結果ロック、issue #114/#119対応): 編集を再開するまで
+    // 全員が読み取り専用のまま留まる。再開前に既存のエクスポート機能(設定メニュー内
+    // ExportSection、PNG/TXT書き出し)を使うよう一言添えて誘導する。
+    this.resultsControls = document.createElement("div");
+    this.resultsControls.className = "session-active-controls";
+    const resultsHint = document.createElement("p");
+    resultsHint.className = "session-results-hint";
+    // issue #114: 確定済みメモは確定から24時間で自動的に削除される(ダウンロードの
+    // 有無を問わない)ため、その旨をここで案内する。
+    resultsHint.textContent =
+      "投票結果が確定しました。24時間後に自動的に削除されるので、必要であれば編集を再開する前に設定メニューの「エクスポート」(PNG/TXT)で保存しておいてください。";
+    const resumeBtn = document.createElement("button");
+    resumeBtn.type = "button";
+    resumeBtn.className = "pill-btn pill-btn--primary";
+    resumeBtn.textContent = "編集を再開";
+    resumeBtn.addEventListener("click", () => {
+      this.callbacks.onResume();
+      this.close();
+    });
+    this.resultsControls.append(resultsHint, resumeBtn);
+    this.popover.appendChild(this.resultsControls);
+
     this.anchor.appendChild(this.popover);
     container.appendChild(this.anchor);
   }
@@ -218,44 +244,61 @@ export class SessionPanel {
     this.close();
   }
 
+  /** disabled/innerHTMLは値が変わった時だけ書き換える——render()のたびに無条件で
+   *  書き込むと、ボタンを押している最中(pointerdown〜pointerup)に毎フレーム再代入が
+   *  挟まってしまい、Chromiumがそのクリックのclickイベント生成を握りつぶす不具合が
+   *  あった(実機・コンソールのイベントトレースで確認: pointerdown/pointerupは届くのに
+   *  clickだけ一度も発火しない)。 */
+  private setTriggerLabel(html: string): void {
+    if (this.triggerLabelEl.innerHTML !== html) this.triggerLabelEl.innerHTML = html;
+  }
+
   /** render()のたびに呼ぶ。isMasterはgetCurrentUser()?.id === ownerIdで判定した値を渡す。 */
   update(now: number, isMaster: boolean, session: SessionState | null): void {
     this.isMaster = isMaster;
 
+    if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
+
     if (!session) {
       // 未開始: 誰でも見えるが、マスターでなければ押せない（招待リンク欄などと
       // 同じ、隠すのではなく無効表示にする慣習）。
-      // disabled/innerHTMLは値が変わった時だけ書き換える——render()のたびに
-      // 無条件で書き込むと、ボタンを押している最中（pointerdown〜pointerup）に
-      // 毎フレーム再代入が挟まってしまい、Chromiumがそのクリックのclickイベント
-      // 生成を握りつぶす不具合があった（実機・コンソールのイベントトレースで確認：
-      // pointerdown/pointerupは届くのにclickだけ一度も発火しない）。
-      if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
       // 画面幅が狭いと3ボタン（ルーム作成・見た目の設定・セッション開始）が
       // 並びきらない（ユーザー指摘）ため、.label-full/.label-shortをCSS側の
-      // メディアクエリで出し分けて短縮表示にする（style.css参照）。セッション
-      // 進行中の表示（下のPHASE_LABEL+残り時間）は対象外——常に短い文字列
-      // なので詰まる心配が無い。
-      const idleLabel = '<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>';
-      if (this.triggerLabelEl.innerHTML !== idleLabel) this.triggerLabelEl.innerHTML = idleLabel;
+      // メディアクエリで出し分けて短縮表示にする（style.css参照）。
+      this.setTriggerLabel('<span class="label-full">セッションを開始</span><span class="label-short">セッション</span>');
       this.startForm.hidden = false;
       this.activeControls.hidden = true;
+      this.resultsControls.hidden = true;
       this.phaseLabelEl.hidden = true;
       return;
     }
 
-    const remaining = formatMinutesSeconds(session.phaseEndsAt - now);
-    const remainingLabel = `${PHASE_LABEL[session.phase]} ${remaining}`;
-    if (this.triggerLabelEl.textContent !== remainingLabel) this.triggerLabelEl.textContent = remainingLabel;
-    if (this.trigger.disabled !== !isMaster) this.trigger.disabled = !isMaster;
+    if (session.phase === "results") {
+      // 結果ロック中はカウントダウンが無いので固定文言のみ。
+      this.setTriggerLabel("結果発表中");
+    } else {
+      // フェーズ名+残り時間（例:「採択・絞り込み 4分35秒」)。狭幅では.label-short側
+      // だけが見え、残り時間のみに短縮される(issue #150)。時間部分は
+      // .session-panel-trigger-time(tabular-nums + min-width、.session-form-valueと
+      // 同じ考え方)で、桁数が変わってもボタン幅がガタつかないようにする(issue #152)。
+      const remaining = formatMinutesSeconds(session.phaseEndsAt - now);
+      const timeHtml = `<span class="session-panel-trigger-time">${remaining}</span>`;
+      this.setTriggerLabel(
+        `<span class="label-full">${PHASE_LABEL[session.phase]} ${timeHtml}</span><span class="label-short">${timeHtml}</span>`
+      );
+    }
+
     if (!isMaster) {
       // 非マスターは静的な表示のみ——ポップオーバーは開かせない。
       if (this.open) this.close();
       return;
     }
+
     this.startForm.hidden = true;
-    this.activeControls.hidden = false;
+    const isResults = session.phase === "results";
+    this.activeControls.hidden = isResults;
+    this.resultsControls.hidden = !isResults;
     this.phaseLabelEl.hidden = false;
-    this.phaseLabelEl.textContent = `現在: ${PHASE_LABEL[session.phase]}`;
+    this.phaseLabelEl.textContent = isResults ? "結果発表中" : `現在: ${PHASE_LABEL[session.phase]}`;
   }
 }
