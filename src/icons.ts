@@ -26,6 +26,9 @@ export const ICONS: Record<
   | "themeSystem"
   | "themeLight"
   | "themeDark"
+  | "themeSepia"
+  | "themeIndigo"
+  | "themeMatcha"
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
@@ -181,6 +184,22 @@ export const ICONS: Record<
   themeDark: `
     <svg viewBox="0 0 24 24" ${common}>
       <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
+    </svg>`,
+  // 追加テーマ(issue #138)の3アイコン。セピア=和紙(ページ)、藍=染料の一滴、
+  // 抹茶=葉、とそれぞれのモチーフをそのまま形にした。
+  themeSepia: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M6 3.5h8.5l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M14.5 3.7V8h4" />
+    </svg>`,
+  themeIndigo: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M12 3.3c3.6 4.7 6 8.2 6 11.2a6 6 0 1 1-12 0c0-3 2.4-6.5 6-11.2z" />
+    </svg>`,
+  themeMatcha: `
+    <svg viewBox="0 0 24 24" ${common}>
+      <path d="M5 19c0-8.2 5.5-13.7 14-14.2-0.5 8.5-6 14.2-14 14.2z" />
+      <path d="M6.5 17.5 15 9" />
     </svg>`,
   // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
   // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。

@@ -84,7 +84,12 @@
    （ダークUIでも「浮いている面はわずかに明るい」方が一貫して見えるため）。
    3状態（自動/ライト/ダーク）の切り替えはhtml要素のdata-theme属性で行う
    （settingsMenu.ts・theme.ts参照）——data-theme無し（既定）はOSの設定に
-   従い、"light"/"dark"は明示的に固定する。 --- */
+   従い、"light"/"dark"は明示的に固定する。
+   paper-3/paper-4（縁取り・ポップオーバー等の一番沈んだ面）が明度10〜12%と
+   黒に近すぎ、コントラストが強すぎて疲れるという指摘（issue #138）を受け、
+   全paper-*の明度を底上げした（範囲の目安：旧10〜24% → 新18〜28%）——
+   Chromeのシークレットモードのような「黒ではなく灰色がかった」印象に近づける
+   一方、paper-*同士のrelativeな明度差・色相・彩度は変えていない。 --- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -105,12 +110,12 @@
     --ink-08: oklch(92% 0.006 75 / 0.08);
     --ink-06: oklch(92% 0.006 75 / 0.06);
 
-    --paper-0: oklch(20% 0.01 75);
-    --paper-1: oklch(24% 0.008 75);
-    --paper-2: oklch(16% 0.01 75);
-    --paper-2-hover: oklch(19% 0.012 75);
-    --paper-3: oklch(12% 0.012 75);
-    --paper-4: oklch(10% 0.012 75);
+    --paper-0: oklch(24% 0.01 75);
+    --paper-1: oklch(28% 0.008 75);
+    --paper-2: oklch(21% 0.01 75);
+    --paper-2-hover: oklch(23% 0.012 75);
+    --paper-3: oklch(19% 0.012 75);
+    --paper-4: oklch(18% 0.012 75);
 
     --rule-line: oklch(78% 0.07 240 / 0.55);
   }
@@ -135,18 +140,114 @@
   --ink-08: oklch(92% 0.006 75 / 0.08);
   --ink-06: oklch(92% 0.006 75 / 0.06);
 
-  --paper-0: oklch(20% 0.01 75);
-  --paper-1: oklch(24% 0.008 75);
-  --paper-2: oklch(16% 0.01 75);
-  --paper-2-hover: oklch(19% 0.012 75);
-  --paper-3: oklch(12% 0.012 75);
-  --paper-4: oklch(10% 0.012 75);
+  --paper-0: oklch(24% 0.01 75);
+  --paper-1: oklch(28% 0.008 75);
+  --paper-2: oklch(21% 0.01 75);
+  --paper-2-hover: oklch(23% 0.012 75);
+  --paper-3: oklch(19% 0.012 75);
+  --paper-4: oklch(18% 0.012 75);
 
   --rule-line: oklch(78% 0.07 240 / 0.55);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
+}
+
+/* --- 追加テーマ3種（issue #138、ユーザー提案）。light/darkと同じ「インク1色＋紙の
+   明度違い」の2系統構造をそのまま踏襲し、色相・彩度だけをテーマごとに変えている。
+   OSのprefers-color-schemeには存在しない値のため、"system"では選ばれず、
+   settingsMenu.tsで明示的に選んだ時だけdata-theme属性で固定される。 --- */
+
+/* セピア: 生成り色の和紙をイメージした、暖かみの強いライト系。 */
+:root[data-theme="sepia"] {
+  color-scheme: light;
+
+  --ink-solid: oklch(28% 0.035 50);
+  --ink-95: oklch(28% 0.035 50 / 0.95);
+  --ink-85: oklch(28% 0.035 50 / 0.85);
+  --ink-80: oklch(28% 0.035 50 / 0.8);
+  --ink-70: oklch(28% 0.035 50 / 0.7);
+  --ink-60: oklch(28% 0.035 50 / 0.6);
+  --ink-55: oklch(28% 0.035 50 / 0.55);
+  --ink-50: oklch(28% 0.035 50 / 0.5);
+  --ink-45: oklch(28% 0.035 50 / 0.45);
+  --ink-40: oklch(28% 0.035 50 / 0.4);
+  --ink-35: oklch(28% 0.035 50 / 0.35);
+  --ink-20: oklch(28% 0.035 50 / 0.2);
+  --ink-12: oklch(28% 0.035 50 / 0.12);
+  --ink-08: oklch(28% 0.035 50 / 0.08);
+  --ink-06: oklch(28% 0.035 50 / 0.06);
+
+  --paper-0: oklch(92% 0.028 70);
+  --paper-1: oklch(95% 0.022 70);
+  --paper-2: oklch(87% 0.032 68);
+  --paper-2-hover: oklch(87% 0.038 68);
+  --paper-3: oklch(81% 0.038 65);
+  --paper-4: oklch(82% 0.038 65);
+
+  --rule-line: oklch(65% 0.08 50 / 0.4);
+}
+
+/* 藍: 藍染めのような深い青系のダーク系。既存のダーク（暖色を沈めた黒）とは
+   別の「夜」の選択肢として、寒色寄りの色相にしている。 */
+:root[data-theme="indigo"] {
+  color-scheme: dark;
+
+  --ink-solid: oklch(90% 0.025 250);
+  --ink-95: oklch(90% 0.025 250 / 0.95);
+  --ink-85: oklch(90% 0.025 250 / 0.85);
+  --ink-80: oklch(90% 0.025 250 / 0.8);
+  --ink-70: oklch(90% 0.025 250 / 0.7);
+  --ink-60: oklch(90% 0.025 250 / 0.6);
+  --ink-55: oklch(90% 0.025 250 / 0.55);
+  --ink-50: oklch(90% 0.025 250 / 0.5);
+  --ink-45: oklch(90% 0.025 250 / 0.45);
+  --ink-40: oklch(90% 0.025 250 / 0.4);
+  --ink-35: oklch(90% 0.025 250 / 0.35);
+  --ink-20: oklch(90% 0.025 250 / 0.2);
+  --ink-12: oklch(90% 0.025 250 / 0.12);
+  --ink-08: oklch(90% 0.025 250 / 0.08);
+  --ink-06: oklch(90% 0.025 250 / 0.06);
+
+  --paper-0: oklch(26% 0.045 262);
+  --paper-1: oklch(30% 0.04 262);
+  --paper-2: oklch(22% 0.05 264);
+  --paper-2-hover: oklch(24% 0.055 264);
+  --paper-3: oklch(20% 0.055 266);
+  --paper-4: oklch(19% 0.055 266);
+
+  --rule-line: oklch(78% 0.09 250 / 0.5);
+}
+
+/* 抹茶: 落ち着いた緑がかったライト系。 */
+:root[data-theme="matcha"] {
+  color-scheme: light;
+
+  --ink-solid: oklch(30% 0.035 145);
+  --ink-95: oklch(30% 0.035 145 / 0.95);
+  --ink-85: oklch(30% 0.035 145 / 0.85);
+  --ink-80: oklch(30% 0.035 145 / 0.8);
+  --ink-70: oklch(30% 0.035 145 / 0.7);
+  --ink-60: oklch(30% 0.035 145 / 0.6);
+  --ink-55: oklch(30% 0.035 145 / 0.55);
+  --ink-50: oklch(30% 0.035 145 / 0.5);
+  --ink-45: oklch(30% 0.035 145 / 0.45);
+  --ink-40: oklch(30% 0.035 145 / 0.4);
+  --ink-35: oklch(30% 0.035 145 / 0.35);
+  --ink-20: oklch(30% 0.035 145 / 0.2);
+  --ink-12: oklch(30% 0.035 145 / 0.12);
+  --ink-08: oklch(30% 0.035 145 / 0.08);
+  --ink-06: oklch(30% 0.035 145 / 0.06);
+
+  --paper-0: oklch(93% 0.028 128);
+  --paper-1: oklch(96% 0.022 128);
+  --paper-2: oklch(88% 0.032 130);
+  --paper-2-hover: oklch(88% 0.038 130);
+  --paper-3: oklch(83% 0.038 132);
+  --paper-4: oklch(84% 0.038 132);
+
+  --rule-line: oklch(68% 0.08 140 / 0.4);
 }
 
 * {

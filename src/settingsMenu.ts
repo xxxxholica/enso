@@ -5,16 +5,24 @@ import { ICONS } from "./icons";
 import type { ThemePreference } from "./storage";
 import { openUsageGuide } from "./usageGuide";
 
-const THEME_ORDER: ThemePreference[] = ["system", "light", "dark"];
+// sepia/indigo/matchaはOSのprefers-color-schemeに存在しない追加テーマ
+// (issue #138)のため、system/light/darkの3つと区別できるよう並びの後ろに置く。
+const THEME_ORDER: ThemePreference[] = ["system", "light", "dark", "sepia", "indigo", "matcha"];
 const THEME_ICON: Record<ThemePreference, string> = {
   system: ICONS.themeSystem,
   light: ICONS.themeLight,
   dark: ICONS.themeDark,
+  sepia: ICONS.themeSepia,
+  indigo: ICONS.themeIndigo,
+  matcha: ICONS.themeMatcha,
 };
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: "自動（端末の設定に従う）",
   light: "ライト",
   dark: "ダーク",
+  sepia: "セピア",
+  indigo: "藍",
+  matcha: "抹茶",
 };
 
 /**

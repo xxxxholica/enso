@@ -15,10 +15,12 @@ const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
-/** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。 */
-export type ThemePreference = "system" | "light" | "dark";
+/** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
+ *  "sepia"/"indigo"/"matcha"はOSに存在しない追加テーマ(issue #138)のため、
+ *  "system"では選ばれず、明示的に選んだ時だけ固定される。 */
+export type ThemePreference = "system" | "light" | "dark" | "sepia" | "indigo" | "matcha";
 const DEFAULT_THEME: ThemePreference = "system";
-const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark"]);
+const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "sepia", "indigo", "matcha"]);
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
