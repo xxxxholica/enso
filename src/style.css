@@ -84,7 +84,12 @@
    （ダークUIでも「浮いている面はわずかに明るい」方が一貫して見えるため）。
    3状態（自動/ライト/ダーク）の切り替えはhtml要素のdata-theme属性で行う
    （settingsMenu.ts・theme.ts参照）——data-theme無し（既定）はOSの設定に
-   従い、"light"/"dark"は明示的に固定する。 --- */
+   従い、"light"/"dark"は明示的に固定する。
+   paper-3/paper-4（縁取り・ポップオーバー等の一番沈んだ面）が明度10〜12%と
+   黒に近すぎ、コントラストが強すぎて疲れるという指摘（issue #138）を受け、
+   全paper-*の明度を底上げした（範囲の目安：旧10〜24% → 新18〜28%）——
+   Chromeのシークレットモードのような「黒ではなく灰色がかった」印象に近づける
+   一方、paper-*同士のrelativeな明度差・色相・彩度は変えていない。 --- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -105,12 +110,12 @@
     --ink-08: oklch(92% 0.006 75 / 0.08);
     --ink-06: oklch(92% 0.006 75 / 0.06);
 
-    --paper-0: oklch(20% 0.01 75);
-    --paper-1: oklch(24% 0.008 75);
-    --paper-2: oklch(16% 0.01 75);
-    --paper-2-hover: oklch(19% 0.012 75);
-    --paper-3: oklch(12% 0.012 75);
-    --paper-4: oklch(10% 0.012 75);
+    --paper-0: oklch(38% 0.006 75);
+    --paper-1: oklch(42% 0.005 75);
+    --paper-2: oklch(34% 0.006 75);
+    --paper-2-hover: oklch(36% 0.008 75);
+    --paper-3: oklch(32% 0.008 75);
+    --paper-4: oklch(31% 0.008 75);
 
     --rule-line: oklch(78% 0.07 240 / 0.55);
   }
@@ -135,17 +140,27 @@
   --ink-08: oklch(92% 0.006 75 / 0.08);
   --ink-06: oklch(92% 0.006 75 / 0.06);
 
-  --paper-0: oklch(20% 0.01 75);
-  --paper-1: oklch(24% 0.008 75);
-  --paper-2: oklch(16% 0.01 75);
-  --paper-2-hover: oklch(19% 0.012 75);
-  --paper-3: oklch(12% 0.012 75);
-  --paper-4: oklch(10% 0.012 75);
+  --paper-0: oklch(38% 0.006 75);
+  --paper-1: oklch(42% 0.005 75);
+  --paper-2: oklch(34% 0.006 75);
+  --paper-2-hover: oklch(36% 0.008 75);
+  --paper-3: oklch(32% 0.008 75);
+  --paper-4: oklch(31% 0.008 75);
 
   --rule-line: oklch(78% 0.07 240 / 0.55);
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* --- パステルテーマ（好きな色を選ぶカスタム、issue #138）。Chromeのテーマ
+   設定のように、選んだ単色の色相からパステルな配色一式を導き出す。実際の
+   ink-* / paper-*トークンの値は固定値ではなく選んだ色の色相に依存するため、
+   CSSではなくtheme.ts側でJSから計算してinline styleで:rootに設定する
+   （buildPastelThemeVars参照）——このブロックではcolor-schemeだけ静的に
+   指定する（常にlightな配色のため）。 --- */
+:root[data-theme="custom"] {
   color-scheme: light;
 }
 
@@ -1135,6 +1150,73 @@ body[data-view="shared"] #duration-slot {
   border: none;
   padding: 0;
   cursor: pointer;
+}
+
+/* --- テーマの「好きな色を選ぶ」カラーパレット（settingsMenu.ts、issue #138）。
+   ネイティブの<input type="color">（RGB数値等が出てくる）ではなく、Chromeの
+   テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——素の
+   <input type="range">に虹色のグラデーショントラックを描くだけで、ドラッグ・
+   タップ・キーボード操作がそのまま使える。.duration-seekbar-slider/
+   .session-sliderと同じ構造（appearance:noneのtrack+thumb）だが、trackの
+   背景だけ単色ではなく色相環のグラデーションにしている。 --- */
+.theme-hue-slider {
+  appearance: none;
+  width: 100%;
+  min-width: 120px;
+  height: 20px;
+  margin: 4px 0 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.theme-hue-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    oklch(75% 0.15 0),
+    oklch(75% 0.15 60),
+    oklch(75% 0.15 120),
+    oklch(75% 0.15 180),
+    oklch(75% 0.15 240),
+    oklch(75% 0.15 300),
+    oklch(75% 0.15 360)
+  );
+}
+
+.theme-hue-slider::-moz-range-track {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    oklch(75% 0.15 0),
+    oklch(75% 0.15 60),
+    oklch(75% 0.15 120),
+    oklch(75% 0.15 180),
+    oklch(75% 0.15 240),
+    oklch(75% 0.15 300),
+    oklch(75% 0.15 360)
+  );
+}
+
+.theme-hue-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--paper-1);
+  border: 2px solid var(--ink-solid);
+  box-shadow: 0 1px 3px var(--ink-20);
+}
+
+.theme-hue-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--paper-1);
+  border: 2px solid var(--ink-solid);
+  box-shadow: 0 1px 3px var(--ink-20);
 }
 
 /* --- 装飾を持たない小さなリンク風ボタン。clerkAccount（サインイン導線）で

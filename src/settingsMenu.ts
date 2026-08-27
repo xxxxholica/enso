@@ -5,17 +5,38 @@ import { ICONS } from "./icons";
 import type { ThemePreference } from "./storage";
 import { openUsageGuide } from "./usageGuide";
 
-const THEME_ORDER: ThemePreference[] = ["system", "light", "dark"];
-const THEME_ICON: Record<ThemePreference, string> = {
-  system: ICONS.themeSystem,
-  light: ICONS.themeLight,
-  dark: ICONS.themeDark,
+// "custom"（好きな色を選ぶ）は固定の1色を持たないため、ここには含めず
+// カラーパレット用のスワッチとして別に扱う（constructor参照）。
+const THEME_ORDER: ("system" | "light" | "dark")[] = ["system", "light", "dark"];
+// テーマ選択は雫・葉のような形のアイコンではなく、道具バーのインク色スワッチ
+// （.toolbar-swatch、円形に色を塗りつぶすだけの見た目）と同じ形式にする
+// （ユーザー指摘：形で意味を持たせるのではなく、実際にそのテーマがどんな色味かを
+// そのまま見せてほしい）。値はそのテーマの--paper-1（カード等の背景）と同じ
+// oklchをそのまま使う——CSS変数は今のテーマでしか参照できないため、他のテーマの
+// 色を見せるスワッチにはstyle.css側の値をここに直接コピーする必要がある。
+// "system"だけは単色を持たないため、ライト/ダークの--paper-1を斜めに割った
+// グラデーションで表す。
+const THEME_SWATCH_BACKGROUND: Record<"system" | "light" | "dark", string> = {
+  system: "linear-gradient(135deg, oklch(98% 0.005 75) 50%, oklch(35% 0.007 75) 50%)",
+  light: "oklch(98% 0.005 75)",
+  dark: "oklch(35% 0.007 75)",
 };
 const THEME_LABEL: Record<ThemePreference, string> = {
   system: "自動（端末の設定に従う）",
   light: "ライト",
   dark: "ダーク",
+  custom: "好きな色を選ぶ",
 };
+/** カラーパレット（好きな色を選ぶ）のプレビュースワッチに使う色。実際に
+ *  適用されるパステルな--paper-1相当の色（oklch(97% 0.015 hue)、他の固定
+ *  テーマスワッチと同じ式）を使うと、custom テーマが有効な間はポップオーバー
+ *  自体の背景（--paper-1）とほぼ同じ色になり、スワッチが背景に溶けて見えなく
+ *  なっていた（ユーザー指摘）。バー(.theme-hue-slider)のトラックと同じ
+ *  鮮やかさ(oklch(75% 0.15 hue))にして、どのテーマが有効でもスワッチ自体が
+ *  周囲から独立して見えるようにする。 */
+function customSwatchBackground(hue: number): string {
+  return `oklch(75% 0.15 ${hue})`;
+}
 
 /**
  * ヘッダーの「設定」ボタン（ユーザー指示：設定ボタンを追加してテーマ変更
@@ -45,7 +66,17 @@ export class SettingsMenu {
 
   private theme: ThemePreference;
   private onThemeChange: (pref: ThemePreference) => void;
+  private onCustomHueChange: (hue: number) => void;
   private themeButtons = new Map<ThemePreference, HTMLButtonElement>();
+  /** カラーパレット（好きな色を選ぶ、issue #138）。ネイティブのカラー
+   *  ピッカー（RGB数値等が出てくる）ではなく、Chromeのテーマ設定と同じ
+   *  横1本の色相グラデーションバー（ユーザー指示）——虹色の帯を左右にドラッグ
+   *  するだけで選べる。値は0〜360度のOKLCH色相のみ（RGBは一切経由しない）。 */
+  private hueSlider!: HTMLInputElement;
+  /** バーで選んだ色を映す円形スワッチ（他のテーマスワッチと同じ.toolbar-swatch）。
+   *  バーを動かすたびcustomSwatchBackground()で背景色を更新する
+   *  （ユーザー指摘：バーで色を変えてもスワッチの見た目が追従していなかった）。 */
+  private customSwatchBtn!: HTMLButtonElement;
   private accountSlot!: HTMLElement;
 
   private onOpenTemplatePicker: () => void;
@@ -59,12 +90,15 @@ export class SettingsMenu {
   constructor(
     container: HTMLElement,
     initialTheme: ThemePreference,
+    initialCustomHue: number,
     onThemeChange: (pref: ThemePreference) => void,
+    onCustomHueChange: (hue: number) => void,
     getExportSource: () => ExportSource | null,
     onOpenTemplatePicker: () => void
   ) {
     this.theme = initialTheme;
     this.onThemeChange = onThemeChange;
+    this.onCustomHueChange = onCustomHueChange;
     this.onOpenTemplatePicker = onOpenTemplatePicker;
 
     this.anchor = document.createElement("div");
@@ -94,14 +128,60 @@ export class SettingsMenu {
     for (const pref of THEME_ORDER) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "toolbar-btn";
+      // 道具バーのインク色スワッチと同じ.toolbar-swatchクラスを使い、円形に
+      // そのテーマの色を塗りつぶすだけの見た目にする（雫・葉などの意味付け
+      // アイコンではなく、実際の色そのもので選ばせる）。
+      btn.className = "toolbar-swatch";
+      btn.style.background = THEME_SWATCH_BACKGROUND[pref];
       btn.setAttribute("aria-label", THEME_LABEL[pref]);
-      btn.innerHTML = THEME_ICON[pref];
       btn.addEventListener("click", () => this.selectTheme(pref));
       this.themeButtons.set(pref, btn);
       themeRow.appendChild(btn);
     }
+
+    // カラーパレットのプレビュースワッチ（好きな色を選ぶ、issue #138）。
+    // 他の固定テーマと同じ.toolbar-swatchの円で、下のバーで選んだ色を
+    // その場で反映する（ユーザー指摘：バーを動かしてもスワッチの見た目が
+    // 追従していなかった）。クリックでも"custom"テーマを選べる——バーで
+    // 既に選んだ色相のまま戻したい場合の入口として。
+    this.customSwatchBtn = document.createElement("button");
+    this.customSwatchBtn.type = "button";
+    this.customSwatchBtn.className = "toolbar-swatch";
+    this.customSwatchBtn.style.background = customSwatchBackground(initialCustomHue);
+    this.customSwatchBtn.setAttribute("aria-label", THEME_LABEL.custom);
+    this.customSwatchBtn.addEventListener("click", () => this.selectTheme("custom"));
+    this.themeButtons.set("custom", this.customSwatchBtn);
+    themeRow.appendChild(this.customSwatchBtn);
+
     themeSection.appendChild(themeRow);
+
+    // カラーパレット本体（好きな色を選ぶ、issue #138）。ネイティブの<input
+    // type="color">（RGB数値・16進入力等が出てくる）ではなく、Chromeの
+    // テーマ設定と同じ横1本の色相グラデーションバー（ユーザー指示）——
+    // <input type="range">に虹色のグラデーションを描くだけで、ドラッグ・
+    // タップ・キーボード操作（矢印キー）が素のまま使える。値は0〜360度の
+    // OKLCH色相のみで、選ぶたびにtheme.tsのbuildPastelThemeVarsがパステルな
+    // 配色一式を組み立てて適用する。
+    this.hueSlider = document.createElement("input");
+    this.hueSlider.type = "range";
+    this.hueSlider.min = "0";
+    this.hueSlider.max = "360";
+    this.hueSlider.step = "1";
+    this.hueSlider.value = String(initialCustomHue);
+    this.hueSlider.className = "theme-hue-slider";
+    this.hueSlider.setAttribute("aria-label", THEME_LABEL.custom);
+    this.hueSlider.addEventListener("input", () => {
+      const hue = Number(this.hueSlider.value);
+      this.customSwatchBtn.style.background = customSwatchBackground(hue);
+      this.onCustomHueChange(hue);
+      if (this.theme !== "custom") {
+        this.theme = "custom";
+        this.syncTheme();
+        this.onThemeChange("custom");
+      }
+    });
+    themeSection.appendChild(this.hueSlider);
+
     this.popover.appendChild(themeSection);
 
     this.popover.appendChild(this.buildTemplateSection());
@@ -241,5 +321,10 @@ export class SettingsMenu {
       btn.setAttribute("aria-pressed", String(active));
       btn.dataset.active = String(active);
     }
+    // カラーパレットのバーは、他のテーマ選択中は不要な操作が常設で見えて
+    // しまう（ユーザー指摘）ため、"custom"を選んでいる間だけ出す——
+    // プレビュースワッチをクリックするだけでも"custom"に切り替わり、バーが
+    // 現れる（最後に選んだ色相のまま再開できる）。
+    this.hueSlider.hidden = this.theme !== "custom";
   }
 }

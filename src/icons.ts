@@ -23,9 +23,6 @@ export const ICONS: Record<
   | "sharedRooms"
   | "appearance"
   | "settings"
-  | "themeSystem"
-  | "themeLight"
-  | "themeDark"
   | "patternMatte"
   | "patternTortoiseshell"
   | "patternClear"
@@ -166,21 +163,6 @@ export const ICONS: Record<
         stroke-width="2.2"
         d="M12 3.3v1.6M12 19.1v1.6M3.3 12h1.6M19.1 12h1.6M6.3 6.3l1.1 1.1M16.6 16.6l1.1 1.1M17.7 6.3l-1.1 1.1M7.4 16.6l-1.1 1.1"
       />
-    </svg>`,
-  // テーマ選択（自動/ライト/ダーク）の3アイコン。
-  themeSystem: `
-    <svg viewBox="0 0 24 24" ${common}>
-      <rect x="3.5" y="5" width="17" height="12" rx="1.5" />
-      <path d="M9 20h6M12 17v3" />
-    </svg>`,
-  themeLight: `
-    <svg viewBox="0 0 24 24" ${common}>
-      <circle cx="12" cy="12" r="4.5" />
-      <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6" />
-    </svg>`,
-  themeDark: `
-    <svg viewBox="0 0 24 24" ${common}>
-      <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
     </svg>`,
   // 柄・質感の4アイコンは、既存のライン系アイコンと違い形ではなく質感そのものの
   // プレビューなので、線でなく塗りのスワッチとして描く（common属性は使わない）。

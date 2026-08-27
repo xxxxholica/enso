@@ -16,10 +16,21 @@ const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
 const VALID_FRAME_SHAPES = new Set<FrameShapeId>(["round", "oval", "square"]);
 const VALID_FRAME_PATTERNS = new Set<FramePatternId>(["matte", "tortoiseshell", "clear", "wood"]);
-/** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。 */
-export type ThemePreference = "system" | "light" | "dark";
+/** "system"はOSのprefers-color-schemeに従う（既定）。"light"/"dark"は明示的に固定。
+ *  "custom"（好きな色を選ぶ、issue #138）はOSに存在しないパステルテーマの
+ *  ため、"system"では選ばれず、明示的に選んだ時だけ固定される——色トークンの
+ *  計算はtheme.ts参照。実際の色相はthemePreference自体ではなく
+ *  CUSTOM_THEME_HUE_KEY（下記）に別途持つ。 */
+export type ThemePreference = "system" | "light" | "dark" | "custom";
 const DEFAULT_THEME: ThemePreference = "system";
-const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark"]);
+const VALID_THEMES = new Set<ThemePreference>(["system", "light", "dark", "custom"]);
+const CUSTOM_THEME_HUE_KEY = "customThemeHue";
+/** カラーパレット（Chromeのテーマ設定のような横バー1本の色相スライダー、
+ *  issue #138）をまだ一度も操作していない状態での初期値（水色寄り）。RGB値を
+ *  直接扱わず、OKLCHの色相(0〜360度)だけを保持する——このアプリのパステル
+ *  配色は色相だけから機械的に導き出すため(theme.tsのbuildPastelThemeVars
+ *  参照)、明度・彩度まで保持する必要が無い。 */
+const DEFAULT_CUSTOM_THEME_HUE = 220;
 
 function isMemoShaped(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false;
@@ -207,4 +218,21 @@ export function loadThemePreference(): ThemePreference {
 
 export function saveThemePreference(pref: ThemePreference): void {
   localStorage.setItem(THEME_KEY, pref);
+}
+
+/** テーマ「好きな色を選ぶ」（settingsMenu.tsのカラーパレット、issue #138）で
+ *  最後に選んだ色相(OKLCH、0〜360度)。0〜360の有限な数値以外・未設定の間は
+ *  DEFAULT_CUSTOM_THEME_HUEへフォールバックする。 */
+export function loadCustomThemeHue(): number {
+  try {
+    const raw = localStorage.getItem(CUSTOM_THEME_HUE_KEY);
+    const hue = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(hue) && hue >= 0 && hue <= 360 ? hue : DEFAULT_CUSTOM_THEME_HUE;
+  } catch {
+    return DEFAULT_CUSTOM_THEME_HUE;
+  }
+}
+
+export function saveCustomThemeHue(hue: number): void {
+  localStorage.setItem(CUSTOM_THEME_HUE_KEY, String(hue));
 }

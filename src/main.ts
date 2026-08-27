@@ -16,10 +16,12 @@ import { SettingsMenu } from "./settingsMenu";
 import { SharedRoomMenu } from "./sharedRoomMenu";
 import { SmuiView } from "./smuiView";
 import {
+  loadCustomThemeHue,
   loadFramePattern,
   loadFrameShape,
   loadPersonalFramePattern,
   loadThemePreference,
+  saveCustomThemeHue,
   saveFramePattern,
   saveFrameShape,
   savePersonalFramePattern,
@@ -28,10 +30,10 @@ import {
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
 
-// テーマ（自動/ライト/ダーク）は、他の何よりも先に適用する——後回しにすると
-// 一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」が見える
-// ため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
-applyTheme(loadThemePreference());
+// テーマ（自動/ライト/ダーク/好きな色）は、他の何よりも先に適用する——
+// 後回しにすると一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」
+// が見えるため（ユーザー指示：設定ボタンを追加してテーマ変更機能を入れたい）。
+applyTheme(loadThemePreference(), loadCustomThemeHue());
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
@@ -216,9 +218,14 @@ new FrameColorSelector(canvasInfoRow, personalFramePatternId, (id) => {
 const settingsMenu = new SettingsMenu(
   canvasInfoRow,
   loadThemePreference(),
+  loadCustomThemeHue(),
   (pref) => {
     saveThemePreference(pref);
-    applyTheme(pref);
+    applyTheme(pref, loadCustomThemeHue());
+  },
+  (hue) => {
+    saveCustomThemeHue(hue);
+    applyTheme("custom", hue);
   },
   () => (currentView === "shared" ? (smuiView.hasSelectedRoom() ? smuiView : null) : canvasView),
   () => templatePicker.open()
