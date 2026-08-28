@@ -111,7 +111,7 @@ type StepId = "write" | "watch" | "keep" | "erase" | "rewind" | "done";
 const STEP_ORDER: StepId[] = ["write", "watch", "keep", "erase", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  write: "円をタップするか、そのままキー入力して、思いついたことを書いてみましょう。",
+  write: "円をタップするか、そのままキー入力して、思いついたことを新しく書いてみましょう。",
   watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
   erase: "消したいメモを指やマウスでなぞってみましょう。消しゴムなら、待たずにその場で消せます。",
@@ -184,7 +184,6 @@ export class TutorialSandbox {
   private rewindWrap: HTMLElement;
   private setRewindVisible: (show: boolean) => void;
   private nextBtn: HTMLButtonElement;
-  private skipBtn: HTMLButtonElement;
   /** 全手順を終えた（スキップ含む）瞬間に一度だけ呼ばれる。使い方ページ
    *  （usageGuide.ts）がページ送りで次の「結」画面へ進めるためのフック。 */
   private onComplete: (() => void) | null;
@@ -282,12 +281,7 @@ export class TutorialSandbox {
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
     });
-    this.skipBtn = document.createElement("button");
-    this.skipBtn.type = "button";
-    this.skipBtn.className = "text-link tutorial-sandbox-skip";
-    this.skipBtn.textContent = "この体験をスキップ";
-    this.skipBtn.addEventListener("click", () => this.advanceTo("done"));
-    actions.append(this.nextBtn, this.skipBtn);
+    actions.append(this.nextBtn);
 
     container.append(this.canvasWrap, this.watchProgressWrap, this.messageEl, this.rewindWrap, actions);
   }
@@ -515,7 +509,6 @@ export class TutorialSandbox {
     this.nextBtn.textContent = this.step === "done" ? "はじめる" : "つぎへ";
     this.watchProgressWrap.hidden = this.step !== "watch";
     this.syncNextBtnVisibility();
-    this.skipBtn.hidden = this.step === "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
   }
 

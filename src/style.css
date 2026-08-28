@@ -2530,7 +2530,9 @@ body[data-view="shared"] #duration-slot {
   width: min(42.5rem, 100%);
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
-  padding: 1.75rem 2rem var(--space-6);
+  /* シート全体の余白をできるだけ削る（ユーザー指示）——四角の大きさ
+     （.usage-guide-page参照）自体はそのままに、外周のパディングだけ詰める。 */
+  padding: var(--space-4) var(--space-5) var(--space-4);
   border-radius: 24px;
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -2544,15 +2546,13 @@ body[data-view="shared"] #duration-slot {
   transform: none;
 }
 
-/* --- 序・結（読み物の2画面）の間だけ、背景（.usage-guide-sheet）の透過度を
+/* --- 序（読み物の画面）の間だけ、背景（.usage-guide-sheet）の透過度を
    上げ、設定メニュー（.settings-popover）と同じすりガラスにする（ユーザー
-   指示：結の透過度も序と同じに）。「練」は実際にペンで書く手順があり、下の
-   キャンバスが透けると紛らわしいため対象外（usageGuide.tsのsyncSheetGlass
-   参照）。あわせて、42.5rem幅のままだと見出し+短い本文+ボタンの左右に
-   余白が目立っていた（ユーザー指摘：余白をすっきりさせたい）ため、幅も
-   .usage-guide-page--compactと同じ2画面だけ狭くする。 --- */
+   指示）。「練」は実際にペンで書く手順があり、下のキャンバスが透けると
+   紛らわしいため対象外（usageGuide.tsのsyncSheetGlass参照）。幅・高さは
+   他の画面（練）と統一するため上書きしない（ユーザー指示：四角の大きさを
+   統一したい）。 --- */
 .usage-guide-sheet--glass {
-  width: min(28rem, 100%);
   background: color-mix(in oklch, var(--paper-1) 55%, transparent);
   backdrop-filter: blur(6px);
 }
@@ -2576,10 +2576,10 @@ body[data-view="shared"] #duration-slot {
   background: none;
   margin-left: auto;
   flex: 0 0 auto;
-  width: 2rem;
-  height: 2rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: var(--radius-full);
-  font-size: var(--text-lg);
+  font-size: 1.5rem;
   line-height: 1;
   color: var(--ink-60);
   cursor: pointer;
@@ -2596,7 +2596,7 @@ body[data-view="shared"] #duration-slot {
    hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
    ため、レイアウトにも一切残らない）——usageGuide.tsのshowPage参照。 --- */
 .usage-guide-pages {
-  margin-top: var(--space-4);
+  margin-top: var(--space-2);
 }
 
 /* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
@@ -2624,11 +2624,11 @@ body[data-view="shared"] #duration-slot {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   text-align: center;
   height: min(620px, calc(100dvh - 200px));
   min-height: 0;
-  padding: var(--space-3) 0 var(--space-2);
+  padding: var(--space-1) 0;
   box-sizing: border-box;
 }
 
@@ -2654,7 +2654,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-1);
 }
 
 /* マーカー（丸バッジ）とタイトルの横並び。以前は縦積みだったが、その高さぶん
@@ -2663,7 +2663,7 @@ body[data-view="shared"] #duration-slot {
 .usage-guide-page-heading {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .usage-guide-marker {
@@ -2704,7 +2704,9 @@ body[data-view="shared"] #duration-slot {
 .usage-guide-page-actions {
   display: flex;
   justify-content: center;
-  margin-top: var(--space-2);
+  /* 序の初回起動時だけ「使い方を見る」「早く使いたい」の2つが並ぶ
+     （usageGuide.ts参照）ため、間隔をあけておく。 */
+  gap: var(--space-2);
 }
 
 @media (max-width: 560px) {
@@ -2819,26 +2821,11 @@ body[data-view="shared"] #duration-slot {
 }
 
 .tutorial-sandbox-actions {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 2.125rem;
-}
-
-.tutorial-sandbox-skip {
-  position: absolute;
-  left: calc(50% + 64px);
-  color: var(--ink-40);
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  .tutorial-sandbox-skip {
-    left: auto;
-    right: 0;
-  }
 }
 
 /* スマホではシートをビューポート内の固定高レイアウトにする。デスクトップ用の
@@ -2852,10 +2839,15 @@ body[data-view="shared"] #duration-slot {
     overflow: hidden;
   }
 
+  /* 高さの短い端末では画面いっぱいまで使わないと練習用キャンバスが収まらないが、
+     背の高い端末でそのまま100dvhに合わせると、序（中身の少ない読み物画面）まで
+     画面いっぱいに広がって間延びして見えていた（ユーザー報告）。序・練どちらも
+     同じ大きさのまま、680pxを上限に収まる分だけ広げるようにする——短い端末では
+     従来どおりcalc(100dvh - 16px)側が効く。 */
   .usage-guide-sheet {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - 16px);
+    height: min(680px, calc(100dvh - 16px));
     max-height: none;
     overflow: hidden;
     box-sizing: border-box;
@@ -2889,23 +2881,14 @@ body[data-view="shared"] #duration-slot {
     margin-top: 0;
   }
 
-  /* 状態ごとに現れる進捗バーと振り返り欄も、非表示中は見えないまま同じ高さを
-     占めさせる。中央寄せした内容全体の高さが一定になり、タイトルと円の位置が
-     「メモは消える」「振り返る」への切り替えで上下しなくなる。 */
-  .tutorial-watch-progress[hidden] {
-    display: flex !important;
-    visibility: hidden;
-  }
-
+  /* 進捗バー・振り返り欄は、非表示の間は素直に[hidden]（display:none）へ戻す
+     ——見えない間まで高さを占有させず、他の手順ではその分だけ詰まって見える
+     ようにする（ユーザー指示）。全体の大きさ（.usage-guide-sheetの高さ）自体は
+     固定値のままなので、詰まった分は中央寄せの余白に吸収されるだけで、
+     モーダルの大きさは変わらない。 */
   .tutorial-sandbox-seek {
     width: min(100%, 240px);
     min-height: 72px;
-  }
-
-  .tutorial-sandbox-seek[hidden] {
-    display: block !important;
-    visibility: hidden;
-    pointer-events: none;
   }
 
   .tutorial-sandbox-canvas-wrap {
