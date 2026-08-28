@@ -3,12 +3,12 @@ import { markUsageGuideSeen } from "./storage";
 import { TutorialSandbox } from "./tutorialSandbox";
 
 /**
- * 使い方ページ：円相の由来と基本操作を、序・練・結の3画面をページ送りで見せる
+ * 使い方ページ：円相の由来と基本操作を、序・練の2画面をページ送りで見せる
  * 全画面モーダル。1画面につき1ページで、スクロールでたどる必要はない
  * （ユーザー指示）——序で「つぎへ」を押すと練が始まり、練の中はさらに
  * 書く・みる・残す・消す・振り返るの5手順を、実際の操作（書き終える・
- * ジェスチャーの成功）で順に進み、最後の「つぎへ」で結に移る。序と結は
- * 読み物のまま、中間の「練」だけは本物のCircularCanvasを再利用した練習用
+ * ジェスチャーの成功）で順に進み、最後の「円相」を結びとしてそのまま閉じる。序は
+ * 読み物のまま、「練」だけは本物のCircularCanvasを再利用した練習用
  * サンドボックス（tutorialSandbox.ts）——書く・掴んで回す・振り返り
  * スライダーという、このアプリ特有の操作を実際に手を動かして体験できる。
  *
@@ -45,14 +45,7 @@ const INTRO_STAGE: Stage = {
   marker: "序",
   title: "円相（えんそう）",
   anim: "intro",
-  body: "一筆で描く円相。禅の書画で、悟りやその瞬間の完全性を表すとされます。この一枚も、同じように一筆で生まれ、同じように消えていきます。",
-};
-
-const CLOSING_STAGE: Stage = {
-  marker: "結",
-  title: "円相",
-  anim: "close",
-  body: "一筆の円は、悟りでも完成でもなく、その瞬間だけの完全さ。今、本当に大事なものだけが、ここに残ります。",
+  body: "円相は、円の中に思いつきを書き留めるメモアプリです。メモは時間とともに薄れ、やがて消えていきます。残したいものに触れて時間を戻し、今の自分に大切なものを選び直す。その姿を、一筆で生まれる禅の書画「円相」に重ねています。",
 };
 
 let overlay: UsageGuide | null = null;
@@ -74,7 +67,7 @@ class UsageGuide {
   private raf = 0;
   private onClose: (() => void) | null = null;
   private sandbox: TutorialSandbox | null = null;
-  /** 序・練・結の3画面。1つだけhidden=falseにして、スクロールではなく
+  /** 序・練の2画面。1つだけhidden=falseにして、スクロールではなく
    *  ページ送りで切り替える（ユーザー指示）。 */
   private pages: HTMLElement[] = [];
   private pageIndex = 0;
@@ -119,7 +112,7 @@ class UsageGuide {
 
     const pagesEl = document.createElement("div");
     pagesEl.className = "usage-guide-pages";
-    this.pages = [this.buildIntroPage(), this.buildPracticePage(), this.buildClosingPage()];
+    this.pages = [this.buildIntroPage(), this.buildPracticePage()];
     this.pages.forEach((page, i) => {
       page.hidden = i !== 0;
       pagesEl.appendChild(page);
@@ -128,7 +121,7 @@ class UsageGuide {
     this.syncSheetGlass();
   }
 
-  /** ページ送りで次の画面へ進める（後戻りはしない——序/練/結は一方通行）。
+  /** ページ送りで次の画面へ進める（後戻りはしない——序/練は一方通行）。
    *  以前は1つの長いスクロールページに序・練・結を並べていたが、スクロール
    *  無しで1画面ずつ進めたいという指示のため、hidden属性の付け替えだけで
    *  切り替える単純なページ送りにした。 */
@@ -182,12 +175,11 @@ class UsageGuide {
     // 書き込む・眺める・巻き戻す・進める…と差し替える（ユーザー指示）
     // ——tutorialSandbox.tsのSTEP_TITLES/onStepTitle参照。
     const { el: heading, titleEl } = this.buildHeading("練", "");
-    // サンドボックス側が「みる→残す→消す→振り返る」を全て終えると、この
-    // コールバックで結のページへ進める（tutorialSandbox.tsの「つぎへ」ボタン、
-    // スキップのどちらから終えても同じ経路）。
+    // サンドボックス側の最終画面「円相」で「はじめる」を押すとガイドを閉じる。
+    // 独立した「結」ページは設けず、この練習結果をそのまま最後に見せる。
     this.sandbox = new TutorialSandbox(
       sandboxRoot,
-      () => this.showPage(2),
+      () => this.close(),
       (title) => (titleEl.textContent = title)
     );
 
@@ -195,24 +187,7 @@ class UsageGuide {
     return el;
   }
 
-  private buildClosingPage(): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "usage-guide-page usage-guide-page--compact";
-    el.appendChild(this.buildStageContent(CLOSING_STAGE));
-
-    const actions = document.createElement("div");
-    actions.className = "usage-guide-page-actions";
-    const startBtn = document.createElement("button");
-    startBtn.type = "button";
-    startBtn.className = "pill-btn";
-    startBtn.textContent = "はじめる";
-    startBtn.addEventListener("click", () => this.close());
-    actions.appendChild(startBtn);
-    el.appendChild(actions);
-    return el;
-  }
-
-  /** 序・結それぞれの中身（マーカー・挿絵・タイトル・本文）。 */
+  /** 序の中身（マーカー・挿絵・タイトル・本文）。 */
   private buildStageContent(stage: Stage): HTMLElement {
     const el = document.createElement("div");
     el.className = "usage-guide-page-content";
@@ -262,6 +237,21 @@ class UsageGuide {
     // 間は横取りしないという既存のガードが既にあるため（他の入力欄に
     // フォーカスがある間は横取りしないためのもの、canvasView.ts参照）。
     if (ev.target instanceof HTMLElement && ev.target.classList.contains("text-editor-overlay")) {
+      return;
+    }
+    // 練習の「書き込む」では、本体と同じく印字可能なキーから直接入力を始める。
+    // capture段で止めず、CircularCanvas.onGlobalKeyDownまで伝播させる。
+    if (
+      this.pageIndex === 1 &&
+      this.sandbox?.isWritingStep() &&
+      !ev.ctrlKey &&
+      !ev.metaKey &&
+      !ev.altKey &&
+      ev.key.length === 1
+    ) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.sandbox.startDirectTextInput(ev.key);
       return;
     }
     ev.stopPropagation();
