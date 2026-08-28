@@ -35,7 +35,7 @@ export const MIN_FONT_PX = 12;
 
 /** 文字サイズの選択肢。値は基準円(半径340px)におけるフォントサイズ(px)。 */
 export const FONT_SIZE_STEPS = { small: 18, medium: 24, large: 32 } as const;
-export type FontSizeStep = keyof typeof FONT_SIZE_STEPS;
+type FontSizeStep = keyof typeof FONT_SIZE_STEPS;
 export const DEFAULT_FONT_SIZE_STEP: FontSizeStep = "medium";
 
 /** テンプレートを置いた瞬間の文字サイズ（基準円でのpx）。道具バーの現在値は

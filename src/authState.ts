@@ -4,7 +4,7 @@
  * ログインしていない、またはClerkの設定(.env.local)が無い場合はnullのまま。
  */
 
-export interface CurrentUser {
+interface CurrentUser {
   id: string;
   name: string;
   imageUrl: string;

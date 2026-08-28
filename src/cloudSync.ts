@@ -111,7 +111,7 @@ export function hasPendingLocalChanges(): boolean {
   return pushTimer !== undefined || pushInFlight;
 }
 
-export interface CanvasStore {
+interface CanvasStore {
   getAll(): readonly Memo[];
   replaceAll(memos: Memo[]): void;
   applyRemoteUpsert(memo: Memo): void;

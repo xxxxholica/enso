@@ -11,7 +11,7 @@ export type FramePatternId = "matte" | "tortoiseshell" | "clear" | "wood";
 export const DEFAULT_FRAME_PATTERN_ID: FramePatternId = "matte";
 export const FRAME_PATTERN_ORDER: FramePatternId[] = ["matte", "tortoiseshell", "clear", "wood"];
 
-export interface FramePattern {
+interface FramePattern {
   id: FramePatternId;
   label: string;
   /** ctx.strokeStyle/fillStyleにそのまま使える値を作る。reachPxは枠が実際に

@@ -8,7 +8,7 @@ const MIN_CANVAS_SIZE = 200;
  *  統合したことで縦方向の余白が増えたため、円をさらに大きく見せられるよう引き上げた。 */
 const MAX_CANVAS_SIZE = 1100;
 
-export interface CanvasGeometry {
+interface CanvasGeometry {
   width: number;
   height: number;
   /** px per 正規化単位（円の半径px）。 */

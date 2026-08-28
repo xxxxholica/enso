@@ -3,7 +3,7 @@ import type { Point } from "./types";
 /** currentReviveInfoTargetの判定に必要な、CircularCanvasのDrawStateの一部だけを
  *  構造的に受け取る（canvasView.tsのDrawStateはexportされていないため、
  *  循環参照を避けてこのファイル独自の最小限の型で受け取る）。 */
-export interface ReviveInfoDrawState {
+interface ReviveInfoDrawState {
   mode: "idle" | "drawing" | "tracing" | "erasing" | "moving" | "pinching";
   tracingMemoId: string | null;
   movingMemoId: string | null;

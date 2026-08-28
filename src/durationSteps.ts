@@ -1,4 +1,4 @@
-export interface DurationStep {
+interface DurationStep {
   label: string;
   ms: number;
 }

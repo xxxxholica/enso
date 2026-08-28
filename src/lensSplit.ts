@@ -29,7 +29,7 @@ export function computeLensSplitPairCount(maxParticipants: number): number {
   return Math.max(1, Math.ceil(Math.min(maxParticipants, LENS_COUNT) / 2));
 }
 
-export type LensSplitDirection = "row" | "column";
+type LensSplitDirection = "row" | "column";
 
 /** 画面(コンテナ)の縦横比から配置方向を決める。眼鏡1組は横長(≈2.5:1)のため、
  *  横長画面(PC)ではrow(横並び)、縦長画面(スマホ)ではcolumn(縦積み)にする。 */
