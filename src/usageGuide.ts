@@ -1,4 +1,5 @@
 import { createFadeVisibility } from "./fadeVisibility";
+import { markUsageGuideSeen } from "./storage";
 import { TutorialSandbox } from "./tutorialSandbox";
 
 /**
@@ -124,6 +125,7 @@ class UsageGuide {
       pagesEl.appendChild(page);
     });
     this.sheet.appendChild(pagesEl);
+    this.syncSheetGlass();
   }
 
   /** ページ送りで次の画面へ進める（後戻りはしない——序/練/結は一方通行）。
@@ -135,13 +137,22 @@ class UsageGuide {
     this.pages[this.pageIndex].hidden = true;
     this.pageIndex = index;
     this.pages[index].hidden = false;
+    this.syncSheetGlass();
     this.sheet.scrollTop = 0;
     this.sheet.focus();
   }
 
+  /** 序・結（読み物の2画面）は、背景（.usage-guide-sheet）を設定メニュー
+   *  （.settings-popover）と同じすりガラスにする（ユーザー指示）。「練」は
+   *  実際にペンで書く手順を含むため、下のキャンバスが透けて見えると紛らわしく
+   *  誤操作の元になるので対象に含めない。 */
+  private syncSheetGlass(): void {
+    this.sheet.classList.toggle("usage-guide-sheet--glass", this.pageIndex === 0 || this.pageIndex === 2);
+  }
+
   private buildIntroPage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page";
+    el.className = "usage-guide-page usage-guide-page--compact";
     el.appendChild(this.buildStageContent(INTRO_STAGE));
 
     const actions = document.createElement("div");
@@ -186,7 +197,7 @@ class UsageGuide {
 
   private buildClosingPage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page";
+    el.className = "usage-guide-page usage-guide-page--compact";
     el.appendChild(this.buildStageContent(CLOSING_STAGE));
 
     const actions = document.createElement("div");
@@ -261,6 +272,9 @@ class UsageGuide {
     if (this.opened) return;
     this.opened = true;
     this.onClose = onClose ?? null;
+    // 開いた時点で「既読」にする——個人キャンバスの案内ボタン（main.ts）は
+    // これを見て、一度でも開けば以後出さなくなる。
+    markUsageGuideSeen();
     this.lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     // 開き直すたびに序へ戻す——前回結まで進んでいても、次に開いた時は
     // 最初からやり直せるように。

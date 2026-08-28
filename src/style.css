@@ -2507,6 +2507,19 @@ body[data-view="shared"] #duration-slot {
   transform: none;
 }
 
+/* --- 序・結（読み物の2画面）の間だけ、背景（.usage-guide-sheet）の透過度を
+   上げ、設定メニュー（.settings-popover）と同じすりガラスにする（ユーザー
+   指示：結の透過度も序と同じに）。「練」は実際にペンで書く手順があり、下の
+   キャンバスが透けると紛らわしいため対象外（usageGuide.tsのsyncSheetGlass
+   参照）。あわせて、42.5rem幅のままだと見出し+短い本文+ボタンの左右に
+   余白が目立っていた（ユーザー指摘：余白をすっきりさせたい）ため、幅も
+   .usage-guide-page--compactと同じ2画面だけ狭くする。 --- */
+.usage-guide-sheet--glass {
+  width: min(28rem, 100%);
+  background: color-mix(in oklch, var(--paper-1) 55%, transparent);
+  backdrop-filter: blur(6px);
+}
+
 /* 以前は本文をスクロールさせていたため、✕ボタンを含む見出しを
    position:stickyで上部に固定していた（負のmarginでsheetの上端パディングを
    打ち消し、同じ値をpaddingとして付け直す、というtemplate-picker.tsと同じ
@@ -2580,6 +2593,16 @@ body[data-view="shared"] #duration-slot {
   min-height: 0;
   padding: var(--space-3) 0 var(--space-2);
   box-sizing: border-box;
+}
+
+/* --- 序・結（読み物の2画面）は、練の既定（620px固定）と違い中身の高さに
+   そのまま合わせる（ユーザー指示：縦の余白を無くしたい）。固定の高さの中で
+   justify-content:centerしていたため中身の少なさぶん上下が空いて見えていた
+   ——「練」は手順ごとに高さが変わらないことが重要（.usage-guide-page参照）
+   だが、序・結はページ送りで一度きりしか表示されない読み物のため、
+   高さが中身なりに変わっても支障ない。 --- */
+.usage-guide-page--compact {
+  height: auto;
 }
 
 /* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の
