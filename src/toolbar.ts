@@ -19,6 +19,18 @@ function customInkColor(hue: number): string {
   return `oklch(75% 0.15 ${hue})`;
 }
 
+/** customInkColor()の逆変換。ペン・マーカーで「好きな色」の色相スライダーを
+ *  共有しているため、ポップオーバーを開いた時点のスライダーの位置が、開く前に
+ *  選んでいた道具の色相のまま残ってしまい、実際に今の道具で使われている色
+ *  （スワッチの表示）とスライダーの位置がずれる不具合があった。ポップオーバーを
+ *  開く直前に今の道具の色からここで色相を逆算し、スライダーへ書き戻すことで
+ *  一致させる（customInkColor由来の値でなければnullを返し、その場合はスライダーを
+ *  動かさない）。 */
+function hueFromCustomInkColor(color: string): number | null {
+  const match = /^oklch\(75% 0\.15 (-?\d+(?:\.\d+)?)\)$/.exec(color);
+  return match ? Number(match[1]) : null;
+}
+
 /** 消しゴムの当たり判定半径（画面px、キャンバスの大きさに関わらず一定）の
  *  小/中/大の3段階。以前はペンの太さと同じくバーで連続的に選べるようにして
  *  いたが、「GoodNotesのように消しゴムは3段階の大きさから選ぶ形にしたい」
@@ -481,6 +493,12 @@ export class Toolbar {
 
   private openCustomColorPopover(): void {
     if (this.customColorPopoverOpen) return;
+    // ペン・マーカーでスライダー（this.hueSlider）を共有しているため、開く前に
+    // 別の道具で動かした位置のまま残っていることがある。今の道具の実際の色に
+    // スライダーを合わせ直してから開く（表示されている色とスライダー位置の
+    // 不一致を防ぐ）。
+    const hue = hueFromCustomInkColor(this.getColor());
+    if (hue !== null) this.hueSlider.value = String(hue);
     notifyOpen(this.closeCustomColorPopoverRef, this.customColorAnchor);
     this.customColorPopoverOpen = true;
     this.customColorPopoverFade(true);
@@ -523,7 +541,16 @@ export class Toolbar {
     this.customSwatchBtn.disabled = !enabled;
     this.hueSlider.disabled = !enabled;
     if (!enabled) this.closeCustomColorPopover();
-    if (this.customColor) {
+    // このスワッチが選択中（＝3色プリセットのどれとも一致しない色を使っている）
+    // 間は、必ず今の道具の実際の色（color）をそのまま映す。this.customColorは
+    // ペン・マーカーで共有する1つの値のため、片方で選んだ後もう片方の道具に
+    // 切り替えて別の色相を選ぶと、選択中でない側のcustomColorが上書きされ、
+    // スワッチの背景（表示されている色）が実際に描画される色（書かれている色）と
+    // 食い違う不具合があった。選択中でない間だけ、次に呼び戻せるよう最後に
+    // 選んだ好きな色を控えとして表示する。
+    if (!isPresetActive) {
+      this.customSwatchBtn.style.background = color;
+    } else if (this.customColor) {
       this.customSwatchBtn.style.background = this.customColor;
     }
     this.swatchRow.classList.toggle("toolbar-swatches-disabled", !enabled);
