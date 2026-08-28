@@ -2539,10 +2539,10 @@ body[data-view="shared"] #duration-slot {
   background: none;
   margin-left: auto;
   flex: 0 0 auto;
-  width: 2rem;
-  height: 2rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: var(--radius-full);
-  font-size: var(--text-lg);
+  font-size: 1.5rem;
   line-height: 1;
   color: var(--ink-60);
   cursor: pointer;
