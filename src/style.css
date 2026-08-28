@@ -1374,9 +1374,17 @@ body[data-view="shared"] #duration-slot {
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
 
 .shared-signedout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   font-size: var(--text-sm);
   color: var(--ink-55);
   text-align: center;
+}
+
+.shared-signedout p {
+  margin: 0;
 }
 
 .archive-empty {
