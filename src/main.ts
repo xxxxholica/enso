@@ -457,8 +457,10 @@ if (initialView === "shared") setView("shared");
 // 初回起動時は、使い方ページを自動でポップアップ表示する（ユーザー指示）。
 // usageGuide.ts側のopen()がmarkUsageGuideSeen()を呼ぶため、一度でも見れば
 // 以後は自動表示しない（設定メニュー内の「使い方」からはいつでも開ける）。
+// showSkip=trueで、序の画面に「早く使いたい」（そのまま閉じる）も並べて
+// 出す——設定メニューからの再視聴時は出さない（settingsMenu.ts参照）。
 if (!loadUsageGuideSeen()) {
-  openUsageGuide();
+  openUsageGuide(undefined, true);
 }
 
 function frame(): void {

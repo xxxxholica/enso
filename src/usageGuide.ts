@@ -51,10 +51,14 @@ const INTRO_STAGE: Stage = {
 let overlay: UsageGuide | null = null;
 
 /** onCloseは、閉じた（スキップ含む）直後に一度だけ呼ばれる——初回だけこの後に
- *  テンプレート選択へ続けるため（main.ts参照）。ヘッダーからの再視聴時は省略する。 */
-export function openUsageGuide(onClose?: () => void): void {
+ *  テンプレート選択へ続けるため（main.ts参照）。ヘッダーからの再視聴時は省略する。
+ *  showSkipは、序の画面に「早く使いたい」（そのまま閉じる）ボタンも並べて出すか
+ *  ——初回起動時の自動表示だけtrueにする（main.ts）。設定メニューからの
+ *  再視聴（settingsMenu.ts）はfalse（既定）のまま、「使い方を見る」だけにする
+ *  （ユーザー指示）。 */
+export function openUsageGuide(onClose?: () => void, showSkip = false): void {
   if (!overlay) overlay = new UsageGuide();
-  overlay.open(onClose);
+  overlay.open(onClose, showSkip);
 }
 
 class UsageGuide {
@@ -67,6 +71,11 @@ class UsageGuide {
   private raf = 0;
   private onClose: (() => void) | null = null;
   private sandbox: TutorialSandbox | null = null;
+  /** 序の「早く使いたい」（そのまま閉じる）ボタン。open()のshowSkip引数に
+   *  応じてhiddenを切り替える——buildIntroPageは1回しか呼ばれない
+   *  （overlayはシングルトンで使い回す）ため、開くたびに出し分けるには
+   *  要素自体は常に作っておき、都度hiddenだけ切り替える必要がある。 */
+  private skipBtn: HTMLButtonElement | null = null;
   /** 序・練の2画面。1つだけhidden=falseにして、スクロールではなく
    *  ページ送りで切り替える（ユーザー指示）。 */
   private pages: HTMLElement[] = [];
@@ -135,17 +144,17 @@ class UsageGuide {
     this.sheet.focus();
   }
 
-  /** 序・結（読み物の2画面）は、背景（.usage-guide-sheet）を設定メニュー
+  /** 序（読み物の画面）は、背景（.usage-guide-sheet）を設定メニュー
    *  （.settings-popover）と同じすりガラスにする（ユーザー指示）。「練」は
    *  実際にペンで書く手順を含むため、下のキャンバスが透けて見えると紛らわしく
    *  誤操作の元になるので対象に含めない。 */
   private syncSheetGlass(): void {
-    this.sheet.classList.toggle("usage-guide-sheet--glass", this.pageIndex === 0 || this.pageIndex === 2);
+    this.sheet.classList.toggle("usage-guide-sheet--glass", this.pageIndex === 0);
   }
 
   private buildIntroPage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page usage-guide-page--compact";
+    el.className = "usage-guide-page";
     el.appendChild(this.buildStageContent(INTRO_STAGE));
 
     const actions = document.createElement("div");
@@ -153,7 +162,7 @@ class UsageGuide {
     const nextBtn = document.createElement("button");
     nextBtn.type = "button";
     nextBtn.className = "pill-btn";
-    nextBtn.textContent = "つぎへ";
+    nextBtn.textContent = "使い方を知りたい";
     // サンドボックスの仮想時計は、練の画面に実際に進んだ瞬間から動かし始める
     // ——モーダルを開いた時点で動かし始めると、序を読んでいる間（人によって
     // かかる時間が大きく違う）ぶん盤面が勝手に進んでしまう。
@@ -162,6 +171,18 @@ class UsageGuide {
       this.showPage(1);
     });
     actions.appendChild(nextBtn);
+
+    // 初回起動時の自動表示だけ隣に出す「早く使いたい」（ユーザー指示）。
+    // 既定はhidden——open()のshowSkip引数がtrueの間だけ見せる。
+    const skipBtn = document.createElement("button");
+    skipBtn.type = "button";
+    skipBtn.className = "pill-btn";
+    skipBtn.textContent = "早く使いたい";
+    skipBtn.hidden = true;
+    skipBtn.addEventListener("click", () => this.close());
+    actions.appendChild(skipBtn);
+    this.skipBtn = skipBtn;
+
     el.appendChild(actions);
     return el;
   }
@@ -258,10 +279,11 @@ class UsageGuide {
     if (ev.key === "Escape") this.close();
   };
 
-  open(onClose?: () => void): void {
+  open(onClose?: () => void, showSkip = false): void {
     if (this.opened) return;
     this.opened = true;
     this.onClose = onClose ?? null;
+    if (this.skipBtn) this.skipBtn.hidden = !showSkip;
     // 開いた時点で「既読」にする——個人キャンバスの案内ボタン（main.ts）は
     // これを見て、一度でも開けば以後出さなくなる。
     markUsageGuideSeen();

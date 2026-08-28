@@ -2493,7 +2493,9 @@ body[data-view="shared"] #duration-slot {
   width: min(42.5rem, 100%);
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
-  padding: 1.75rem 2rem var(--space-6);
+  /* シート全体の余白をできるだけ削る（ユーザー指示）——四角の大きさ
+     （.usage-guide-page参照）自体はそのままに、外周のパディングだけ詰める。 */
+  padding: var(--space-4) var(--space-5) var(--space-4);
   border-radius: 24px;
   border: 1px solid var(--ink-12);
   background: var(--paper-1);
@@ -2507,15 +2509,13 @@ body[data-view="shared"] #duration-slot {
   transform: none;
 }
 
-/* --- 序・結（読み物の2画面）の間だけ、背景（.usage-guide-sheet）の透過度を
+/* --- 序（読み物の画面）の間だけ、背景（.usage-guide-sheet）の透過度を
    上げ、設定メニュー（.settings-popover）と同じすりガラスにする（ユーザー
-   指示：結の透過度も序と同じに）。「練」は実際にペンで書く手順があり、下の
-   キャンバスが透けると紛らわしいため対象外（usageGuide.tsのsyncSheetGlass
-   参照）。あわせて、42.5rem幅のままだと見出し+短い本文+ボタンの左右に
-   余白が目立っていた（ユーザー指摘：余白をすっきりさせたい）ため、幅も
-   .usage-guide-page--compactと同じ2画面だけ狭くする。 --- */
+   指示）。「練」は実際にペンで書く手順があり、下のキャンバスが透けると
+   紛らわしいため対象外（usageGuide.tsのsyncSheetGlass参照）。幅・高さは
+   他の画面（練）と統一するため上書きしない（ユーザー指示：四角の大きさを
+   統一したい）。 --- */
 .usage-guide-sheet--glass {
-  width: min(28rem, 100%);
   background: color-mix(in oklch, var(--paper-1) 55%, transparent);
   backdrop-filter: blur(6px);
 }
@@ -2559,7 +2559,7 @@ body[data-view="shared"] #duration-slot {
    hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
    ため、レイアウトにも一切残らない）——usageGuide.tsのshowPage参照。 --- */
 .usage-guide-pages {
-  margin-top: var(--space-4);
+  margin-top: var(--space-2);
 }
 
 /* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
@@ -2587,22 +2587,12 @@ body[data-view="shared"] #duration-slot {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   text-align: center;
   height: min(620px, calc(100dvh - 200px));
   min-height: 0;
-  padding: var(--space-3) 0 var(--space-2);
+  padding: var(--space-1) 0;
   box-sizing: border-box;
-}
-
-/* --- 序・結（読み物の2画面）は、練の既定（620px固定）と違い中身の高さに
-   そのまま合わせる（ユーザー指示：縦の余白を無くしたい）。固定の高さの中で
-   justify-content:centerしていたため中身の少なさぶん上下が空いて見えていた
-   ——「練」は手順ごとに高さが変わらないことが重要（.usage-guide-page参照）
-   だが、序・結はページ送りで一度きりしか表示されない読み物のため、
-   高さが中身なりに変わっても支障ない。 --- */
-.usage-guide-page--compact {
-  height: auto;
 }
 
 /* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の
@@ -2617,7 +2607,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 /* マーカー（丸バッジ）とタイトルの横並び。以前は縦積みだったが、その高さぶん
@@ -2626,7 +2616,7 @@ body[data-view="shared"] #duration-slot {
 .usage-guide-page-heading {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .usage-guide-marker {
@@ -2667,7 +2657,9 @@ body[data-view="shared"] #duration-slot {
 .usage-guide-page-actions {
   display: flex;
   justify-content: center;
-  margin-top: var(--space-2);
+  /* 序の初回起動時だけ「使い方を見る」「早く使いたい」の2つが並ぶ
+     （usageGuide.ts参照）ため、間隔をあけておく。 */
+  gap: var(--space-2);
 }
 
 @media (max-width: 560px) {
@@ -2782,26 +2774,11 @@ body[data-view="shared"] #duration-slot {
 }
 
 .tutorial-sandbox-actions {
-  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 2.125rem;
-}
-
-.tutorial-sandbox-skip {
-  position: absolute;
-  left: calc(50% + 64px);
-  color: var(--ink-40);
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  .tutorial-sandbox-skip {
-    left: auto;
-    right: 0;
-  }
 }
 
 /* スマホではシートをビューポート内の固定高レイアウトにする。デスクトップ用の
