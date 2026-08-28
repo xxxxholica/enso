@@ -1307,9 +1307,37 @@ export class CircularCanvas {
     const prevBodyOverflow = document.body.style.overflow;
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
+    // overflow:hiddenとel.focus({preventScroll:true})だけでは、iOS Safariが
+    // ソフトキーボード表示に合わせて行う「キーボード回避パン」を防げず、わずかに
+    // 画面がスクロールしたままになることがある（ユーザー報告・再現）。この回避パンは
+    // scrollTop自体を動かすものではなく、実際に見えている範囲（visual viewport）を
+    // ページ内で上下させる別物のため、window.scrollTo(0,0)による打ち消しでは効かない。
+    // bodyを丸ごとposition:fixedにして「そもそもスクロール可能な要素が存在しない」
+    // 状態にすると、この回避パン自体をブラウザに起こさせずに済む（body-scroll-lock
+    // 等でも使われる標準的な手法）。html/body自体は常にoverflow:hidden・高さ100%で
+    // スクロール位置が0のままの設計（style.css参照）のため、top:0固定で戻す位置の
+    // 計算は不要。
+    const prevBodyPosition = document.body.style.position;
+    const prevBodyWidth = document.body.style.width;
+    const prevBodyTop = document.body.style.top;
+    const prevBodyLeft = document.body.style.left;
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    // top/leftを明示しないと"auto"のまま＝ブラウザが「positionをstaticのままに
+    // していたら本来あったはずの位置」を計算し続け、その計算に何らかの形で
+    // スクロール量が紛れ込んで結局スクロール分だけ動いて見える現象を実機で確認した
+    // （bodyのgetBoundingClientRect().topがスクロール量とちょうど一致して動いていた）。
+    // top:0/left:0を明示することで、この「auto」計算を経由させず常に画面左上へ
+    // 固定する。
+    document.body.style.top = "0";
+    document.body.style.left = "0";
     this.restoreBodyScroll = () => {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
+      document.body.style.position = prevBodyPosition;
+      document.body.style.width = prevBodyWidth;
+      document.body.style.top = prevBodyTop;
+      document.body.style.left = prevBodyLeft;
       this.restoreBodyScroll = null;
     };
 
@@ -1411,8 +1439,30 @@ export class CircularCanvas {
     });
 
     // 呼び出し元のイベントハンドラと同じ同期的な呼び出しスタックの中でfocusする
-    // （クラス冒頭のJSDoc参照）。
-    el.focus();
+    // （クラス冒頭のJSDoc参照）。preventScroll: trueだけでは、iOS Safariが
+    // 「フォーカスした要素をキーボードの上に収める」ため行うページ送り自体は防げず
+    // （overflow:hidden・bodyのposition:fixed固定でも防げないネイティブ側の挙動、
+    // 実機で計測して確認）、タップした位置が画面下寄りだとこの送りが起きて
+    // しまう。フォーカスする一瞬だけ、キーボードの高さによらず絶対に隠れない
+    // 画面左上へ避難させておき、フォーカス直後に本来の位置へ戻すことで、
+    // 「フォーカスした要素がこれから隠れそうな位置にある」という送りの発生条件
+    // 自体を避ける（実機再現確認）。
+    const targetLeft = el.style.left;
+    const targetTop = el.style.top;
+    const vvSafe = window.visualViewport;
+    el.style.left = `${(vvSafe?.offsetLeft ?? 0) + 8}px`;
+    el.style.top = `${(vvSafe?.offsetTop ?? 0) + 8}px`;
+    el.focus({ preventScroll: true });
+    // 本来の位置へ戻すのを同じ同期処理の中で即座に行うと、ブラウザがまだ
+    // 「安全な位置にフォーカスした」と判定しきる前に動かしてしまうらしく、
+    // キャンバス下寄りをタップした時だけ小さな送り（1cm程度）が残っていた
+    // （ユーザー報告・実機再現確認）。1フレーム分だけ待ってから戻すことで、
+    // フォーカス直後のブラウザ側の判定が安全な位置のまま確定するようにする。
+    requestAnimationFrame(() => {
+      if (this.textEditor !== el) return;
+      el.style.left = targetLeft;
+      el.style.top = targetTop;
+    });
     el.setSelectionRange(el.value.length, el.value.length); // 編集時・初期文字入り時はカーソルを末尾に
 
     // 日本語IMEの変換候補確定は、キー入力としてはEnterだが、テキスト全体の確定

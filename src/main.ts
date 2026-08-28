@@ -190,6 +190,11 @@ const canvasView = new CircularCanvas(canvasWrap, store, getToolState, {
   frameStrokeWidth: (canvasSizePx) => canvasSizePx * PERSONAL_FRAME_WEIGHT_RATIO,
   frameKind: "monocle",
   contentScaleFactor: PERSONAL_CONTENT_SCALE_FACTOR,
+  // タップした場所に入力欄を出す（ユーザー指示、issue #179）。以前はキーボード
+  // 直上の中央へ固定していたが、visualViewport補正＋見えている範囲へのクランプ
+  // （canvasView.ts openTextEditor参照）で「隠れる」こと自体は防げているため、
+  // タップ位置追従に統一する。
+  fixedBottomTextEditorOnCoarsePointer: false,
 });
 
 // 設定メニュー（テーマ・見た目の設定・テンプレート・使い方・エクスポートに
