@@ -75,6 +75,12 @@ function pickRandomEmptyStateHint(exclude?: string | null): string {
  *  塗り。罫線は引かず、無地の白のまま（ユーザー指示）。 */
 const GLASSES_PLACEHOLDER_FILL = "#ffffff";
 const ERASER_CURSOR = "oklch(22% 0.012 55 / 0.3)";
+/** 消しゴムの当たり範囲プレビュー円の内側の塗り。以前は輪郭線のみで内側が
+ *  完全に透明だったため、実際に消える範囲がひと目で分かりづらかった
+ *  （ユーザー指摘）。薄いグレーで軽く塗ることで範囲を分かりやすくする——
+ *  紙・インクどちらの色の上でも同じように見えるよう、ink/paperのどちらの
+ *  トークンにも依存しない中立なグレーの半透明にする。 */
+const ERASER_CURSOR_FILL = "oklch(55% 0 0 / 0.16)";
 
 /** 投票フェーズ中、相対密度が最も低い(0)メモでもインクが完全には薄くなり
  *  切らないための下限——確定前のアイデアが読めなくなるほど薄まるのを防ぐ
@@ -934,6 +940,9 @@ export class CircularCanvas {
     if (tool === "eraser") {
       this.state.mode = "erasing";
       this.state.lastPoint = p;
+      // eraserHoverPointも合わせて更新しておく（下のonPointerMoveの"erasing"
+      // 分岐と同じ理由——指を離した瞬間にrender()がこちらを参照し直すため）。
+      this.eraserHoverPoint = p;
       this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
       return;
@@ -1582,6 +1591,13 @@ export class CircularCanvas {
 
     if (this.state.mode === "idle") {
       this.updateHoverInfo(ev);
+      // 消しゴムのプレビュー円（eraserHoverPoint）は、main.tsの共通rAFループ
+      // （60fps、他の描画とまとめて呼ばれる）の次の巡目まで待つと、OS純正の
+      // マウスカーソル（即座にコンポジタが描く）に対して最大1フレームぶん
+      // 遅れて見えてしまう（ユーザー報告：カーソルの十字に円の追従が遅れる）。
+      // pointermoveの時点でこの1回だけ即座に描き直すことで、次のrAFの巡目を
+      // 待たずに反映する——マウスのみ（タッチはホバー自体が存在しない）。
+      if (ev.pointerType === "mouse") this.render(Date.now());
       return;
     }
     // 実際になぞる/移動を始めたら、ホバー表示はそちら（lastPoint基準）に譲る。
@@ -1619,6 +1635,13 @@ export class CircularCanvas {
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
       this.state.lastPoint = p;
+      // ドラッグ中はeraserHoverPointを更新しない実装のままだと、指を離した瞬間
+      // （mode==="erasing"→"idle"、lastPoint=null）にプレビュー円がeraserHoverPoint
+      // 側へ切り替わり、そこがドラッグ開始前の古い位置のまま止まっていたため、
+      // 消し終えた場所から消し始めた位置へ一瞬戻って見えていた（ユーザー報告・
+      // 実機再現確認：カーソルを消してからは特に目立つ）。ドラッグ中も一緒に
+      // 更新しておくことで、離した直後も今の位置のまま途切れなく見えるようにする。
+      this.eraserHoverPoint = p;
       this.ensureUndoSnapshot();
       this.store.eraseAt(p, this.getToolState().eraserRadius / this.effectiveScale());
     }
@@ -1953,13 +1976,18 @@ export class CircularCanvas {
         this.canvas.style.cursor = "default";
       } else {
         // 移動道具を選んでいる間はつかむ/つかんでいるカーソルにして、動かせることを示す。
+        // 消しゴムは当たり範囲そのものをプレビュー円で描いている（下のeraserCursorPoint
+        // 参照）ため、OS純正の十字カーソルを重ねて出さない——円だけで範囲が
+        // 分かるようにする（ユーザー指示）。
         const tool = this.getToolState().tool;
         this.canvas.style.cursor =
           tool === "move" || tool === "trace"
             ? this.state.mode === "moving" || this.state.mode === "tracing"
               ? "grabbing"
               : "grab"
-            : "crosshair";
+            : tool === "eraser"
+              ? "none"
+              : "crosshair";
       }
     }
     ctx.save();
@@ -2156,6 +2184,8 @@ export class CircularCanvas {
           const p = { x: eraserCursorPoint.x * r, y: eraserCursorPoint.y * r };
           ctx.beginPath();
           ctx.arc(p.x, p.y, this.getToolState().eraserRadius / this.viewZoom, 0, Math.PI * 2);
+          ctx.fillStyle = ERASER_CURSOR_FILL;
+          ctx.fill();
           ctx.strokeStyle = ERASER_CURSOR;
           ctx.lineWidth = 1.2;
           ctx.stroke();
