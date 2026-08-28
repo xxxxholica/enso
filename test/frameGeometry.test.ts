@@ -146,3 +146,50 @@ describe("FrameGeometry: 共同アイデア出しの参加人数(レンズ分割
     expect(geometry.frameStrokeWidthPx).toBeCloseTo(baselineStrokeWidth, 5);
   });
 });
+
+describe("FrameGeometry: 大画面での共有ビューの回転操作 (ユーザー報告：個人キャンバスと同様に回せるようにすべき)", () => {
+  it("組数(pairCount)ぶん並べても画面に十分な余白がある間は、個々のレンズのscale(=回転操作の余地)が組数1のときと変わらない", () => {
+    const canvas = document.createElement("canvas");
+    const ctx = makeFakeCtx();
+    // 横に並べる(row)方向で、2組ぶんの実寸をそのまま並べても収まりきる
+    // 超横長の大画面（プロジェクター壁面等）を再現する。
+    const container = makeContainer(8000, 3000);
+    const geometry = new FrameGeometry(canvas, ctx, container, 1, {
+      frameShapeId: "round",
+      frameStrokeColor: "#000",
+      frameStrokeWidth: (canvasSizePx) => canvasSizePx * 0.04,
+      frameKind: "glasses",
+      framePatternId: "matte",
+    });
+
+    const baselineScale = geometry.scale;
+
+    // 3人以上の参加でcomputeLensSplitPairCountが1→2になる状況を再現する。
+    geometry.setLensSplitPairCount(2);
+
+    // 修正前は組数1を基準にした矩形へ組数ぶんの全体を無条件に収めようとして
+    // scaleがほぼ半減していたが、実際に画面へ収まりきるなら「組数1だったときの
+    // 大きさ」を目標にするため、変わらない。
+    expect(geometry.scale).toBe(baselineScale);
+  });
+
+  it("画面に組数ぶんの余白が無い場合は、これまでどおり実際に収まるようscaleを縮める（退化なし）", () => {
+    const canvas = document.createElement("canvas");
+    const ctx = makeFakeCtx();
+    // 正方形に近い画面では、2組を横に並べると全体の横幅が大きく伸びるため、
+    // 画面がそれなりに大きくても組数ぶんの余白は足りなくなる。
+    const container = makeContainer(3000, 3000);
+    const geometry = new FrameGeometry(canvas, ctx, container, 1, {
+      frameShapeId: "round",
+      frameStrokeColor: "#000",
+      frameStrokeWidth: (canvasSizePx) => canvasSizePx * 0.04,
+      frameKind: "glasses",
+      framePatternId: "matte",
+    });
+
+    const baselineScale = geometry.scale;
+    geometry.setLensSplitPairCount(2);
+
+    expect(geometry.scale).toBeLessThan(baselineScale);
+  });
+});

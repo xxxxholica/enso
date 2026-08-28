@@ -233,6 +233,17 @@ interface DrawState {
    *  向きを変えた瞬間に±1へ振り直す——連続で同じ向きに振り回し続けるほど
    *  1段あたりの効果が加速する（ユーザー指示）。 */
   rotateStreak: number;
+  /** 投票フェーズ中(rotationVoteHandlerがある間)に掴んで振り回している最中、
+   *  実データ(memo.x/y)は一切動かさず見た目の位置だけカーソルに追従させる
+   *  ための表示専用オフセット（正規化座標系）。rotateAccumRadと同じく描画時
+   *  にだけ使い捨てる値で、指を離せば(endSinglePointerGesture等が0に戻す)
+   *  自然に元の位置へ戻る——個人キャンバスでは実際にtranslateMemoでメモが
+   *  ポインタに追従するのに対し、共有ビューの投票中は位置を同期したくない
+   *  （issue #79）ため、見た目だけこのオフセットで追従を再現する（ユーザー指摘：
+   *  位置が追従しないと、掴んだ点を軸にポインタだけが弧を描くので、半周
+   *  (180度)ほど回ったあたりでメモとポインタの見た目の位置がかけ離れて
+   *  操作の感覚が破綻する）。 */
+  dragDisplayOffset: Point;
 }
 
 /**
@@ -348,6 +359,7 @@ export class CircularCanvas {
     rotateAccumRad: 0,
     rotateFiredSteps: 0,
     rotateStreak: 0,
+    dragDisplayOffset: { x: 0, y: 0 },
   };
 
   public getToolState: () => ToolState;
@@ -616,6 +628,7 @@ export class CircularCanvas {
       this.state.rotateAccumRad = 0;
       this.state.rotateFiredSteps = 0;
       this.state.rotateStreak = 0;
+      this.state.dragDisplayOffset = { x: 0, y: 0 };
       this.hoverInfoMemoId = null;
       this.hoverInfoPoint = null;
     }
@@ -961,6 +974,7 @@ export class CircularCanvas {
         this.state.rotateAccumRad = 0;
         this.state.rotateFiredSteps = 0;
         this.state.rotateStreak = 0;
+        this.state.dragDisplayOffset = { x: 0, y: 0 };
       }
       return;
     }
@@ -1222,6 +1236,7 @@ export class CircularCanvas {
     this.state.rotateAccumRad = 0;
     this.state.rotateFiredSteps = 0;
     this.state.rotateStreak = 0;
+    this.state.dragDisplayOffset = { x: 0, y: 0 };
     this.tracedMemoIdsThisGesture.clear();
   }
 
@@ -1674,13 +1689,33 @@ export class CircularCanvas {
       // スナップショットを取る（ensureUndoSnapshotのコメント参照）。
       this.ensureUndoSnapshot();
       this.updateRotationGesture(this.state.movingMemoId, this.state.lastPoint, p);
-      // 投票フェーズ中は「選択」道具を回転投票専用として使うため、位置は
-      // 動かさない——同期されるのは熱量(投票)だけでよい（issue #79、
+      // 投票フェーズ中は「選択」道具を回転投票専用として使うため、実データ
+      // (memo.x/y)は動かさない——同期されるのは熱量(投票)だけでよい（issue #79、
       // ユーザー指示：回した結果だけ同期し、実際の位置は移動させないでほしい）。
       if (!this.rotationVoteHandler) {
         const dx = p.x - this.state.lastPoint.x;
         const dy = p.y - this.state.lastPoint.y;
         this.store.translateMemo(this.state.movingMemoId, dx, dy, this.inputClamp());
+      } else if (this.state.rotateAnchor) {
+        // 実データは動かさないが、見た目だけカーソルに追従させる
+        // （dragDisplayOffsetのコメント参照、ユーザー指摘：位置が追従しないと
+        // 半周ほどで操作の感覚が破綻する）。掴んだ瞬間からの総移動量を
+        // 毎回計算し直す（差分の積算にしない）ことで、途中のフレーム落ちが
+        // あっても実際のカーソル位置とズレない。掴んでいる自分のレンズ枠の
+        // 外まで見た目が飛び出さないよう、実位置の移動と同じinputClamp()で
+        // 制限する。
+        const movingMemo = this.store.getActive().find((m) => m.id === this.state.movingMemoId);
+        if (movingMemo) {
+          const rawTarget = {
+            x: movingMemo.x + (p.x - this.state.rotateAnchor.x),
+            y: movingMemo.y + (p.y - this.state.rotateAnchor.y),
+          };
+          const clampedTarget = this.inputClamp()(rawTarget);
+          this.state.dragDisplayOffset = {
+            x: clampedTarget.x - movingMemo.x,
+            y: clampedTarget.y - movingMemo.y,
+          };
+        }
       }
       this.state.lastPoint = p;
     } else if (this.state.mode === "erasing") {
@@ -2085,11 +2120,17 @@ export class CircularCanvas {
     const seenMemoIds = new Set<string>();
 
     // 投票フェーズ中、今まさに掴んで回している最中のメモID(掴んでいなければnull)。
-    // 実際の位置(memo.x/y)・データは一切変えず、見た目の回転だけをrenderMemoAtの
-    // 前後にctx.rotateで重ねる——回転量はサーバーに送らず描画のたびに使い捨てる
-    // ローカルな値(state.rotateAccumRad)なので、指を離せば(endSinglePointerGesture
-    // がstate.rotateAccumRadを0に戻す)自然に元の向きへ戻る（ユーザー指示：
-    // 「実際に掴んで回せる感覚」がほしい、ただし実際の位置には影響させない）。
+    // 実際の位置(memo.x/y)・データは一切変えず、見た目の回転・移動だけを
+    // renderMemoAtの前後にctx.rotate/ctx.translateで重ねる——回転量・
+    // 移動量はサーバーに送らず描画のたびに使い捨てるローカルな値
+    // (state.rotateAccumRad/state.dragDisplayOffset)なので、指を離せば
+    // (endSinglePointerGestureが両方とも0に戻す)自然に元の位置・向きへ戻る
+    // （ユーザー指示：「実際に掴んで回せる感覚」がほしい、ただし実際の位置には
+    // 影響させない。位置も見た目だけ追従させるのは、位置が追従しないと
+    // 掴んだ点を軸にポインタだけが弧を描くため、半周(180度)ほど回ったあたりで
+    // メモとポインタの見た目の位置がかけ離れて操作の感覚が破綻するという
+    // ユーザー指摘への対応——個人キャンバスは実際にtranslateMemoで追従する
+    // ため同じ問題が起きない）。
     const rotatingMemoId =
       this.state.mode === "moving" && this.rotationVoteHandler ? this.state.movingMemoId : null;
     const drawMemo = (memo: Memo, opacity: number): void => {
@@ -2100,6 +2141,7 @@ export class CircularCanvas {
       const cx = memo.x * r;
       const cy = memo.y * r;
       ctx.save();
+      ctx.translate(this.state.dragDisplayOffset.x * r, this.state.dragDisplayOffset.y * r);
       ctx.translate(cx, cy);
       ctx.rotate(this.state.rotateAccumRad);
       ctx.translate(-cx, -cy);
