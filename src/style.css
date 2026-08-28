@@ -1485,6 +1485,21 @@ body[data-view="shared"] #duration-slot {
   opacity: 0.4;
 }
 
+/* iOS Safariは、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすくする
+   ため」ページ全体を勝手にズームインする。ページ側はtouch-action: pan-x pan-y
+   （html/body、上部参照）でピンチズーム・ダブルタップズームを封じているため、
+   このズームが起きると指でズームを戻す手段が無くなり、ズームしたまま戻せなく
+   なってしまう（ユーザー報告・実機で再現確認）。.shared-invite-input／
+   .shared-room-rename-inputはvar(--text-xs)＝12pxで基準の16pxを下回るため、
+   タッチデバイスに限りフォーカス時のズームが起きない16pxへ底上げする
+   （マウス操作のデスクトップではこの現象自体が起きないため、通常サイズのまま）。 */
+@media (pointer: coarse) {
+  .shared-invite-input,
+  .shared-room-rename-input {
+    font-size: 16px;
+  }
+}
+
 .pill-btn:disabled {
   opacity: 0.4;
   cursor: default;
