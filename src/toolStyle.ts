@@ -1,6 +1,6 @@
 import type { DrawTool } from "./types";
 
-export interface ToolRenderStyle {
+interface ToolRenderStyle {
   lineWidth: number;
   /** フェードで決まる不透明度に、さらに掛け合わせる質感由来の係数 */
   alphaMultiplier: number;

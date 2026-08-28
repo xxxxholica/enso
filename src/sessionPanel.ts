@@ -33,7 +33,7 @@ const MINUTES_RANGE = { min: 1, max: 30, step: 1, default: 5 } as const;
 // （issue #79、ユーザー指示）。
 const MAX_PARTICIPANTS_RANGE = { min: 1, max: 4, step: 1, default: 4 } as const;
 
-export interface SessionPanelCallbacks {
+interface SessionPanelCallbacks {
   onStart: (options: StartSessionOptions) => void;
   onAdvance: () => void;
   onExtend: (addMs: number) => void;

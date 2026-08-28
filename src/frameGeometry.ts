@@ -50,7 +50,7 @@ const MONOCLE_CHAIN_SHADOW_COLOR = "oklch(50% 0.015 250)";
 const MONOCLE_CHAIN_HIGHLIGHT_COLOR = "oklch(87% 0.005 250)";
 const MONOCLE_CHAIN_BASE_COLOR = "oklch(74% 0.01 250)";
 
-export interface FrameGeometryOptions {
+interface FrameGeometryOptions {
   frameShapeId: FrameShapeId;
   frameStrokeWidth: number | ((canvasSizePx: number) => number);
   frameKind: "single" | "glasses" | "monocle";

@@ -20,7 +20,7 @@ const RATIO_TO_60 = 24 / (STANDARD_LIFESPAN_DAYS * 24);
 const RATIO_TO_20 = (24 * 3) / (STANDARD_LIFESPAN_DAYS * 24);
 const RATIO_TO_FADED = 1;
 
-export type FadeStage = 1 | 0.6 | 0.2 | 0;
+type FadeStage = 1 | 0.6 | 0.2 | 0;
 
 /**
  * 経過時間と猶予期間（lifespanDays）から不透明度を計算する。
