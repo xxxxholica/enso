@@ -1,5 +1,6 @@
 import { setGuestAuth, type GuestAuth } from "./apiClient";
 import { getCurrentUser, onUserChange } from "./authState";
+import { requestSignIn } from "./clerkAccount";
 import { createFadeVisibility } from "./fadeVisibility";
 import { notifyClose, notifyOpen } from "./exclusivePopover";
 import { claimGuestInvite, loadGuestSession, saveGuestSession, type StoredGuestSession } from "./guestSession";
@@ -148,9 +149,16 @@ export class SharedRoomMenu {
     this.popover.hidden = true;
     this.popoverFade = createFadeVisibility(this.popover);
 
-    this.signedOutEl = document.createElement("p");
+    this.signedOutEl = document.createElement("div");
     this.signedOutEl.className = "shared-signedout";
-    this.signedOutEl.textContent = "共有キャンバスを使うには、右上からログインしてください。";
+    const signedOutMessage = document.createElement("p");
+    signedOutMessage.textContent = "共有キャンバスを使うには、ログインしてください。";
+    const signInBtn = document.createElement("button");
+    signInBtn.type = "button";
+    signInBtn.className = "pill-btn";
+    signInBtn.textContent = "ログイン/新規登録";
+    signInBtn.addEventListener("click", requestSignIn);
+    this.signedOutEl.append(signedOutMessage, signInBtn);
     this.popover.appendChild(this.signedOutEl);
 
     // 招待リンク(?invite=&room=)経由でログイン無しに参加する人向けの状態表示
