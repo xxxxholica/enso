@@ -11,6 +11,7 @@ const FRAME_SHAPE_KEY = "smuiFrameShape";
 const FRAME_PATTERN_KEY = "smuiFramePattern";
 const PERSONAL_FRAME_PATTERN_KEY = "personalFramePattern";
 const CUSTOM_TEMPLATES_KEY = "customTemplates";
+const USAGE_GUIDE_SEEN_KEY = "usageGuideSeen";
 const THEME_KEY = "themePreference";
 const DEFAULT_TOOL: DrawTool = "pen";
 const DEFAULT_COLOR = "oklch(22% 0.012 55)";
@@ -174,6 +175,21 @@ export function loadPersonalFramePattern(): FramePatternId {
 
 export function savePersonalFramePattern(id: FramePatternId): void {
   localStorage.setItem(PERSONAL_FRAME_PATTERN_KEY, id);
+}
+
+/** 使い方ページ（円相の由来と基本操作を紹介する読み物）を、既に開いたことが
+ *  あるか。個人キャンバスの案内ボタン（main.ts）が、未読の間だけ出しっぱなし
+ *  にするために参照する。 */
+export function loadUsageGuideSeen(): boolean {
+  try {
+    return localStorage.getItem(USAGE_GUIDE_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markUsageGuideSeen(): void {
+  localStorage.setItem(USAGE_GUIDE_SEEN_KEY, "1");
 }
 
 function isCustomTemplateShaped(value: unknown): value is TemplateDef {

@@ -21,6 +21,7 @@ import {
   loadFrameShape,
   loadPersonalFramePattern,
   loadThemePreference,
+  loadUsageGuideSeen,
   saveCustomThemeHue,
   saveFramePattern,
   saveFrameShape,
@@ -29,6 +30,7 @@ import {
 } from "./storage";
 import { TemplatePicker } from "./templatePicker";
 import { applyTheme } from "./theme";
+import { openUsageGuide } from "./usageGuide";
 
 // テーマ（自動/ライト/ダーク/好きな色）は、他の何よりも先に適用する——
 // 後回しにすると一瞬ライトテーマで描画されてからダークへ切り替わる「ちらつき」
@@ -456,6 +458,13 @@ document.querySelectorAll<HTMLButtonElement>(".view-nav-btn").forEach((btn) => {
   btn.dataset.active = String(btn.dataset.view === "canvas");
 });
 if (initialView === "shared") setView("shared");
+
+// 初回起動時は、使い方ページを自動でポップアップ表示する（ユーザー指示）。
+// usageGuide.ts側のopen()がmarkUsageGuideSeen()を呼ぶため、一度でも見れば
+// 以後は自動表示しない（設定メニュー内の「使い方」からはいつでも開ける）。
+if (!loadUsageGuideSeen()) {
+  openUsageGuide();
+}
 
 function frame(): void {
   const now = Date.now();
