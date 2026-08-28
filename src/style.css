@@ -268,7 +268,13 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  /* .app-footerと同じ10のままだと、DOM順で後に来るfooter側が同じ値の場合に
+     手前になり、ヘッダーのメニュー（settings-popover、このヘッダーの子孫で
+     ヘッダーのスタッキングコンテキストに閉じ込められる）がツールバーの
+     広がった詳細パネル（好きな色ポップオーバー等）の裏に隠れてしまっていた
+     （ユーザー報告：重なった時にメニューを手前にしたい）。footerより1つ
+     高くして、メニューが常に手前に来るようにする。 */
+  z-index: 11;
   width: 100%;
   /* html/bodyのtouch-actionだけでは、position:fixedのこの帯の上で
      iOS Safari純正のピンチズームが発動してしまう不具合があったため
@@ -1374,9 +1380,17 @@ body[data-view="shared"] #duration-slot {
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
 
 .shared-signedout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   font-size: var(--text-sm);
   color: var(--ink-55);
   text-align: center;
+}
+
+.shared-signedout p {
+  margin: 0;
 }
 
 .archive-empty {
@@ -1483,6 +1497,21 @@ body[data-view="shared"] #duration-slot {
 
 .shared-invite-input:disabled {
   opacity: 0.4;
+}
+
+/* iOS Safariは、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすくする
+   ため」ページ全体を勝手にズームインする。ページ側はtouch-action: pan-x pan-y
+   （html/body、上部参照）でピンチズーム・ダブルタップズームを封じているため、
+   このズームが起きると指でズームを戻す手段が無くなり、ズームしたまま戻せなく
+   なってしまう（ユーザー報告・実機で再現確認）。.shared-invite-input／
+   .shared-room-rename-inputはvar(--text-xs)＝12pxで基準の16pxを下回るため、
+   タッチデバイスに限りフォーカス時のズームが起きない16pxへ底上げする
+   （マウス操作のデスクトップではこの現象自体が起きないため、通常サイズのまま）。 */
+@media (pointer: coarse) {
+  .shared-invite-input,
+  .shared-room-rename-input {
+    font-size: 16px;
+  }
 }
 
 .pill-btn:disabled {
@@ -1815,16 +1844,16 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
   padding: 0;
   border-radius: var(--radius-full);
   background: transparent;
 }
 
 .settings-trigger svg {
-  width: 1rem;
-  height: 1rem;
+  width: 1.375rem;
+  height: 1.375rem;
   flex: 0 0 auto;
 }
 
@@ -2553,7 +2582,7 @@ body[data-view="shared"] #duration-slot {
   background: var(--paper-2);
 }
 
-/* --- 序・練・結のページ送り。以前は1つの長いスクロールページに3つとも
+/* --- 序・練のページ送り。以前は1つの長いスクロールページに3つとも
    並べていたが、スクロール無しで1画面ずつ進めたいという指示のため、
    .usage-guide-pagesの直接の子である.usage-guide-pageのうち1つだけを
    hidden属性で出し、他は完全に取り除く（display:noneではなく[hidden]の
@@ -2565,7 +2594,7 @@ body[data-view="shared"] #duration-slot {
 /* heightは「練」の中で一番背が高くなる瞬間（振り返りスライダーが
    出た後の「振り返る」「done」手順）の実測ぶんの高さに、フォントの描画差
    ぶんの余裕を足した値。これを全ページ・全手順共通の下限に揃え、それより
-   低い序・結・練の他の手順ではjustify-content:centerで余った縦のすき間に
+   低い序・練の他の手順ではjustify-content:centerで余った縦のすき間に
    コンテンツを中央寄せすることで、ページや手順を切り替えるたびにモーダル
    自体の高さが伸び縮みしないようにしている（ユーザー指示：ウィンドウの
    サイズを変えないでほしい）。書く・待つ・選ぶといった練習パート（issue #58）
@@ -2720,6 +2749,18 @@ body[data-view="shared"] #duration-slot {
   display: none;
 }
 
+/* 本体ではツールバー直上に出る残り時間ピルを、練習では円の下端へ重ねる。
+   表示・非表示で説明文以下のレイアウトが動かないようabsoluteにする。 */
+.tutorial-sandbox-canvas-wrap .revive-info-pill {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .tutorial-sandbox-message {
   margin: 0;
   min-height: 2.6em;
@@ -2789,6 +2830,107 @@ body[data-view="shared"] #duration-slot {
   .tutorial-sandbox-skip {
     left: auto;
     right: 0;
+  }
+}
+
+/* スマホではシートをビューポート内の固定高レイアウトにする。デスクトップ用の
+   max-height + overflowでは、端末の短いdvh（横向き・アドレスバー表示中を含む）で
+   シート内と外側の二重スクロールが発生し、CSSだけ縮んだ円からcanvas本体が
+   はみ出してメモが見切れることがあった。ヘッダー以外をflexの残り領域へ収め、
+   円は横幅と残り高さの小さい方に合わせる。 */
+@media (max-width: 560px) {
+  .usage-guide {
+    padding: 8px;
+    overflow: hidden;
+  }
+
+  .usage-guide-sheet {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 16px);
+    max-height: none;
+    overflow: hidden;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border-radius: 18px;
+  }
+
+  .usage-guide-pages {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-top: 4px;
+  }
+
+  .usage-guide-page {
+    height: 100%;
+    gap: var(--space-2);
+    padding-bottom: 0;
+  }
+
+  .usage-guide-page--practice {
+    min-height: 0;
+    /* スマホでは縦に長い余白が上側へ偏りやすいため、練習内容を画面中央へ置く。
+       円だけを絶対配置すると説明文や操作との間隔が崩れるので、ひとまとまりの
+       レイアウトを保ったまま中央寄せする。 */
+    justify-content: center;
+  }
+
+  .tutorial-sandbox {
+    gap: var(--space-2);
+    min-height: 0;
+    margin-top: 0;
+  }
+
+  /* 状態ごとに現れる進捗バーと振り返り欄も、非表示中は見えないまま同じ高さを
+     占めさせる。中央寄せした内容全体の高さが一定になり、タイトルと円の位置が
+     「メモは消える」「振り返る」への切り替えで上下しなくなる。 */
+  .tutorial-watch-progress[hidden] {
+    display: flex !important;
+    visibility: hidden;
+  }
+
+  .tutorial-sandbox-seek {
+    width: min(100%, 240px);
+    min-height: 72px;
+  }
+
+  .tutorial-sandbox-seek[hidden] {
+    display: block !important;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .tutorial-sandbox-canvas-wrap {
+    width: min(100%, clamp(90px, calc(100dvh - 350px), 360px));
+    max-width: none;
+    flex: 0 1 auto;
+  }
+
+  .tutorial-sandbox-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 4.95em;
+    min-height: 4.95em;
+    line-height: 1.65;
+  }
+}
+
+/* 横向きスマホなど高さが特に短い場合は、序の挿絵と行間も詰める。
+   本文や操作をスクロール領域へ逃がさず、閉じるボタンまで常に画面内に保つ。 */
+@media (max-width: 900px) and (max-height: 520px) {
+  .usage-guide-page-content {
+    gap: var(--space-2);
+  }
+
+  .usage-guide-canvas {
+    width: 64px;
+    height: 64px;
+  }
+
+  .usage-guide-stage-body {
+    font-size: var(--text-xs);
+    line-height: 1.5;
   }
 }
 

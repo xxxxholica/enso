@@ -4,6 +4,7 @@ import { createFadeVisibility } from "./fadeVisibility";
 import { FIXED_LIFESPAN_DAYS, MS_PER_DAY } from "./fade";
 import { MemoStore } from "./memoStore";
 import { RewindSelector } from "./rewindSelector";
+import { ReviveInfoPill } from "./reviveInfoPill";
 import { measureTextBoxWidthPx, normalizedBoxSize, wrapTextAtReferenceScale } from "./textLayout";
 import { PEN_LINE_WIDTH } from "./toolStyle";
 import type { LifespanDays, Memo, Point } from "./types";
@@ -106,14 +107,14 @@ const WATCH_NEXT_BTN_DELAY_MS = 9_000;
  *  なってしまうため、この一度きり位置・文面を保ったまま復活させる
  *  （ユーザー指示：「一度そこで復活させてほしい。位置は保持する
  *  前提で」）。 */
-type StepId = "write" | "watch" | "keep" | "release" | "rewind" | "done";
-const STEP_ORDER: StepId[] = ["write", "watch", "keep", "release", "rewind", "done"];
+type StepId = "write" | "watch" | "keep" | "erase" | "rewind" | "done";
+const STEP_ORDER: StepId[] = ["write", "watch", "keep", "erase", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  write: "円の中をタップして、思いついたことを書いてみましょう。",
+  write: "円をタップするか、そのままキー入力して、思いついたことを書いてみましょう。",
   watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
-  release: "今度は、要らない一枚に触れたまま、時計回りに回して早く手放してみましょう。",
+  erase: "消したいメモを指やマウスでなぞってみましょう。消しゴムなら、待たずにその場で消せます。",
   rewind: "下のスライダーを動かして、少し前の盤面を振り返ってみましょう。",
   done: "全部は残せません。だからこそ、そうやって選び続けた一枚には意味があります。",
 };
@@ -125,11 +126,11 @@ const MESSAGES: Record<StepId, string> = {
  *  渡す。 */
 const STEP_TITLES: Record<StepId, string> = {
   write: "書き込む",
-  watch: "眺める",
-  keep: "巻き戻す",
-  release: "進める",
+  watch: "メモは消える",
+  keep: "メモを残す",
+  erase: "メモを消す",
   rewind: "振り返る",
-  done: "選びとる",
+  done: "円相",
 };
 
 /** 掴んで回す対象の追跡用。lastTracedAtは移動道具の振り回し操作
@@ -194,6 +195,7 @@ export class TutorialSandbox {
   private store: MemoStore | null = null;
   private canvasView: CircularCanvas | null = null;
   private rewindSelector: RewindSelector | null = null;
+  private reviveInfoPill: ReviveInfoPill | null = null;
 
   private raf = 0;
   private running = false;
@@ -205,11 +207,14 @@ export class TutorialSandbox {
   private step: StepId = "write";
   /** seed()で置いた添え物＋「書く」手順でユーザー自身が書いたものの初期
    *  lastTracedAt。checkProgressはこの中のどれか1枚でも増減していれば
-   *  keep/releaseを達成扱いにする。 */
+   *  keepを達成扱いにする。 */
   private memoBaselines: TrackedMemo[] = [];
   /** 「眺める」に入る直前の全メモ。復活時は寿命を含めてこの状態へ戻す。 */
   private watchStartMemos: Memo[] = [];
   private watchStartAt: number | null = null;
+  /** 「メモを消す」に入る直前の状態。次へ進む際に消しゴム操作を取り消す。 */
+  private eraseStartMemos: Memo[] = [];
+  private eraseStartAt: number | null = null;
   /** 「書く」手順の完了検出用：seed()で置いた添え物のidをあらかじめ入れておき、
    *  store.getAll()にこれ以外のidが現れたら「ユーザーが新しく書いた」と判定する
    *  （内容は問わない）。 */
@@ -273,6 +278,7 @@ export class TutorialSandbox {
         return;
       }
       if (this.step === "watch") this.restoreAllMemos(this.currentVirtualNow());
+      if (this.step === "erase") this.restoreAfterErase(this.currentVirtualNow());
       const nextStep = STEP_ORDER[STEP_ORDER.indexOf(this.step) + 1];
       if (nextStep) this.advanceTo(nextStep);
     });
@@ -307,9 +313,13 @@ export class TutorialSandbox {
       // モーダルの中で本物のテキスト入力を体験させたいので、逆に前面に出す。
       textEditorZIndex: TEXT_EDITOR_Z_INDEX,
       textEditorMinWidthPx: TEXT_EDITOR_MIN_WIDTH_PX,
+      // 本体のスマホ表示は入力欄をキーボード直上へ固定するが、練習では
+      // タップした場所と書き込まれる位置の対応が分かるよう円内へ重ねる。
+      fixedBottomTextEditorOnCoarsePointer: false,
       minRenderedTextFontPx: 16,
       nowProvider: () => this.currentVirtualNow(),
     });
+    this.reviveInfoPill = new ReviveInfoPill(this.canvasWrap);
     this.realStartMs = Date.now();
     this.virtualBaseMs = Date.now();
     this.seed();
@@ -328,10 +338,13 @@ export class TutorialSandbox {
     }
     this.canvasView?.destroy();
     this.canvasView = null;
+    this.reviveInfoPill = null;
     this.store = null;
     this.memoBaselines = [];
     this.watchStartMemos = [];
     this.watchStartAt = null;
+    this.eraseStartMemos = [];
+    this.eraseStartAt = null;
     this.knownMemoIds = new Set();
     this.ambientId = null;
     this.decoyId = null;
@@ -348,7 +361,7 @@ export class TutorialSandbox {
    *  （道具バー自体は持たない。ユーザー指示）。 */
   private toolStateFor(): ToolState {
     return {
-      tool: this.step === "write" ? "text" : "move",
+      tool: this.step === "write" ? "text" : this.step === "erase" ? "eraser" : "move",
       color: INK,
       // 「書く」手順で書いた1枚も、添え物2枚と一緒に薄れていく様子を見せたい
       // （ユーザー指示：「書き込みが全部薄くなるといいかも」）ため、"write"の
@@ -419,6 +432,7 @@ export class TutorialSandbox {
     // ライブ表示に上書きする」という形で確実性を持たせている。
     if (this.step === "done") this.canvasView.setRewindAt(null);
     this.canvasView.render(now);
+    this.reviveInfoPill?.update(this.canvasView.getHoverRemainingMs(now));
     this.syncWatchProgress(now);
     this.checkProgress();
     this.raf = requestAnimationFrame(this.loop);
@@ -436,14 +450,17 @@ export class TutorialSandbox {
       if (newMemo) {
         this.knownMemoIds.add(newMemo.id);
         this.memoBaselines.push(trackedMemoOf(newMemo));
-        this.advanceTo("watch");
+        // Enterで入力を確定しただけで次の説明へ飛ばさず、ほかの手順と同じく
+        // 本人が「つぎへ」を押してから進む。
+        this.nextBtn.hidden = false;
       }
     } else if (this.step === "keep") {
       if (this.nextBtn.hidden && this.anyMemoMoved(memos, "up")) {
         this.nextBtn.hidden = false;
       }
-    } else if (this.step === "release") {
-      if (this.nextBtn.hidden && this.anyMemoMoved(memos, "down")) {
+    } else if (this.step === "erase") {
+      const erased = this.memoBaselines.some((baseline) => !memos.some((memo) => memo.id === baseline.id));
+      if (this.nextBtn.hidden && erased) {
         this.nextBtn.hidden = false;
       }
     } else if (this.step === "rewind" && this.nextBtn.hidden && (this.rewindSelector?.getRewindMs() ?? 0) > 0) {
@@ -484,6 +501,10 @@ export class TutorialSandbox {
       this.watchStartAt = now;
       this.reseedForWatchDemo(now);
     }
+    if (step === "erase") {
+      this.eraseStartMemos = [...structuredClone(this.store?.getAll() ?? [])];
+      this.eraseStartAt = this.currentVirtualNow();
+    }
     if (step === "rewind") this.mountRewind();
     if (step === "done") this.showPresentForDone();
     this.syncStep();
@@ -491,10 +512,21 @@ export class TutorialSandbox {
 
   private syncStep(): void {
     this.messageEl.textContent = MESSAGES[this.step];
+    this.nextBtn.textContent = this.step === "done" ? "はじめる" : "つぎへ";
     this.watchProgressWrap.hidden = this.step !== "watch";
     this.syncNextBtnVisibility();
     this.skipBtn.hidden = this.step === "done";
     this.onStepTitle?.(STEP_TITLES[this.step]);
+  }
+
+  /** 使い方モーダルのcapture段から、直接キー入力を通してよい状態かを返す。 */
+  isWritingStep(): boolean {
+    return this.running && this.step === "write";
+  }
+
+  startDirectTextInput(initialText: string): void {
+    if (!this.isWritingStep()) return;
+    this.canvasView?.startTextInputAtCenter(initialText);
   }
 
   /** 短縮された「眺める」の経過を、通常の1日寿命における0〜24時間へ換算する。 */
@@ -541,7 +573,7 @@ export class TutorialSandbox {
    *  ——毎回this.currentVirtualNow()を呼び直すと、探索にかけた実時間ぶん
    *  「たった今」自体が動いてしまい、見本と目盛りの対応がその場でズレていく
    *  （ユーザー報告：巻き戻しても反応しないことがあった）。盤面自体は
-   *  作り直さない——「眺める」を出た後の状態は、"keep"/"release"での
+   *  作り直さない——「眺める」を出た後の状態は、"keep"での
    *  ユーザー自身の操作も含めてそのまま引き継ぐ（ユーザー指示：「眺める」
    *  以外は状態を引き継ぐように）。 */
   private mountRewind(): void {
@@ -616,7 +648,7 @@ export class TutorialSandbox {
    *  手順でユーザーが書いた1枚はここでは触らない——書いたその瞬間から
    *  toolStateForが既にWATCH_DEMO_LIFESPAN_DAYSで作っているため、作り
    *  直す必要が無い（かつ経過0からという3枚目のタイミングにもなる）。
-   *  作り直した2枚はmemoBaselines（keep/release判定対象）から外す——
+   *  作り直した2枚はmemoBaselines（keep判定対象）から外す——
    *  この後すぐ完全に消えて掴めなくなる（status!=="active"はhitTestMemo
    *  に拾われない、canvasView.ts参照）ため、判定対象に残しても達成し
    *  ようがない——decoyは「つぎへ」が押せるようになる瞬間（freezeToRealPace）
@@ -647,7 +679,7 @@ export class TutorialSandbox {
    *  無くなって手順が進められなくなることがあった（ユーザー報告：「眺める
    *  の部分で全部消えてしまってそのままなので一向に進めない」）。decoyが
    *  （生きていた・復活させた、いずれの理由であれ）手元にあれば、
-   *  memoBaselines（keep/release判定対象）へ改めて加える——"watch"に入った
+   *  memoBaselines（keep判定対象）へ改めて加える——"watch"に入った
    *  瞬間reseedForWatchDemoが一旦外していたため。ambientはここでは一切
    *  触らない——"rewind"に入るまで戻さない、結の「全部は残せません」と
    *  いう主題に残しておく1枚として扱う（seed()参照）。「つぎへ」が押せる
@@ -661,6 +693,25 @@ export class TutorialSandbox {
     const elapsed = this.watchStartAt === null ? 0 : now - this.watchStartAt;
     const source = this.watchStartMemos.length > 0 ? this.watchStartMemos : this.store.getAll();
     const restored = source.map((memo) => ({
+      ...structuredClone(memo),
+      createdAt: memo.createdAt + elapsed,
+      lastTracedAt: memo.lastTracedAt + elapsed,
+      traceHistory: memo.traceHistory.map((timestamp) => timestamp + elapsed),
+      // 「眺める」専用の短い寿命は演出終了時に破棄し、ユーザーが書いたものも
+      // 元からあるものも、チュートリアル開始時と同じ通常寿命へ統一する。
+      lifespanDays: FIXED_LIFESPAN_DAYS,
+      status: "active" as const,
+    }));
+    this.store.replaceAll(restored);
+    this.memoBaselines = restored.map(trackedMemoOf);
+  }
+
+  /** 消しゴムの結果を元へ戻す。操作にかかった時間ぶん時刻も平行移動し、
+   *  消す前の濃さ・残り時間をそのまま保つ。 */
+  private restoreAfterErase(now: number): void {
+    if (!this.store || this.eraseStartMemos.length === 0) return;
+    const elapsed = this.eraseStartAt === null ? 0 : now - this.eraseStartAt;
+    const restored = this.eraseStartMemos.map((memo) => ({
       ...structuredClone(memo),
       createdAt: memo.createdAt + elapsed,
       lastTracedAt: memo.lastTracedAt + elapsed,

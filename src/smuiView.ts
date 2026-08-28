@@ -334,6 +334,9 @@ export class SmuiView {
       frameKind: "glasses",
       framePatternId: this.framePatternId,
       frameStrokeWidth: (canvasSizePx) => canvasSizePx * SMUI_FRAME_WEIGHT_RATIO,
+      // タップした場所に入力欄を出す（ユーザー指示、issue #179）。個人キャンバス
+      // 側（main.ts）と同じ理由でモバイル固定表示をやめる。
+      fixedBottomTextEditorOnCoarsePointer: false,
       ...overrides,
     };
   }

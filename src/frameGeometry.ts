@@ -21,19 +21,34 @@ import type { FrameShape, FrameShapeId } from "./frameShape";
 import { FRAME_PATTERN_ORDER, getFramePattern } from "./framePattern";
 import type { FramePatternId } from "./framePattern";
 import { chooseLensSplitDirection, computeLensPairCenters } from "./lensSplit";
+import { isDarkThemeActive } from "./theme";
 import type { Point } from "./types";
 
 /** 片眼鏡（frameKind==="monocle"、実験中）のチェーンの見た目。ヒンジタブ
  *  （drawHingeTabs、frameShape.tsのGLASSES_HINGE_TAB_*）の下端から垂らす
  *  ——タブ自体は残したまま、そこからチェーンを伸ばすイメージ（ユーザー指示）。
- *  真下へ直線に9輪連ねる（ユーザー指示：3輪→9輪、左右に揺らさず垂直に）。
- *  scale基準（正規化単位）の値——drawMonocleChain参照。 */
+ *  真下へ直線に9輪連ねる（ユーザー指示：一本の紐・紡錘形の帯も試したが、
+ *  最初の丸型の連なりに戻したいとのことで復帰）。scale基準（正規化単位）の
+ *  値——drawMonocleChain参照。 */
 const MONOCLE_CHAIN_LINK_COUNT = 9;
 const MONOCLE_CHAIN_LINK_RADIUS = 0.045;
 const MONOCLE_CHAIN_LINK_SPACING = 0.09;
 const MONOCLE_CHAIN_LINE_WIDTH = 0.018;
-/** フレームの柄・質感（"フレームなし"だと紙と同じ白）から独立した固定色。 */
-const MONOCLE_CHAIN_COLOR = "oklch(35% 0.02 55)";
+/** フレームの柄・質感（"フレームなし"だと紙と同じ白）から独立した固定色。
+ *  普段は元のインク色のまま——ダークテーマ（isDarkThemeActive()）の時だけ
+ *  暗い紙の背景に同化して見えづらくなる（ユーザー報告）ため、その時だけ
+ *  シルバーがかったグレーに差し替える（ユーザー指示：黒色の時だけ紐の色を
+ *  変えたい）。シルバー側は輪の左右で明暗を作るグラデーション（暗→明るい
+ *  ハイライト→中間→暗）をstrokeStyleに使い、金属の丸線に光が当たって
+ *  反射しているような見た目にする（drawMonocleChain参照、ユーザー指示：
+ *  光沢感を足したい）。一度ワントーン暗く重み寄りの配色にしたが、重厚感が
+ *  出過ぎたため（ユーザー指示：重厚感をなくしたい）明るいシルバーに戻した上で、
+ *  暗→明のコントラスト（特にハイライトの明るさ）だけを少し抑え、明るいトーンは
+ *  保ったまま光沢を弱めた（ユーザー指示：光沢感をもう少し減らしたい）。 */
+const MONOCLE_CHAIN_INK_COLOR = "oklch(35% 0.02 55)";
+const MONOCLE_CHAIN_SHADOW_COLOR = "oklch(50% 0.015 250)";
+const MONOCLE_CHAIN_HIGHLIGHT_COLOR = "oklch(87% 0.005 250)";
+const MONOCLE_CHAIN_BASE_COLOR = "oklch(74% 0.01 250)";
 
 export interface FrameGeometryOptions {
   frameShapeId: FrameShapeId;
@@ -517,12 +532,16 @@ export class FrameGeometry {
   /** 片眼鏡（frameKind==="monocle"、実験中）のチェーン。タブ（drawHingeTabs）
    *  自体はそのまま残し、その下端から垂らす（ユーザー指示：出っ張りはそのまま
    *  で、その下にチェーンを伸ばすイメージ）。フレームの柄・質感（frameStyle、
-   *  "フレームなし"だと紙と同じ白）とは独立した固定のインク色で描く——単色の
-   *  タブだけだと「フレームなし」の時に白い塊として見えづらくなってしまう
+   *  "フレームなし"だと紙と同じ白）とは独立した固定色で描く——単色のタブ
+   *  だけだと「フレームなし」の時に白い塊として見えづらくなってしまう
    *  （ユーザー指摘）ため、フレームの見た目に関わらずチェーンだけは常に見える
-   *  ようにする。輪を9つ、左右に揺らさず真下へ直線に連ねる（ユーザー指示）
-   *  ——実物の鎖のような詳細な質感は持たせず、線画のインクの世界観に合わせた
-   *  単純な円の輪郭のみ（ユーザー指示：紙とインクの世界観、icons.ts参照）。 */
+   *  ようにする。輪を9つ、左右に揺らさず真下へ直線に連ねる（ユーザー指示）。
+   *
+   *  普段はインク色（MONOCLE_CHAIN_INK_COLOR）で他の線と馴染ませ、ダーク
+   *  テーマの時だけ（isDarkThemeActive()）暗い紙の背景に同化して見えづらく
+   *  なる（ユーザー報告）ため、シルバーの金属色へ差し替える。シルバー側は
+   *  横方向の明暗グラデーション（MONOCLE_CHAIN_SHADOW/HIGHLIGHT/BASE_COLOR）
+   *  で丸線に光沢を持たせる（ユーザー指示：金属らしい光沢感）。 */
   drawMonocleChain(ctx: CanvasRenderingContext2D, shape: FrameShape): void {
     const frameOuterEdge = this.scaleValue * shape.horizontalReach + this.frameStrokeWidthValue;
     const tabLength = this.scaleValue * GLASSES_HINGE_TAB_LENGTH;
@@ -533,7 +552,19 @@ export class FrameGeometry {
     const linkRadius = this.scaleValue * MONOCLE_CHAIN_LINK_RADIUS;
     const linkSpacing = this.scaleValue * MONOCLE_CHAIN_LINK_SPACING;
 
-    ctx.strokeStyle = MONOCLE_CHAIN_COLOR;
+    if (isDarkThemeActive()) {
+      // 輪はどれも同じcx・半径なので、横方向のグラデーションを1つだけ作って
+      // 全ての輪で使い回す（輪ごとに作り直す必要が無い）。左寄りにハイライトを
+      // 置くことで、光源が左上にあるような金属の丸線らしい反射に見せる。
+      const chainGradient = ctx.createLinearGradient(anchorX - linkRadius, 0, anchorX + linkRadius, 0);
+      chainGradient.addColorStop(0, MONOCLE_CHAIN_SHADOW_COLOR);
+      chainGradient.addColorStop(0.32, MONOCLE_CHAIN_HIGHLIGHT_COLOR);
+      chainGradient.addColorStop(0.55, MONOCLE_CHAIN_BASE_COLOR);
+      chainGradient.addColorStop(1, MONOCLE_CHAIN_SHADOW_COLOR);
+      ctx.strokeStyle = chainGradient;
+    } else {
+      ctx.strokeStyle = MONOCLE_CHAIN_INK_COLOR;
+    }
     ctx.lineWidth = Math.max(1, this.scaleValue * MONOCLE_CHAIN_LINE_WIDTH);
     for (let i = 0; i < MONOCLE_CHAIN_LINK_COUNT; i++) {
       const cx = anchorX;

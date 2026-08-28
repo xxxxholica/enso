@@ -8,6 +8,18 @@ import { _setCurrentUser } from "./authState";
  */
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
+let clerkForSignIn: Clerk | null = null;
+let signInRequestedWhileLoading = false;
+
+/** ヘッダー以外の未ログイン案内からも、同じClerkログイン画面を開く。Clerkの
+ * 読み込み中に押された場合は、準備できた直後に一度だけ開く。 */
+export function requestSignIn(): void {
+  if (clerkForSignIn) {
+    void clerkForSignIn.openSignIn({});
+    return;
+  }
+  signInRequestedWhileLoading = true;
+}
 
 declare global {
   interface Window {
@@ -77,6 +89,11 @@ export async function mountAccountWidget(
       },
     },
   } as Parameters<typeof clerk.load>[0]);
+  clerkForSignIn = clerk;
+  if (signInRequestedWhileLoading) {
+    signInRequestedWhileLoading = false;
+    void clerk.openSignIn({});
+  }
 
   // アイコンのみのボタンだと未ログイン/ログイン中の状態が伝わりにくかった
   // （ユーザー指示：文字だけのボタンにしたい）ため、ClerkのUserButton
@@ -88,9 +105,7 @@ export async function mountAccountWidget(
     signInBtn.type = "button";
     signInBtn.className = "pill-btn account-text-btn";
     signInBtn.textContent = "ログイン / 新規登録";
-    signInBtn.addEventListener("click", () => {
-      void clerk.openSignIn({});
-    });
+    signInBtn.addEventListener("click", requestSignIn);
     badge.appendChild(signInBtn);
   }
 

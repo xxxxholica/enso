@@ -307,6 +307,10 @@ export interface CircularCanvasOptions {
    *  重なって見える——1文字ずつ縦に折り返された結果、タップ位置から
    *  下へ何行分も伸びてしまうため）。省略時は下限なし（本物と同じ挙動）。 */
   textEditorMinWidthPx?: number;
+  /** 粗いポインター（主にスマホ）で入力欄をキーボード直上へ固定するか。
+   *  省略時はtrue。本体では画面のリサイズやパンに強い固定表示を使う一方、
+   *  練習用の小さな円ではタップ位置との対応を見せるためfalseにできる。 */
+  fixedBottomTextEditorOnCoarsePointer?: boolean;
   /** テキストメモ描画時の最小フォントサイズ。練習画面では入力欄と同じ16pxに揃える。 */
   minRenderedTextFontPx?: number;
   /** メモ作成時刻の供給元。省略時は実時間。練習画面は加速した仮想時計を渡す。 */
@@ -440,6 +444,7 @@ export class CircularCanvas {
   private rotateMinRadiusPx: number;
   private textEditorZIndex: number | undefined;
   private textEditorMinWidthPx: number | undefined;
+  private fixedBottomTextEditorOnCoarsePointer: boolean;
   private minRenderedTextFontPx: number | undefined;
   private nowProvider: () => number;
   /** setRotationVoteHandler参照。null以外の間、掴んで回転は時間巻き戻しではなく
@@ -491,6 +496,7 @@ export class CircularCanvas {
     this.rotationVoteHandler = options.onRotationStep ?? null;
     this.textEditorZIndex = options.textEditorZIndex;
     this.textEditorMinWidthPx = options.textEditorMinWidthPx;
+    this.fixedBottomTextEditorOnCoarsePointer = options.fixedBottomTextEditorOnCoarsePointer ?? true;
     this.minRenderedTextFontPx = options.minRenderedTextFontPx;
     this.nowProvider = options.nowProvider ?? Date.now;
     this.canvas = document.createElement("canvas");
@@ -1251,7 +1257,10 @@ export class CircularCanvas {
     // 直接書き込んでいるのではなくキャンバスから切り離されたUI部品であることが
     // 見た目からも伝わるよう、ツールバーの.control-blockと同じカード風の
     // スタイルに切り替える（--fixed-bottom、ユーザー指示）。
-    el.className = isCoarsePointerDevice() ? "text-editor-overlay text-editor-overlay--fixed-bottom" : "text-editor-overlay";
+    const useFixedBottomEditor = isCoarsePointerDevice() && this.fixedBottomTextEditorOnCoarsePointer;
+    el.className = useFixedBottomEditor
+      ? "text-editor-overlay text-editor-overlay--fixed-bottom"
+      : "text-editor-overlay";
     el.rows = 1;
     el.placeholder = "書き込む...";
     el.value = editingMemo?.text ?? initialText ?? "";
@@ -1298,9 +1307,37 @@ export class CircularCanvas {
     const prevBodyOverflow = document.body.style.overflow;
     document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
+    // overflow:hiddenとel.focus({preventScroll:true})だけでは、iOS Safariが
+    // ソフトキーボード表示に合わせて行う「キーボード回避パン」を防げず、わずかに
+    // 画面がスクロールしたままになることがある（ユーザー報告・再現）。この回避パンは
+    // scrollTop自体を動かすものではなく、実際に見えている範囲（visual viewport）を
+    // ページ内で上下させる別物のため、window.scrollTo(0,0)による打ち消しでは効かない。
+    // bodyを丸ごとposition:fixedにして「そもそもスクロール可能な要素が存在しない」
+    // 状態にすると、この回避パン自体をブラウザに起こさせずに済む（body-scroll-lock
+    // 等でも使われる標準的な手法）。html/body自体は常にoverflow:hidden・高さ100%で
+    // スクロール位置が0のままの設計（style.css参照）のため、top:0固定で戻す位置の
+    // 計算は不要。
+    const prevBodyPosition = document.body.style.position;
+    const prevBodyWidth = document.body.style.width;
+    const prevBodyTop = document.body.style.top;
+    const prevBodyLeft = document.body.style.left;
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    // top/leftを明示しないと"auto"のまま＝ブラウザが「positionをstaticのままに
+    // していたら本来あったはずの位置」を計算し続け、その計算に何らかの形で
+    // スクロール量が紛れ込んで結局スクロール分だけ動いて見える現象を実機で確認した
+    // （bodyのgetBoundingClientRect().topがスクロール量とちょうど一致して動いていた）。
+    // top:0/left:0を明示することで、この「auto」計算を経由させず常に画面左上へ
+    // 固定する。
+    document.body.style.top = "0";
+    document.body.style.left = "0";
     this.restoreBodyScroll = () => {
       document.documentElement.style.overflow = prevHtmlOverflow;
       document.body.style.overflow = prevBodyOverflow;
+      document.body.style.position = prevBodyPosition;
+      document.body.style.width = prevBodyWidth;
+      document.body.style.top = prevBodyTop;
+      document.body.style.left = prevBodyLeft;
       this.restoreBodyScroll = null;
     };
 
@@ -1370,7 +1407,7 @@ export class CircularCanvas {
 
       let left: number;
       let top: number;
-      if (isCoarsePointerDevice()) {
+      if (useFixedBottomEditor) {
         // モバイル（ソフトキーボードが出るデバイス）では、タップ位置の上下パンに
         // 追従させるのではなく、常に画面（visualViewport）下部・キーボード直上の
         // 中央に固定表示する（issue #87：iOS標準のキーボード回避パンにタップ位置
@@ -1402,8 +1439,30 @@ export class CircularCanvas {
     });
 
     // 呼び出し元のイベントハンドラと同じ同期的な呼び出しスタックの中でfocusする
-    // （クラス冒頭のJSDoc参照）。
-    el.focus();
+    // （クラス冒頭のJSDoc参照）。preventScroll: trueだけでは、iOS Safariが
+    // 「フォーカスした要素をキーボードの上に収める」ため行うページ送り自体は防げず
+    // （overflow:hidden・bodyのposition:fixed固定でも防げないネイティブ側の挙動、
+    // 実機で計測して確認）、タップした位置が画面下寄りだとこの送りが起きて
+    // しまう。フォーカスする一瞬だけ、キーボードの高さによらず絶対に隠れない
+    // 画面左上へ避難させておき、フォーカス直後に本来の位置へ戻すことで、
+    // 「フォーカスした要素がこれから隠れそうな位置にある」という送りの発生条件
+    // 自体を避ける（実機再現確認）。
+    const targetLeft = el.style.left;
+    const targetTop = el.style.top;
+    const vvSafe = window.visualViewport;
+    el.style.left = `${(vvSafe?.offsetLeft ?? 0) + 8}px`;
+    el.style.top = `${(vvSafe?.offsetTop ?? 0) + 8}px`;
+    el.focus({ preventScroll: true });
+    // 本来の位置へ戻すのを同じ同期処理の中で即座に行うと、ブラウザがまだ
+    // 「安全な位置にフォーカスした」と判定しきる前に動かしてしまうらしく、
+    // キャンバス下寄りをタップした時だけ小さな送り（1cm程度）が残っていた
+    // （ユーザー報告・実機再現確認）。1フレーム分だけ待ってから戻すことで、
+    // フォーカス直後のブラウザ側の判定が安全な位置のまま確定するようにする。
+    requestAnimationFrame(() => {
+      if (this.textEditor !== el) return;
+      el.style.left = targetLeft;
+      el.style.top = targetTop;
+    });
     el.setSelectionRange(el.value.length, el.value.length); // 編集時・初期文字入り時はカーソルを末尾に
 
     // 日本語IMEの変換候補確定は、キー入力としてはEnterだが、テキスト全体の確定
@@ -1763,6 +1822,22 @@ export class CircularCanvas {
     const target = currentReviveInfoTarget(this.state, this.hoverInfoMemoId, this.hoverInfoPoint);
     if (!target) return null;
     return this.store.reviveStatusOf(target.memoId, now)?.remainingMs ?? null;
+  }
+
+  /** モーダル等のcapture段で拾った文字を、このキャンバスの中央入力として開始する。 */
+  startTextInputAtCenter(initialText: string): void {
+    if (
+      !this.interactive ||
+      this.rewindAt !== null ||
+      this.locked ||
+      this.voteOnly ||
+      this.textEditor ||
+      this.state.mode !== "idle" ||
+      initialText.length !== 1
+    ) {
+      return;
+    }
+    this.openTextEditor({ x: 0, y: 0 }, null, initialText);
   }
 
   /** 上と同じ対象（なぞる/移動で実際に触れている、またはPCでホバーしている
