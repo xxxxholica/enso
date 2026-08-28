@@ -875,6 +875,14 @@ body[data-view="shared"] #duration-slot {
     background: none;
     touch-action: none;
     cursor: pointer;
+    /* このボタンは幅いっぱい・背景なしの当たり判定で、見えているのは中央の
+       ::beforeの小さな棒だけ（ユーザー指示：つまみらしい見た目にしたい）。
+       ドラッグでの開閉時はブラウザがパン操作とみなしタップハイライトを
+       出さないが、タップだけで開閉した時は既定のタップハイライトが当たり
+       判定いっぱいの帯として一瞬灰色に光ってしまい、ドラッグの時との見た目の
+       差として違和感があった（ユーザー報告）。ここを常に透明にして、ドラッグ
+       時と同じ見た目に揃える。 */
+    -webkit-tap-highlight-color: transparent;
   }
 
   .control-panel-handle::before {
