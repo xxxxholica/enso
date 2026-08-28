@@ -111,7 +111,7 @@ type StepId = "write" | "watch" | "keep" | "erase" | "rewind" | "done";
 const STEP_ORDER: StepId[] = ["write", "watch", "keep", "erase", "rewind", "done"];
 
 const MESSAGES: Record<StepId, string> = {
-  write: "円をタップするか、そのままキー入力して、思いついたことを書いてみましょう。",
+  write: "円をタップするか、そのままキー入力して、思いついたことを新しく書いてみましょう。",
   watch: "ほかにも、いくつか思いつきが置いてあります。何もしなければ、自然に薄れて消えていきます。少し眺めてみましょう。",
   keep: "残したい一枚に触れたまま、指で円を描くように反時計回りに回してみてください。時間が巻き戻り、また留まります。",
   erase: "消したいメモを指やマウスでなぞってみましょう。消しゴムなら、待たずにその場で消せます。",
