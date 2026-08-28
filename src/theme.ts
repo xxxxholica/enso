@@ -30,6 +30,19 @@ export function applyTheme(pref: ThemePreference, customHue?: number): void {
   }
 }
 
+/** 現在ダーク配色で表示されているか。data-theme="dark"を明示的に選んでいる
+ *  場合はもちろん、"system"（属性なし）でOS側がダーク設定の場合も含める
+ *  ——frameGeometry.tsの片眼鏡チェーンのように「暗い紙の背景の上でも見える
+ *  色を選びたい」用途では、選び方によらず実際にダーク表示かどうかが重要な
+ *  ため（ユーザー指示：黒テーマの時だけ紐の色を変えたい）。custom（好きな色）
+ *  はレシピ上常にパステルな明るい配色のため対象外。 */
+export function isDarkThemeActive(): boolean {
+  const explicit = document.documentElement.dataset.theme;
+  if (explicit === "dark") return true;
+  if (explicit === "light" || explicit === "custom") return false;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
+
 /** customHueが未指定の場合の色相フォールバック（OKLCH、度）。storage.tsの
  *  DEFAULT_CUSTOM_THEME_HUEと揃えてある（水色寄り）。 */
 const CUSTOM_HUE_FALLBACK = 220;
