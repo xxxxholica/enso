@@ -268,7 +268,13 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  /* .app-footerと同じ10のままだと、DOM順で後に来るfooter側が同じ値の場合に
+     手前になり、ヘッダーのメニュー（settings-popover、このヘッダーの子孫で
+     ヘッダーのスタッキングコンテキストに閉じ込められる）がツールバーの
+     広がった詳細パネル（好きな色ポップオーバー等）の裏に隠れてしまっていた
+     （ユーザー報告：重なった時にメニューを手前にしたい）。footerより1つ
+     高くして、メニューが常に手前に来るようにする。 */
+  z-index: 11;
   width: 100%;
   /* html/bodyのtouch-actionだけでは、position:fixedのこの帯の上で
      iOS Safari純正のピンチズームが発動してしまう不具合があったため
@@ -869,6 +875,14 @@ body[data-view="shared"] #duration-slot {
     background: none;
     touch-action: none;
     cursor: pointer;
+    /* このボタンは幅いっぱい・背景なしの当たり判定で、見えているのは中央の
+       ::beforeの小さな棒だけ（ユーザー指示：つまみらしい見た目にしたい）。
+       ドラッグでの開閉時はブラウザがパン操作とみなしタップハイライトを
+       出さないが、タップだけで開閉した時は既定のタップハイライトが当たり
+       判定いっぱいの帯として一瞬灰色に光ってしまい、ドラッグの時との見た目の
+       差として違和感があった（ユーザー報告）。ここを常に透明にして、ドラッグ
+       時と同じ見た目に揃える。 */
+    -webkit-tap-highlight-color: transparent;
   }
 
   .control-panel-handle::before {
@@ -1374,9 +1388,17 @@ body[data-view="shared"] #duration-slot {
 /* --- 共有キャンバス（コラボ機能）ビュー ------------------------------ */
 
 .shared-signedout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
   font-size: var(--text-sm);
   color: var(--ink-55);
   text-align: center;
+}
+
+.shared-signedout p {
+  margin: 0;
 }
 
 .archive-empty {
@@ -1483,6 +1505,21 @@ body[data-view="shared"] #duration-slot {
 
 .shared-invite-input:disabled {
   opacity: 0.4;
+}
+
+/* iOS Safariは、フォーカスした入力欄のfont-sizeが16px未満だと「読みやすくする
+   ため」ページ全体を勝手にズームインする。ページ側はtouch-action: pan-x pan-y
+   （html/body、上部参照）でピンチズーム・ダブルタップズームを封じているため、
+   このズームが起きると指でズームを戻す手段が無くなり、ズームしたまま戻せなく
+   なってしまう（ユーザー報告・実機で再現確認）。.shared-invite-input／
+   .shared-room-rename-inputはvar(--text-xs)＝12pxで基準の16pxを下回るため、
+   タッチデバイスに限りフォーカス時のズームが起きない16pxへ底上げする
+   （マウス操作のデスクトップではこの現象自体が起きないため、通常サイズのまま）。 */
+@media (pointer: coarse) {
+  .shared-invite-input,
+  .shared-room-rename-input {
+    font-size: 16px;
+  }
 }
 
 .pill-btn:disabled {
@@ -1815,16 +1852,16 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.25rem;
+  height: 2.25rem;
   padding: 0;
   border-radius: var(--radius-full);
   background: transparent;
 }
 
 .settings-trigger svg {
-  width: 1rem;
-  height: 1rem;
+  width: 1.375rem;
+  height: 1.375rem;
   flex: 0 0 auto;
 }
 
@@ -2593,6 +2630,16 @@ body[data-view="shared"] #duration-slot {
   min-height: 0;
   padding: var(--space-1) 0;
   box-sizing: border-box;
+}
+
+/* --- 序・結（読み物の2画面）は、練の既定（620px固定）と違い中身の高さに
+   そのまま合わせる（ユーザー指示：縦の余白を無くしたい）。固定の高さの中で
+   justify-content:centerしていたため中身の少なさぶん上下が空いて見えていた
+   ——「練」は手順ごとに高さが変わらないことが重要（.usage-guide-page参照）
+   だが、序・結はページ送りで一度きりしか表示されない読み物のため、
+   高さが中身なりに変わっても支障ない。 --- */
+.usage-guide-page--compact {
+  height: auto;
 }
 
 /* 練習ページを中央寄せすると、説明文の行数やスライダーの出現によって内容全体の

@@ -154,7 +154,7 @@ class UsageGuide {
 
   private buildIntroPage(): HTMLElement {
     const el = document.createElement("div");
-    el.className = "usage-guide-page";
+    el.className = "usage-guide-page usage-guide-page--compact";
     el.appendChild(this.buildStageContent(INTRO_STAGE));
 
     const actions = document.createElement("div");
