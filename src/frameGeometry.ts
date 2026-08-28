@@ -316,28 +316,47 @@ export class FrameGeometry {
           : [{ x: 0, y: 0 }];
       const outerX = Math.max(...pairCenters.map((c) => Math.abs(c.x))) + GLASSES_HORIZONTAL_REACH_WITH_HINGE;
       const outerY = Math.max(...pairCenters.map((c) => Math.abs(c.y))) + GLASSES_VERTICAL_REACH;
-      const aspectRatio = outerX / outerY;
-      const { width: referenceWidth, height: referenceHeight } = computeRectSize(this.container, aspectRatio);
       const containerSize = computeContainerSize(this.container, this.minCanvasSizePx);
       // frameStrokeWidthが関数の場合、ここで確定した高さ（横長なので制約になり
-      // やすい辺）を基準に解決する——スケール（scale）自体はこの後の
-      // computeAutoScaleで初めて決まるため、scaleではなくwidth/heightという
-      // 「確定済みの実寸」を基準にする。ただしreferenceHeightそのものは、
-      // レンズ分割(issue #79)で複数組を縦に並べた全体の高さ——参加人数が
-      // 増えて組数が増えるほど大きくなってしまい、それを基準にすると
-      // 参加人数が増えるだけで個々のフレームの縁取りが太く＝大きく見える
-      // 不具合があった（issue #113②、ユーザー報告）。縁取りの太さは常に
-      // 「組数1（通常時）としての基準サイズ」で決め、複数組を並べる分の
-      // 拡張はscale側（下のcomputeAutoScale、実際のouterX/outerYを使う）
-      // だけに反映させることで、個々のフレームの大きさを参加人数に依らず
-      // 一定に保つ。
+      // やすい辺）を基準に解決する——スケール（scale）自体はこの後で初めて決まるため、
+      // scaleではなくwidth/heightという「確定済みの実寸」を基準にする。ただし
+      // singlePairReferenceHeightそのものは、レンズ分割(issue #79)で複数組を並べた
+      // 全体ではなく「組数1（通常時）としての基準サイズ」を使う——複数組ぶんの
+      // 全体サイズを基準にすると、参加人数が増えるだけで個々のフレームの縁取りが
+      // 太く＝大きく見える不具合があった（issue #113②、ユーザー報告）。縁取りの太さは
+      // 常にこの「組数1」基準で決め、複数組を並べる分の拡張は下のscale計算だけに
+      // 反映させることで、個々のフレームの大きさを参加人数に依らず一定に保つ。
       const singlePairAspectRatio = GLASSES_HORIZONTAL_REACH_WITH_HINGE / GLASSES_VERTICAL_REACH;
-      const { height: singlePairReferenceHeight } = computeRectSize(this.container, singlePairAspectRatio);
-      this.frameStrokeWidthValue = this.resolveFrameStrokeWidth(singlePairReferenceHeight);
-      const scale = Math.min(
-        computeAutoScale(referenceWidth, outerX, this.frameStrokeWidthValue),
-        computeAutoScale(referenceHeight, outerY, this.frameStrokeWidthValue)
+      const { width: singlePairReferenceWidth, height: singlePairReferenceHeight } = computeRectSize(
+        this.container,
+        singlePairAspectRatio
       );
+      this.frameStrokeWidthValue = this.resolveFrameStrokeWidth(singlePairReferenceHeight);
+      // scaleも縁取りと同じ発想で「組数1だったときの大きさ」を目標にする——
+      // 個人キャンバス(frameKind:"single")が画面の大きさいっぱいまで(上限までは)
+      // 大きく描けるのと同じように、共有ビューの各レンズも複数組を並べる前提で
+      // 一律に縮めるのではなく、まず「1組だけなら出せる大きさ」をそのまま使う。
+      // 以前はouterX/outerY(組数ぶん伸びた全体の範囲)にアスペクト比を合わせて
+      // コンテナへ収めていたため、組を横に並べる（chooseLensSplitDirection="row"、
+      // 通常のPC/大画面）ほど全体の横幅ばかり伸びて縦横比が崩れ、画面がどれだけ
+      // 大きくても個々のレンズの高さがどんどん圧迫される不具合があった
+      // （回転操作の余地が参加人数だけで狭まる、ユーザー報告：個人キャンバスと
+      // 同様に回せるようにすべき）。実際に組数ぶん並べたときに画面へ収まりきる
+      // かどうかはfitFactorで別途確認し、収まらない分だけ全体を一律に縮める
+      // ——画面が十分大きい間はfitFactor===1のままで、組数が増えても個人キャンバス
+      // 相当の大きさを保てる。
+      const naturalScale = Math.min(
+        computeAutoScale(singlePairReferenceWidth, GLASSES_HORIZONTAL_REACH_WITH_HINGE, this.frameStrokeWidthValue),
+        computeAutoScale(singlePairReferenceHeight, GLASSES_VERTICAL_REACH, this.frameStrokeWidthValue)
+      );
+      const requiredWidth = 2 * outerX * naturalScale;
+      const requiredHeight = 2 * outerY * naturalScale;
+      const fitFactor = Math.min(
+        1,
+        requiredWidth > 0 ? containerRect.width / requiredWidth : 1,
+        requiredHeight > 0 ? containerRect.height / requiredHeight : 1
+      );
+      const scale = naturalScale * fitFactor;
       this.canvas.style.width = `${containerSize.width}px`;
       this.canvas.style.height = `${containerSize.height}px`;
       this.canvas.width = Math.round(containerSize.width * this.dpr);
