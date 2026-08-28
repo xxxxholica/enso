@@ -2607,7 +2607,7 @@ body[data-view="shared"] #duration-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-1);
 }
 
 /* マーカー（丸バッジ）とタイトルの横並び。以前は縦積みだったが、その高さぶん
@@ -2792,10 +2792,15 @@ body[data-view="shared"] #duration-slot {
     overflow: hidden;
   }
 
+  /* 高さの短い端末では画面いっぱいまで使わないと練習用キャンバスが収まらないが、
+     背の高い端末でそのまま100dvhに合わせると、序（中身の少ない読み物画面）まで
+     画面いっぱいに広がって間延びして見えていた（ユーザー報告）。序・練どちらも
+     同じ大きさのまま、680pxを上限に収まる分だけ広げるようにする——短い端末では
+     従来どおりcalc(100dvh - 16px)側が効く。 */
   .usage-guide-sheet {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - 16px);
+    height: min(680px, calc(100dvh - 16px));
     max-height: none;
     overflow: hidden;
     box-sizing: border-box;
@@ -2829,23 +2834,14 @@ body[data-view="shared"] #duration-slot {
     margin-top: 0;
   }
 
-  /* 状態ごとに現れる進捗バーと振り返り欄も、非表示中は見えないまま同じ高さを
-     占めさせる。中央寄せした内容全体の高さが一定になり、タイトルと円の位置が
-     「メモは消える」「振り返る」への切り替えで上下しなくなる。 */
-  .tutorial-watch-progress[hidden] {
-    display: flex !important;
-    visibility: hidden;
-  }
-
+  /* 進捗バー・振り返り欄は、非表示の間は素直に[hidden]（display:none）へ戻す
+     ——見えない間まで高さを占有させず、他の手順ではその分だけ詰まって見える
+     ようにする（ユーザー指示）。全体の大きさ（.usage-guide-sheetの高さ）自体は
+     固定値のままなので、詰まった分は中央寄せの余白に吸収されるだけで、
+     モーダルの大きさは変わらない。 */
   .tutorial-sandbox-seek {
     width: min(100%, 240px);
     min-height: 72px;
-  }
-
-  .tutorial-sandbox-seek[hidden] {
-    display: block !important;
-    visibility: hidden;
-    pointer-events: none;
   }
 
   .tutorial-sandbox-canvas-wrap {
